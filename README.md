@@ -5,5 +5,6 @@ This project uses the telemetry.json data generated from this python project:
 https://github.com/MikeSiekkinen/BambuLabOBSOverlay
 
 Video:
-https://github.com/t0nyz0/BambuBoard/assets/63085518/0a68d428-89b7-452b-b153-9814950fb369
+
+https://github.com/t0nyz0/BambuBoard/assets/63085518/dcb52ef7-1618-423a-8f2e-9ade0b3ef51b
 
