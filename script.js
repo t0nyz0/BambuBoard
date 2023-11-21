@@ -205,6 +205,10 @@ async function updateUI(telemetryObject) {
       $("#chamberProgressBar").css("background-color", "#51a34f");
     }
 
+    if (telemetryObject.gcode_state !== "RUNNING") {
+      $("#chamberProgressBar").css("color", "grey");
+    }
+
     /// Nozzle
 
     var nozzleType = telemetryObject.nozzle_type;
@@ -570,11 +574,11 @@ async function updateWifi(telemetryObject) {
 
   $("#wifiProgressBar").width((signalPercentage * wifiNozzleParentWidth) / 100);
 
-  if (signalPercentage > 85) {
+  if (signalPercentage > 80) {
     $("#wifiProgressBar").css("background-color", "#51a34f");
-  } else if (signalPercentage > 60) {
+  } else if (signalPercentage > 40) {
     $("#wifiProgressBar").css("background-color", "yellow");
-  } else if (signalPercentage > 50) {
+  } else if (signalPercentage > 30) {
     $("#wifiProgressBar").css("background-color", "red");
   }
 
