@@ -4,6 +4,17 @@ Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer.
 This project uses the telemetry.json data generated from this python project:
 https://github.com/MikeSiekkinen/BambuLabOBSOverlay
 
+# Demonstration Videos:
+
+Regular Speed Video: Observe the dashboard functionality at a standard pace.
+
+https://github.com/t0nyz0/BambuBoard/assets/63085518/45ac9987-666e-457f-94ab-9478a71d4c6a
+
+Accelerated Startup Video: Watch the dashboard in action at 2.5x speed during a printer startup sequence.
+Installation Guide:
+
+https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
+
 # Installation
 
 1. Setup machine (raspberry pi in my case) running the BambuLabOBSOverlay python script that generates the telemetry.json file.
@@ -25,17 +36,6 @@ BambuBoard offers a dynamic and user-friendly interface for monitoring real-time
 
 # Data Integration:
 This project seamlessly integrates with the BambuLabOBSOverlay Python project, which generates the essential telemetry.json data file. For more information on this integration, visit BambuLabOBSOverlay on GitHub.
-
-# Demonstration Videos:
-
-Regular Speed Video: Observe the dashboard functionality at a standard pace.
-
-https://github.com/t0nyz0/BambuBoard/assets/63085518/45ac9987-666e-457f-94ab-9478a71d4c6a
-
-Accelerated Startup Video: Watch the dashboard in action at 2.5x speed during a printer startup sequence.
-Installation Guide:
-
-https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
 
 # System Setup:
 
