@@ -10,7 +10,8 @@ https://github.com/t0nyz0/BambuBoard/assets/63085518/dcb52ef7-1618-423a-8f2e-9ad
 
 Video (2.5x) during startup of a print
 
-https://github.com/t0nyz0/BambuBoard/assets/63085518/2a760198-a8e6-4176-b7f2-3fe3d7d7cb1a
+https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
+
 
 Installation
 
