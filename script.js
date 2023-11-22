@@ -206,7 +206,7 @@ async function updateUI(telemetryObject) {
     }
 
     if (telemetryObject.gcode_state !== "RUNNING") {
-      $("#chamberProgressBar").css("color", "grey");
+      $("#chamberProgressBar").css("background-color", "grey");
     }
 
     /// Nozzle
