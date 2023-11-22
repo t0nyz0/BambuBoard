@@ -45,7 +45,8 @@ Web Server Installation:
 
 Install an Apache web server instance on your machine.
 Modify the BambuLabOBSOverlay project settings to output data to your Apache root web directory (e.g., /var/www/html).
-Dashboard Configuration:
+
+# Dashboard Configuration:
 
 Update the scripts.js file in BambuBoard to point to your Apache server's address, where the telemetry.json file is hosted (e.g., http://10.0.0.69/telemetry.json).
 Note: The entire setup, including the Linux server running the Python script and the Raspberry Pi 4 operating the BambuBoard dashboard, can be consolidated onto a single machine if desired.
@@ -54,7 +55,8 @@ Note: The entire setup, including the Linux server running the Python script and
 
 Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js. Testing is currently underway in a dedicated branch.
 Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.
-Known Limitations:
+
+# Known Limitations:
 
 The AMS (Automated Material System) filament remaining percentage displayed on the dashboard may not always be 100% accurate, as the printer estimates filament usage.
 Stay tuned for updates and enhancements to BambuBoard, and feel free to contribute to its development. Your feedback and suggestions are always welcome!
