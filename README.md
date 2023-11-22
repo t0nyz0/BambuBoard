@@ -12,3 +12,9 @@ Video (2.5x) during startup of a print
 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/2a760198-a8e6-4176-b7f2-3fe3d7d7cb1a
 
+Installation
+
+1. Setup machine (raspberry pi in my case) running the BambuLabOBSOverlay python script that generates the telemetry.json file.
+2. Install Apache instance
+3. Change configuration of BambuLabOBSOverlay prjoject so that the output is /var/www/html or whatever your Apache root web directory is.
+4. Point the scripts.js in the BambuBoard to the address of your apache server (10.0.0.69/telemetry.json for me).
