@@ -15,24 +15,6 @@ Installation Guide:
 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
 
-# Installation
-
-1. Setup machine (raspberry pi in my case) running the BambuLabOBSOverlay python script that generates the telemetry.json file.
-2. Install Apache instance
-3. Change configuration of BambuLabOBSOverlay prjoject so that the output is /var/www/html or whatever your Apache root web directory is.
-4. Point the scripts.js in the BambuBoard to the address of your apache server (10.0.0.69/telemetry.json for me).
-
-Note: You can run it all on the same machine. I have a linux server (running the python script to generate telemtry.json file) and a rapsberry pi 4 running the BambuBoard dashboard to reaches out to that server to get the file. There is no reason you cant run this all on one machine. 
-
-# Future growth
-1. Native MQTT ability using Paho or MQTT.js library perhaps. Created branch to do some testing but havent had much luck.
-2. I will post pictures of my dashboard setup to show working physical example.
-
-# Known limitations
-1. The AMS filament remaining percentage is not 100% accurate. The printer roughly estimates filament usage.
-
-# Overview:
-BambuBoard offers a dynamic and user-friendly interface for monitoring real-time data from the Bambu X1 Carbon 3D printer. This dashboard is designed to enhance your 3D printing experience by providing valuable insights and metrics in an easily accessible format.
 
 # Data Integration:
 This project seamlessly integrates with the BambuLabOBSOverlay Python project, which generates the essential telemetry.json data file. For more information on this integration, visit BambuLabOBSOverlay on GitHub.
