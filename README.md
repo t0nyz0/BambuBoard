@@ -8,7 +8,7 @@ Video at regular speed:
 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/45ac9987-666e-457f-94ab-9478a71d4c6a
 
-Video (2.5x) during startup of a print
+Video (2.5xs speed) during startup of a print. 
 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
 
@@ -24,3 +24,4 @@ Note: You can run it all on the same machine. I have a linux server (running the
 
 # Future growth
 1. Native MQTT ability using Paho or MQTT.js library perhaps. Created branch to do some testing but havent had much luck.
+2. I will post pictures of my dashboard setup to show working physical example. 
