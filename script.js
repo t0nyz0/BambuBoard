@@ -153,6 +153,7 @@ async function updateUI(telemetryObject) {
     // Set current temp in UI
     var nozzleCurrentTemp = (telemetryObject.nozzle_temper * 9) / 5 + 32;
     $("#nozzleCurrentTemp").text(nozzleCurrentTemp);
+
     console.log("nozzleCurrentTemp = " + nozzleCurrentTemp);
 
     let progressNozzleParentWidth = $("#nozzleProgressBarParent").width();
