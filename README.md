@@ -1,5 +1,5 @@
 # BambuBoard
-Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer.
+Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 
 This project uses the telemetry.json data generated from this python project:
 https://github.com/MikeSiekkinen/BambuLabOBSOverlay
@@ -24,4 +24,7 @@ Note: You can run it all on the same machine. I have a linux server (running the
 
 # Future growth
 1. Native MQTT ability using Paho or MQTT.js library perhaps. Created branch to do some testing but havent had much luck.
-2. I will post pictures of my dashboard setup to show working physical example. 
+2. I will post pictures of my dashboard setup to show working physical example.
+
+# Known limitations
+1. The AMS filament remaining percentage is not 100% accurate. The printer roughly estimates filament usage.
