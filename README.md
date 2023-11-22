@@ -6,7 +6,7 @@ https://github.com/MikeSiekkinen/BambuLabOBSOverlay
 
 Video at regular speed:
 
-https://github.com/t0nyz0/BambuBoard/assets/63085518/dcb52ef7-1618-423a-8f2e-9ade0b3ef51b
+https://github.com/t0nyz0/BambuBoard/assets/63085518/45ac9987-666e-457f-94ab-9478a71d4c6a
 
 Video (2.5x) during startup of a print
 
