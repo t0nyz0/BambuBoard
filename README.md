@@ -94,9 +94,9 @@ To start the BambuBoard dashboard:
 
 Once the application is running, you can access the BambuBoard dashboard via a web browser on the Raspberry Pi or another device on the same network. Open your browser and navigate to:
    ```
-   http://raspberrypi.local:3000
+   http://raspberrypi.local:8080
    ```
-Replace `3000` with the actual port number if BambuBoard runs on a different port.
+Replace `8080` with the actual port number if BambuBoard runs on a different port. (Configured in bambuConnection.js)
 
 Note: If this doesnt work, try IP address of Raspberry Pi.
 
