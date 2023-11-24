@@ -66,10 +66,11 @@ To get the BambuBoard code, you need to clone its repository from GitHub:
    ```
    cd BambuBoard
    ```
-# Dashboard Configuration:
-
-Update the bambuConnection.js with your settings! This is important. 
-
+4. Update the bambuConnection.js with your settings! This is important.
+   ```
+   sudo nano bambuConnection.js
+   ```
+  Note: CTRL+X to exit nano, make sure to hit Y to confirm saving changes.
 
 ## Step 3: Install Dependencies
 
