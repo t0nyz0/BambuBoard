@@ -103,10 +103,8 @@ Note: If this doesnt work, try IP address of Raspberry Pi.
 
 If you encounter any issues, consider the following:
 
-- Ensure your Raspberry Pi is connected to the internet.
 - Check that you have the correct permissions to clone the repository and install Node.js packages.
 - Verify that the Raspberry Pi's firewall settings are not blocking the BambuBoard application.
-
 
 
 # Future Development Plans:
