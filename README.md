@@ -1,9 +1,6 @@
 # BambuBoard
 Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 
-This project uses the telemetry.json data generated from this python project:
-https://github.com/MikeSiekkinen/BambuLabOBSOverlay
-
 # Demonstration Videos:
 
 Regular Speed Video: Observe the dashboard functionality at a standard pace.
@@ -15,27 +12,108 @@ Accelerated Startup Video: Watch the dashboard in action at 2.5x speed during a 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
 
 
-# Data Integration:
-This project seamlessly integrates with the BambuLabOBSOverlay Python project, which generates the essential telemetry.json data file. For more information on this integration, visit BambuLabOBSOverlay on GitHub.
+# BambuBoard Setup Guide
 
-# System Setup:
+Welcome to the BambuBoard Setup Guide. This document will walk you through the process of cloning the BambuBoard repository and setting up Node.js on your Raspberry Pi to run the BambuBoard dashboard.
 
-Prepare your Raspberry Pi (or any compatible machine) to run the BambuLabOBSOverlay Python script.
-Ensure the script is configured to generate the telemetry.json file.
-Web Server Installation:
+## Prerequisites
 
-Install an Apache web server instance on your machine.
-Modify the BambuLabOBSOverlay project settings to output data to your Apache root web directory (e.g., /var/www/html).
+Before you begin, ensure you have the following:
+- A Raspberry Pi with Raspberry Pi OS installed.
+- Internet access on the Raspberry Pi.
+- Basic familiarity with the terminal/command line.
 
+## Step 1: Install Node.js
+
+Node.js is required to run the BambuBoard application. Here's how to install it on your Raspberry Pi:
+
+1. Open a terminal on your Raspberry Pi.
+2. Update your package list:
+   ```
+   sudo apt update
+   ```
+3. Upgrade your packages to their latest versions:
+   ```
+   sudo apt full-upgrade
+   ```
+4. Install Node.js:
+   ```
+   sudo apt install nodejs
+   ```
+5. (Optional) Install npm, Node.js' package manager:
+   ```
+   sudo apt install npm
+   ```
+6. Verify the installation by checking the version of Node.js and npm:
+   ```
+   node -v
+   npm -v
+   ```
+
+## Step 2: Clone the BambuBoard Repository
+
+To get the BambuBoard code, you need to clone its repository from GitHub:
+
+1. Navigate to the directory where you want to clone the repository:
+   ```
+   cd /path/to/directory
+   ```
+2. Clone the repository:
+   ```
+   git clone https://github.com/t0nyz0/BambuBoard.git
+   ```
+3. Change into the cloned repository's directory:
+   ```
+   cd BambuBoard
+   ```
 # Dashboard Configuration:
 
-Update the scripts.js file in BambuBoard to point to your Apache server's address, where the telemetry.json file is hosted (e.g., http://10.0.0.69/telemetry.json).
-Note: The entire setup, including the Linux server running the Python script and the Raspberry Pi 4 operating the BambuBoard dashboard, can be consolidated onto a single machine if desired.
+Update the bambuConnection.js with your settings! This is important. 
+
+
+## Step 3: Install Dependencies
+
+BambuBoard may have Node.js dependencies that need to be installed:
+
+1. Within the BambuBoard directory, install the dependencies:
+   ```
+   npm install
+   ```
+
+## Step 4: Run the Application
+
+To start the BambuBoard dashboard:
+
+1. Run the application:
+   ```
+   node bambuConnection.js
+   ```
+
+## Step 5: Accessing the Dashboard
+
+Once the application is running, you can access the BambuBoard dashboard via a web browser on the Raspberry Pi or another device on the same network. Open your browser and navigate to:
+   ```
+   http://raspberrypi.local:3000
+   ```
+Replace `3000` with the actual port number if BambuBoard runs on a different port.
+
+Note: If this doesnt work, try IP address of Raspberry Pi.
+
+## Troubleshooting
+
+If you encounter any issues, consider the following:
+
+- Ensure your Raspberry Pi is connected to the internet.
+- Check that you have the correct permissions to clone the repository and install Node.js packages.
+- Verify that the Raspberry Pi's firewall settings are not blocking the BambuBoard application.
+
+
 
 # Future Development Plans:
 
 ### (Completed 11/24/23) ~~Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js. ~~
 ### (Completed) ~~ Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application. ~~
+Add instructions on how to make the raspberry pi automatically boot into kiosk mode. Many tutorials online if you need immediate direction. 
 
 # Known Limitations:
 
