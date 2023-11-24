@@ -34,8 +34,8 @@ Note: The entire setup, including the Linux server running the Python script and
 
 # Future Development Plans:
 
-(Completed 11/24/23) Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js. Testing is currently underway in a dedicated branch.
-(Completed) Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.
+## (Completed 11/24/23) Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js. Testing is currently underway in a dedicated branch.
+## (Completed) Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.
 
 # Known Limitations:
 
