@@ -1,9 +1,11 @@
 // BambuBoard
 // TZ | 11/20/23
+//const mqtt = require('mqtt');
+//const fs = require('fs');
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://10.0.0.69/telemetry.json");
+  const response = await fetch("data.json");
 
   const data = await response.text();
   const telemetryObject = JSON.parse(data);
