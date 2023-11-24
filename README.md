@@ -11,7 +11,6 @@ Regular Speed Video: Observe the dashboard functionality at a standard pace.
 https://github.com/t0nyz0/BambuBoard/assets/63085518/45ac9987-666e-457f-94ab-9478a71d4c6a
 
 Accelerated Startup Video: Watch the dashboard in action at 2.5x speed during a printer startup sequence.
-Installation Guide:
 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
 
