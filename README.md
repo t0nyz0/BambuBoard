@@ -106,7 +106,8 @@ If you encounter any issues, consider the following:
 
 ### (Completed 11/24/23) ~~Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js.~~
 ### (Completed) ~~Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.~~
-Add instructions on how to make the raspberry pi automatically boot into kiosk mode. Many tutorials online if you need immediate direction. 
+1. Add instructions on how to make the raspberry pi automatically boot into kiosk mode. Many tutorials online if you need immediate direction.
+2. Webcam feed from inside the printer added to the dashboard? (Currently in development) 
 
 # Known Limitations:
 
