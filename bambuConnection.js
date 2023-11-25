@@ -110,23 +110,20 @@ client.on('message', (topic, message) => {
         const jsonData = JSON.parse(message.toString());
 
         // Check if 'print' is present in the JSON data / verifies valid data / only writes data when it sees the full structure
-        if (jsonData.print && 'gcode_state' in jsonData.print) {
-            const dataToWrite = JSON.stringify(jsonData.print);
+        const dataToWrite = JSON.stringify(jsonData);
 
-            if (dataToWrite) {
-                fs.writeFile('data.json', dataToWrite, (err) => {
-                    if (err) {
-                        console.log('Error writing file:', err);
-                    } else {
-                        //console.log('Data written to file');
-                    }
-                });
-            } else {
-                //console.log('No data to write.');
-            }
+        if (dataToWrite) {
+            fs.writeFile('data.json', dataToWrite, (err) => {
+                if (err) {
+                    console.log('Error writing file:', err);
+                } else {
+                    //console.log('Data written to file');
+                }
+            });
         } else {
-            //console.log('No valid data found in the message. File not written.');
+            //console.log('No data to write.');
         }
+
 
     } catch (err) {
         console.log('Error parsing JSON:', err);

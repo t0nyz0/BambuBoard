@@ -7,10 +7,26 @@ async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch("data.json");
 
-  const data = await response.text();
+  let data = await response.text();
   const telemetryObject = JSON.parse(data);
+  let currentState = "OFF";
 
-  return telemetryObject;
+  if (data.print && 'gcode_state' in data.print) {
+    currentState = telemetryObject.gcode_state;
+} else {
+  try{
+    data = JSON.parse(data);
+    let lastUpdate = convertUtc(data.t_utc);
+    currentState = "OFF";
+    $("#printStatus").text("Printer offline.. last update " + lastUpdate);
+    //console.log('No valid data found in the message. File not written.');
+  }
+  catch (error) {
+    console.error("Error:", error);
+    currentState = "OFF";
+    $("#printStatus").text("Error occured processing data");
+  }
+}
 }
 
 async function updateUI(telemetryObject) {
@@ -208,7 +224,7 @@ async function updateUI(telemetryObject) {
       $("#chamberProgressBar").css("background-color", "#51a34f");
     }
 
-    if (telemetryObject.gcode_state !== "RUNNING") {
+    if (currentState !== "RUNNING") {
       $("#chamberProgressBar").css("background-color", "grey");
     }
 
@@ -243,7 +259,7 @@ async function updateUI(telemetryObject) {
       $("#printSpeed").css("color", "grey");
     }
 
-    if (telemetryObject.gcode_state !== "RUNNING") {
+    if (currentState !== "RUNNING") {
       $("#printSpeed").css("color", "grey");
     }
 
@@ -585,7 +601,7 @@ async function updateWifi(telemetryObject) {
     $("#wifiProgressBar").css("background-color", "red");
   }
 
-  if (telemetryObject.gcode_state !== "RUNNING") {
+  if (currentState !== "RUNNING") {
     $("#wifiProgressBar").css("background-color", "grey");
   }
 
@@ -648,7 +664,7 @@ async function updateAMS(telemetryObject) {
       $("#tray1ProgressBar").css("background-color", "red");
     }
 
-    if (telemetryObject.gcode_state !== "RUNNING") {
+    if (currentState !== "RUNNING") {
       $("#tray1ProgressBar").css("background-color", "grey");
     }
   }
@@ -705,7 +721,7 @@ async function updateAMS(telemetryObject) {
       $("#tray2ProgressBar").css("background-color", "red");
     }
 
-    if (telemetryObject.gcode_state !== "RUNNING") {
+    if (currentState !== "RUNNING") {
       $("#tray2ProgressBar").css("background-color", "grey");
     }
   }
@@ -764,7 +780,7 @@ async function updateAMS(telemetryObject) {
       $("#tray3ProgressBar").css("background-color", "red");
     }
 
-    if (telemetryObject.gcode_state !== "RUNNING") {
+    if (currentState !== "RUNNING") {
       $("#tray3ProgressBar").css("background-color", "grey");
     }
   }
@@ -821,7 +837,7 @@ async function updateAMS(telemetryObject) {
       $("#tray4ProgressBar").css("background-color", "red");
     }
 
-    if (telemetryObject.gcode_state !== "RUNNING") {
+    if (currentState !== "RUNNING") {
       $("#tray4ProgressBar").css("background-color", "grey");
     }
   }
@@ -835,7 +851,7 @@ async function updateAMS(telemetryObject) {
   $("#tray3Active").hide();
   $("#tray4Active").hide();
 
-  if (telemetryObject.gcode_state !== "RUNNING") {
+  if (currentState !== "RUNNING") {
     $("#tray1Active").css("background-color", "grey");
     $("#tray2Active").css("background-color", "grey");
     $("#tray3Active").css("background-color", "grey");
@@ -864,10 +880,17 @@ async function updateAMS(telemetryObject) {
 setInterval(async () => {
   try {
     var telemetryObject = await retrieveData();
-    await updateUI(telemetryObject);
-    await updateFans(telemetryObject);
-    await updateWifi(telemetryObject);
-    await updateAMS(telemetryObject);
+    if (printStatus =! "OFF") {
+      await updateUI(telemetryObject);
+      await updateFans(telemetryObject);
+      await updateWifi(telemetryObject);
+      await updateAMS(telemetryObject);
+    }
+    else
+    {
+      disableUI();
+    }
+
   } catch (error) {
     console.error(error);
   }
@@ -893,3 +916,66 @@ function dBmToPercentage(dBm) {
 
   return Math.round(percentage);
 }
+
+  function disableUI(){
+    $("#bedProgressBar").css("background-color", "grey");
+    $("#bedTargetTempTempSymbols").hide();
+
+    $("#nozzleProgressBar").css("background-color", "grey");
+    $("#nozzleTargetTempTempSymbols").hide();
+
+    $("#chamberProgressBar").css("background-color", "grey");
+    $("#chamberTargetTempTempSymbols").hide();
+
+    $("#printSpeed").css("color", "grey");
+
+    $("#fan1").removeClass("fan-spin-slow");
+    $("#fan1").removeClass("fan-spin-slower");
+    $("#fan1").removeClass("fan-spin-normal");
+    $("#fan1").removeClass("fan-spin-fast");
+    $("#fan1").removeClass("fan-spin-faster");
+    $("#fan1").removeClass("fan-spin-veryfast");
+
+    $("#fan2").removeClass("fan-spin-slow");
+    $("#fan2").removeClass("fan-spin-slower");
+    $("#fan2").removeClass("fan-spin-normal");
+    $("#fan2").removeClass("fan-spin-fast");
+    $("#fan2").removeClass("fan-spin-faster");
+    $("#fan2").removeClass("fan-spin-veryfast");
+
+    $("#fan3").removeClass("fan-spin-slow");
+    $("#fan3").removeClass("fan-spin-slower");
+    $("#fan3").removeClass("fan-spin-normal");
+    $("#fan3").removeClass("fan-spin-fast");
+    $("#fan3").removeClass("fan-spin-faster");
+    $("#fan3").removeClass("fan-spin-veryfast");
+
+    $("#fan4").removeClass("fan-spin-slow");
+    $("#fan4").removeClass("fan-spin-slower");
+    $("#fan4").removeClass("fan-spin-normal");
+    $("#fan4").removeClass("fan-spin-fast");
+    $("#fan4").removeClass("fan-spin-faster");
+    $("#fan4").removeClass("fan-spin-veryfast");
+    $("#wifiProgressBar").css("background-color", "grey");
+    $("#tray1ProgressBar").css("background-color", "grey");
+    $("#tray2ProgressBar").css("background-color", "grey");
+    $("#tray3ProgressBar").css("background-color", "grey");
+    $("#tray4ProgressBar").css("background-color", "grey");
+    $("#tray1Active").hide();
+    $("#tray2Active").hide();
+    $("#tray3Active").hide();
+    $("#tray4Active").hide();
+    $("#tray1Active").css("background-color", "grey");
+    $("#tray2Active").css("background-color", "grey");
+    $("#tray3Active").css("background-color", "grey");
+    $("#tray4Active").css("background-color", "grey");
+  }
+
+
+  function convertUtc(timestampUtcMs) {
+    var localTime = new Date(timestampUtcMs);
+
+    // Formatting the date to a readable string in local time
+    return localTime.toLocaleString();
+  } 
+
