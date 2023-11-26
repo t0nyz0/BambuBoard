@@ -3,30 +3,29 @@
 //const mqtt = require('mqtt');
 //const fs = require('fs');
 
+let currentState = "OFF";
+
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch("data.json");
 
   let data = await response.text();
-  const telemetryObject = JSON.parse(data);
-  let currentState = "OFF";
+  let telemetryObject = JSON.parse(data);
 
-  if (data.print && 'gcode_state' in data.print) {
-    currentState = telemetryObject.gcode_state;
-} else {
-  try{
-    data = JSON.parse(data);
-    let lastUpdate = convertUtc(data.t_utc);
-    currentState = "OFF";
-    $("#printStatus").text("Printer offline.. last update " + lastUpdate);
-    //console.log('No valid data found in the message. File not written.');
+  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
+    currentState = telemetryObject.print.gcode_state;
+    telemetryObject = telemetryObject.print;
   }
-  catch (error) {
-    console.error("Error:", error);
-    currentState = "OFF";
-    $("#printStatus").text("Error occured processing data");
+  else if (telemetryObject.print)
+  {
+    telemetryObject = "Incomplete";
+  } 
+  else
+  {
+    telemetryObject = null;
   }
-}
+
+  return telemetryObject;
 }
 
 async function updateUI(telemetryObject) {
@@ -880,13 +879,16 @@ async function updateAMS(telemetryObject) {
 setInterval(async () => {
   try {
     var telemetryObject = await retrieveData();
-    if (printStatus =! "OFF") {
+    if (telemetryObject != null) {
       await updateUI(telemetryObject);
       await updateFans(telemetryObject);
       await updateWifi(telemetryObject);
       await updateAMS(telemetryObject);
     }
-    else
+    else if (telemetryObject != "Incomplete")
+    {
+      // Data is incomplete, but we did get something, just skip for now
+    }else
     {
       disableUI();
     }
