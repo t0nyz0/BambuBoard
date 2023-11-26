@@ -6,12 +6,9 @@ const printerURL = '10.0.0.1'; // Bambu printer IP - (Located in settings on pri
 const printerPort = '8883'; // Bambu printer port - dont change
 const printerSN = 'INSERT SERIAL NUMBER HERE'; // Bambu Serial Number (Located in settings on printer)
 const printerAccessCode = 'INSERT ACCESS CODE HERE'; // Bambu Access Code (Located in settings on printer)
-
 //-------------------------------------------------------------------------------------------------------------
 
-
-
-
+const consoleLogging = false;
 
 // Removed some constant console.logs, re-enable for full verbosity
 
@@ -24,7 +21,6 @@ const protocol = "mqtts";
 let SequenceID = 20000;
 let topic = "device/" + printerSN + "/report";
 let topicRequest = "device/" + printerSN + "/request";
-let dateCount = 0;
 
 // Build node.js http server to host dashboard
 
@@ -84,13 +80,6 @@ const clientId = `mqtt_${Math.random().toString(16)}`;
 
 const connectUrl = `${protocol}://${printerURL}:${printerPort}`;
 
-function disconnectClient(client) {
-  if (client) {
-    client.end();
-    client = null; // Clear the existing client
-  }
-}
-
 function connectClient() {
   const client = mqtt.connect(connectUrl, {
     clientId,
@@ -103,11 +92,10 @@ function connectClient() {
   });
 
   client.on("connect", () => {
-    console.log("Client connected!");
+    log("Client connected!");
     SequenceID = SequenceID + 1;
     client.subscribe(topic, () => {
-      console.log(`Subscribed to topic: ${topic}`);
-      //client.publish(topic, '{"pushing": {"command": "pushall", "sequence_id": ' + 0 + '}}');
+      log(`Subscribed to topic: ${topic}`);
     });
 
     client.publish(
@@ -124,12 +112,10 @@ function connectClient() {
     };
 
     client.publish(topicRequest, JSON.stringify(returnMsg));
-
-    //const messageString = JSON.stringify(message);
   });
 
   client.on("message", (topic, message) => {
-    console.log(`Received message from topic: ${topic}`);
+    log(`Received message from topic: ${topic}`);
 
     try {
       const jsonData = JSON.parse(message.toString());
@@ -142,9 +128,9 @@ function connectClient() {
       if (jsonData.print) {
         fs.writeFile("data.json", dataToWrite, (err) => {
           if (err) {
-            console.log("Error writing file:", err);
+            log("Error writing file:", err);
           } else {
-            //console.log('Data written to file');
+            log('Data written to file');
           }
         });
       } else {
@@ -163,39 +149,53 @@ function connectClient() {
       console.log("Error parsing JSON:", err);
       fs.writeFile("error.json", err, (err) => {
         if (err) {
-          console.log("Error writing error file:", err);
+          log("Error writing error file:", err);
         }
       });
     }
-
-    //disconnectClient(client);
   });
 
-  client.on("error", (error) => {
+  client.on("error", async (error) => {
     console.error(`Connection error: ${error}`);
     client.end();
+    await sleep(1000);
   });
 
-  client.on("close", () => {
-    console.log("Connection closed. Reconnecting...");
-    setTimeout(connectClient, 5000); // Reconnect after 5 seconds
+  client.on("close", async () => {
+    log("Connection closed. Reconnecting...");
+    await sleep(1000);
+    connectClient; // Reconnect after 5 seconds
   });
 
-  client.on("reconnect", () => {
-    console.log("Reconnecting...");
+  client.on("reconnect", async () => {
+    log("Reconnecting...");
+    await sleep(1000);
+    connectClient; // Reconnect after 5 seconds
   });
 
-  client.on("offline", () => {
-    console.log("Client is offline");
+  client.on("offline", async () => {
+    log("Client is offline");
+    await sleep(1000);
+    connectClient;
   });
 }
 
 // Initial connection
 connectClient();
 
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
+
+
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);
 
   // Formatting the date to a readable string in local time
   return localTime.toLocaleString();
+}
+
+function log(logText) {
+  if(consoleLogging)
+  {
+    console.log(logText);
+  }
 }
