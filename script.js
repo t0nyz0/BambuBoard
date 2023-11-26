@@ -4,6 +4,7 @@
 //const fs = require('fs');
 
 let currentState = "OFF";
+const consoleLogging = false;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -30,8 +31,8 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
-    console.log(telemetryObject.ams.ams[0].humidity);
-    console.log(telemetryObject.ams.ams[0].temp);
+    log(telemetryObject.ams.ams[0].humidity);
+    log(telemetryObject.ams.ams[0].temp);
 
     let printStatus = telemetryObject.gcode_state;
     let progressParentWidth = $("#printParentProgressBar").width();
@@ -42,16 +43,24 @@ async function updateUI(telemetryObject) {
     const now = new Date();
     const futureTime = new Date(now.getTime() + mcRemainingTime * 60 * 1000); // Convert minutes to milliseconds
 
-    // Format the future_time as H:MMam/pm with no spaces
-    const hour = futureTime.getHours();
-    const minute = futureTime.getMinutes();
-    const ampm = hour >= 12 ? "pm" : "am";
+    // Extract hours and minutes
+    const hours = futureTime.getHours();
+    const minutes = futureTime.getMinutes();
 
-    const formattedTime = `${hour % 12}:${
-      minute < 10 ? "0" : ""
-    }${minute}${ampm}`;
+    // Determine AM or PM suffix
+    const ampm = hours >= 12 ? 'pm' : 'am';
 
-    console.log(formattedTime);
+    // Format hours for 12-hour format and handle midnight/noon cases
+    const formattedHours = hours % 12 === 0 ? 12 : hours % 12;
+
+    // Ensure minutes are two digits
+    const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+
+    // Format the future time
+    const formattedTime = `${formattedHours}:${formattedMinutes}${ampm}`;
+
+    log(formattedTime);
+
 
     let modelName = telemetryObject.gcode_file;
     modelName = modelName.replace("/data/Metadata/", "");
@@ -103,11 +112,11 @@ async function updateUI(telemetryObject) {
       bedTempPercentage =
         (telemetryObject.bed_temper / telemetryObject.bed_target_temper) * 100;
     }
-    console.log("bedTargetTemp = " + bedTargetTemp);
-    console.log("bedTempPercentage = " + bedTempPercentage);
+    log("bedTargetTemp = " + bedTargetTemp);
+    log("bedTempPercentage = " + bedTempPercentage);
 
     if (bedTempPercentage > 100) {
-      console.log(
+      log(
         "Bed percentage over 100, adjusting..." + nozzleTempPercentage
       );
       bedTempPercentage = 100;
@@ -119,9 +128,9 @@ async function updateUI(telemetryObject) {
     // Set current temp in UI
     var bedCurrentTemp = (telemetryObject.bed_temper * 9) / 5 + 32;
     $("#bedCurrentTemp").text(bedCurrentTemp);
-    console.log("bedCurrentTemp = " + bedCurrentTemp);
+    log("bedCurrentTemp = " + bedCurrentTemp);
     let progressBedParentWidth = $("#bedProgressBarParent").width();
-    console.log("progressBedParentWidth = " + progressBedParentWidth);
+    log("progressBedParentWidth = " + progressBedParentWidth);
     $("#bedProgressBar").width(
       (bedTempPercentage * progressBedParentWidth) / 100
     );
@@ -155,14 +164,14 @@ async function updateUI(telemetryObject) {
     }
 
     if (nozzleTempPercentage > 100) {
-      console.log(
+      log(
         "Nozzle percentage over 100, adjusting..." + nozzleTempPercentage
       );
       nozzleTempPercentage = 100;
     }
 
-    console.log("nozzleTargetTemp = " + nozzleTargetTemp);
-    console.log("nozzleTempPercentage = " + nozzleTempPercentage);
+    log("nozzleTargetTemp = " + nozzleTargetTemp);
+    log("nozzleTempPercentage = " + nozzleTempPercentage);
 
     // Set target temp in UI
     $("#nozzleTargetTemp").text(nozzleTargetTemp);
@@ -171,10 +180,10 @@ async function updateUI(telemetryObject) {
     var nozzleCurrentTemp = (telemetryObject.nozzle_temper * 9) / 5 + 32;
     $("#nozzleCurrentTemp").text(nozzleCurrentTemp);
 
-    console.log("nozzleCurrentTemp = " + nozzleCurrentTemp);
+    log("nozzleCurrentTemp = " + nozzleCurrentTemp);
 
     let progressNozzleParentWidth = $("#nozzleProgressBarParent").width();
-    console.log("progressNozzleParentWidth = " + progressNozzleParentWidth);
+    log("progressNozzleParentWidth = " + progressNozzleParentWidth);
     $("#nozzleProgressBar").width(
       (nozzleTempPercentage * progressNozzleParentWidth) / 100
     );
@@ -204,12 +213,12 @@ async function updateUI(telemetryObject) {
     // Set current temp in UI
     var chamberCurrentTemp = (telemetryObject.chamber_temper * 9) / 5 + 32;
     $("#chamberCurrentTemp").text(chamberCurrentTemp);
-    console.log("chamberCurrentTemp = " + chamberCurrentTemp);
+    log("chamberCurrentTemp = " + chamberCurrentTemp);
 
     chamberTempPercentage = (chamberCurrentTemp / chamberTargetTemp) * 100;
 
     let progressChamberParentWidth = $("#chamberProgressBarParent").width();
-    console.log("progressChamberParentWidth = " + progressChamberParentWidth);
+    log("progressChamberParentWidth = " + progressChamberParentWidth);
     $("#chamberProgressBar").width(
       (chamberTempPercentage * progressChamberParentWidth) / 100
     );
@@ -262,10 +271,10 @@ async function updateUI(telemetryObject) {
       $("#printSpeed").css("color", "grey");
     }
 
-    console.log(telemetryObject.t_utc);
+    log(telemetryObject.t_utc);
     return telemetryObject;
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error: ", error);
   }
 }
 
@@ -575,7 +584,7 @@ async function updateFans(telemetryObject) {
       }
     }
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error: ", error);
   }
 }
 
@@ -583,10 +592,10 @@ async function updateWifi(telemetryObject) {
   /// Wifi
   const wifiValue = telemetryObject.wifi_signal;
 
-  console.log("Wifi Signal: " + wifiValue);
+  log("Wifi Signal: " + wifiValue);
   const wifiFormated = wifiValue.replace("dBm", "");
   const signalPercentage = dBmToPercentage(parseInt(wifiFormated));
-  console.log("Wifi percentage: " + signalPercentage);
+  log("Wifi percentage: " + signalPercentage);
 
   let wifiNozzleParentWidth = $("#wifiProgressBarParent").width();
 
@@ -627,7 +636,7 @@ async function updateAMS(telemetryObject) {
       tray1FilamentType = "Unknown";
     }
 
-    console.log(tray1Color);
+    log(tray1Color);
     $("#tray1Color").css("background-color", "#" + tray1Color);
     $("#tray1Material").text(tray1Material);
 
@@ -649,11 +658,11 @@ async function updateAMS(telemetryObject) {
       (tray1Remaining * tray1ProgressBarParent) / 100
     );
 
-    if (tray1Remaining >= 30) {
+    if (tray1Remaining >= 20) {
       $("#tray1ProgressBar").css("background-color", "#51a34f");
-    } else if (tray1Remaining < 30) {
+    } else if (tray1Remaining > 10) {
       $("#tray1ProgressBar").css("background-color", "yellow");
-    } else if (tray1Remaining < 5) {
+    } else if (tray1Remaining > 2) {
       $("#tray1ProgressBar").css("background-color", "red");
     } else if (tray1Remaining === -1) {
       $("#tray1Remaining").text("Unknown");
@@ -684,7 +693,7 @@ async function updateAMS(telemetryObject) {
       tray2FilamentType = "Unknown";
     }
 
-    console.log(tray2Color);
+    log(tray2Color);
     $("#tray2Color").css("background-color", "#" + tray2Color);
     $("#tray2Material").text(tray2Material);
 
@@ -706,11 +715,11 @@ async function updateAMS(telemetryObject) {
       (tray2Remaining * tray2ProgressBarParent) / 100
     );
 
-    if (tray2Remaining >= 30) {
+    if (tray2Remaining >= 20) {
       $("#tray2ProgressBar").css("background-color", "#51a34f");
-    } else if (tray2Remaining < 30) {
+    } else if (tray2Remaining > 10) {
       $("#tray2ProgressBar").css("background-color", "yellow");
-    } else if (tray2Remaining < 5) {
+    } else if (tray2Remaining > 2) {
       $("#tray2ProgressBar").css("background-color", "red");
     } else if (tray2Remaining === -1) {
       $("#tray2Remaining").text("Unknown");
@@ -743,7 +752,7 @@ async function updateAMS(telemetryObject) {
       tray3FilamentType = "Unknown";
     }
 
-    console.log(tray3Color);
+    log(tray3Color);
     $("#tray3Color").css("background-color", "#" + tray3Color);
     $("#tray3Material").text(tray3Material);
 
@@ -765,11 +774,11 @@ async function updateAMS(telemetryObject) {
       (tray3Remaining * tray3ProgressBarParent) / 100
     );
 
-    if (tray3Remaining >= 30) {
+    if (tray3Remaining >= 20) {
       $("#tray3ProgressBar").css("background-color", "#51a34f");
-    } else if (tray3Remaining < 30) {
+    } else if (tray3Remaining > 10) {
       $("#tray3ProgressBar").css("background-color", "yellow");
-    } else if (tray3Remaining < 5) {
+    } else if (tray3Remaining > 2) {
       $("#tray3ProgressBar").css("background-color", "red");
     } else if (tray3Remaining === -1) {
       $("#tray3Remaining").text("Unknown");
@@ -800,7 +809,7 @@ async function updateAMS(telemetryObject) {
       tray4FilamentType = "Unknown";
     }
 
-    console.log(tray4Color);
+    log(tray4Color);
     $("#tray4Color").css("background-color", "#" + tray4Color);
     $("#tray4Material").text(tray4Material);
 
@@ -822,11 +831,11 @@ async function updateAMS(telemetryObject) {
       (tray4Remaining * tray4ProgressBarParent) / 100
     );
 
-    if (tray4Remaining >= 30) {
+    if (tray4Remaining >= 20) {
       $("#tray4ProgressBar").css("background-color", "#51a34f");
-    } else if (tray4Remaining < 30) {
+    } else if (tray4Remaining > 10) {
       $("#tray4ProgressBar").css("background-color", "yellow");
-    } else if (tray4Remaining < 5) {
+    } else if (tray4Remaining > 2) {
       $("#tray4ProgressBar").css("background-color", "red");
     } else if (tray4Remaining === -1) {
       $("#tray4Remaining").text("Unknown");
@@ -843,7 +852,7 @@ async function updateAMS(telemetryObject) {
 
   // AMS active
   var amsActiveTrayValue = telemetryObject.ams.tray_now;
-  console.log("AMS Active tray: " + amsActiveTrayValue);
+  log("AMS Active tray: " + amsActiveTrayValue);
 
   $("#tray1Active").hide();
   $("#tray2Active").hide();
@@ -880,10 +889,12 @@ setInterval(async () => {
   try {
     var telemetryObject = await retrieveData();
     if (telemetryObject != null) {
-      await updateUI(telemetryObject);
-      await updateFans(telemetryObject);
-      await updateWifi(telemetryObject);
-      await updateAMS(telemetryObject);
+      if (telemetryObject != "Incomplete"){
+        await updateUI(telemetryObject);
+        await updateFans(telemetryObject);
+        await updateWifi(telemetryObject);
+        await updateAMS(telemetryObject);
+      }
     }
     else if (telemetryObject != "Incomplete")
     {
@@ -980,4 +991,12 @@ function dBmToPercentage(dBm) {
     // Formatting the date to a readable string in local time
     return localTime.toLocaleString();
   } 
+
+  function log(logText)
+  {
+    if (consoleLogging)
+    {
+      console.log(logText);
+    }
+  }
 
