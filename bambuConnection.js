@@ -6,7 +6,10 @@ const printerURL = '10.0.0.1'; // Bambu printer IP - (Located in settings on pri
 const printerPort = '8883'; // Bambu printer port - dont change
 const printerSN = 'INSERT SERIAL NUMBER HERE'; // Bambu Serial Number (Located in settings on printer)
 const printerAccessCode = 'INSERT ACCESS CODE HERE'; // Bambu Access Code (Located in settings on printer)
+
 //-------------------------------------------------------------------------------------------------------------
+
+
 
 const consoleLogging = false;
 
@@ -128,7 +131,7 @@ function connectClient() {
       if (jsonData.print) {
         fs.writeFile("data.json", dataToWrite, (err) => {
           if (err) {
-            log("Error writing file:", err);
+            log("Error writing file:" + err);
           } else {
             log('Data written to file');
           }
@@ -146,10 +149,10 @@ function connectClient() {
         client.publish(topicRequest, JSON.stringify(returnMsg));
       }
     } catch (err) {
-      console.log("Error parsing JSON:", err);
+      log("Error parsing JSON:" + err);
       fs.writeFile("error.json", err, (err) => {
         if (err) {
-          log("Error writing error file:", err);
+          log("Error writing error file: " + err);
         }
       });
     }
