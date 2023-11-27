@@ -31,9 +31,6 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
-    log(telemetryObject.ams.ams[0].humidity);
-    log(telemetryObject.ams.ams[0].temp);
-
     let printStatus = telemetryObject.gcode_state;
     let progressParentWidth = $("#printParentProgressBar").width();
 
@@ -288,300 +285,220 @@ async function updateFans(telemetryObject) {
     let fan4Speed = telemetryObject.heatbreak_fan_speed;
 
     // Fan 1
-
-    if (fan1Speed === "0") {
-      $("#fan1").removeClass("fan-spin-slow");
-      $("#fan1").removeClass("fan-spin-slower");
-      $("#fan1").removeClass("fan-spin-normal");
-      $("#fan1").removeClass("fan-spin-fast");
-      $("#fan1").removeClass("fan-spin-faster");
-      $("#fan1").removeClass("fan-spin-veryfast");
-    } else {
-      if (fan1Speed === "1" || fan1Speed === "2") {
-        if (!$("#fan1").hasClass("fan-spin-slow")) {
-          $("#fan1").addClass("fan-spin-slow");
-          $("#fan1").removeClass("fan-spin-slower");
-          $("#fan1").removeClass("fan-spin-normal");
-          $("#fan1").removeClass("fan-spin-fast");
-          $("#fan1").removeClass("fan-spin-faster");
-          $("#fan1").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan1Speed === "3" || fan1Speed === "4") {
-        if (!$("#fan1").hasClass("fan-spin-slower")) {
-          $("#fan1").addClass("fan-spin-slower");
-          $("#fan1").removeClass("fan-spin-slow");
-          $("#fan1").removeClass("fan-spin-normal");
-          $("#fan1").removeClass("fan-spin-fast");
-          $("#fan1").removeClass("fan-spin-faster");
-          $("#fan1").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan1Speed === "5" || fan1Speed === "6") {
-        if (!$("#fan1").hasClass("fan-spin-normal")) {
-          $("#fan1").addClass("fan-spin-normal");
-          $("#fan1").removeClass("fan-spin-slower");
-          $("#fan1").removeClass("fan-spin-slow");
-          $("#fan1").removeClass("fan-spin-fast");
-          $("#fan1").removeClass("fan-spin-faster");
-          $("#fan1").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan1Speed === "7" || fan1Speed === "8" || fan1Speed === "9") {
-        if (!$("#fan1").hasClass("fan-spin-fast")) {
-          $("#fan1").addClass("fan-spin-fast");
-          $("#fan1").removeClass("fan-spin-slower");
-          $("#fan1").removeClass("fan-spin-slow");
-          $("#fan1").removeClass("fan-spin-normal");
-          $("#fan1").removeClass("fan-spin-faster");
-          $("#fan1").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan1Speed === "10" ||
-        fan1Speed === "11" ||
-        fan1Speed === "12"
-      ) {
-        if (!$("#fan1").hasClass("fan-spin-faster")) {
-          $("#fan1").addClass("fan-spin-faster");
-          $("#fan1").removeClass("fan-spin-slower");
-          $("#fan1").removeClass("fan-spin-slow");
-          $("#fan1").removeClass("fan-spin-fast");
-          $("#fan1").removeClass("fan-spin-normal");
-          $("#fan1").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan1Speed === "13" ||
-        fan1Speed === "14" ||
-        fan1Speed === "15"
-      ) {
-        if (!$("#fan1").hasClass("fan-spin-veryfast")) {
-          $("#fan1").addClass("fan-spin-veryfast");
-          $("#fan1").removeClass("fan-spin-slower");
-          $("#fan1").removeClass("fan-spin-slow");
-          $("#fan1").removeClass("fan-spin-fast");
-          $("#fan1").removeClass("fan-spin-normal");
-          $("#fan1").removeClass("fan-spin-faster");
-        }
-      }
+    switch (fan1Speed) {
+      case "0":
+        $("#fan1").css({'-webkit-animation': ''});
+        break;
+      case "1":
+        updateAnimation("#fan1", 'spin 5s infinite linear');
+        break;
+      case "2":
+        updateAnimation("#fan1", 'spin 4.5s infinite linear');
+        break;
+      case "3":
+        updateAnimation("#fan1", 'spin 4s infinite linear');
+        break;
+      case "4":
+        updateAnimation("#fan1", 'spin 3.5s infinite linear');
+        break;
+      case "5":
+        updateAnimation("#fan1", 'spin 3s infinite linear');
+        break;
+      case "6":
+        updateAnimation("#fan1", 'spin 2.5s infinite linear');
+        break;
+      case "7":
+        updateAnimation("#fan1", 'spin 2s infinite linear');
+        break;
+      case "8":
+        updateAnimation("#fan1", 'spin 1.8s infinite linear');
+        break;
+      case "9":
+        updateAnimation("#fan1", 'spin 1.5s infinite linear');
+        break;
+      case "10":
+        updateAnimation("#fan1", 'spin 1.2s infinite linear');
+        break;
+      case "11":
+        updateAnimation("#fan1", 'spin 1.0s infinite linear');
+        break;
+      case "12":
+        updateAnimation("#fan1", 'spin .5s infinite linear');
+        break;
+      case "13":
+        updateAnimation("#fan1", 'spin .45s infinite linear');
+        break;
+      case "14":
+        updateAnimation("#fan1", 'spin .4s infinite linear');
+        break;
+      case "15":
+        updateAnimation("#fan1", 'spin .37s infinite linear');
+        break;
+      default:
+        break;
     }
 
-    // Fan 2
-    if (fan2Speed === "0") {
-      $("#fan2").removeClass("fan-spin-slow");
-      $("#fan2").removeClass("fan-spin-slower");
-      $("#fan2").removeClass("fan-spin-normal");
-      $("#fan2").removeClass("fan-spin-fast");
-      $("#fan2").removeClass("fan-spin-faster");
-      $("#fan2").removeClass("fan-spin-veryfast");
-    } else {
-      if (fan2Speed === "1" || fan2Speed === "2") {
-        if (!$("#fan2").hasClass("fan-spin-slow")) {
-          $("#fan2").addClass("fan-spin-slow");
-          $("#fan2").removeClass("fan-spin-slower");
-          $("#fan2").removeClass("fan-spin-normal");
-          $("#fan2").removeClass("fan-spin-fast");
-          $("#fan2").removeClass("fan-spin-faster");
-          $("#fan2").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan2Speed === "3" || fan2Speed === "4") {
-        if (!$("#fan2").hasClass("fan-spin-slower")) {
-          $("#fan2").addClass("fan-spin-slower");
-          $("#fan2").removeClass("fan-spin-slow");
-          $("#fan2").removeClass("fan-spin-normal");
-          $("#fan2").removeClass("fan-spin-fast");
-          $("#fan2").removeClass("fan-spin-faster");
-          $("#fan2").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan2Speed === "5" || fan2Speed === "6") {
-        if (!$("#fan2").hasClass("fan-spin-normal")) {
-          $("#fan2").addClass("fan-spin-normal");
-          $("#fan2").removeClass("fan-spin-slower");
-          $("#fan2").removeClass("fan-spin-slow");
-          $("#fan2").removeClass("fan-spin-fast");
-          $("#fan2").removeClass("fan-spin-faster");
-          $("#fan2").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan2Speed === "7" || fan2Speed === "8" || fan2Speed === "9") {
-        if (!$("#fan2").hasClass("fan-spin-fast")) {
-          $("#fan2").addClass("fan-spin-fast");
-          $("#fan2").removeClass("fan-spin-slower");
-          $("#fan2").removeClass("fan-spin-slow");
-          $("#fan2").removeClass("fan-spin-normal");
-          $("#fan2").removeClass("fan-spin-faster");
-          $("#fan2").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan2Speed === "10" ||
-        fan2Speed === "11" ||
-        fan2Speed === "12"
-      ) {
-        if (!$("#fan2").hasClass("fan-spin-faster")) {
-          $("#fan2").addClass("fan-spin-faster");
-          $("#fan2").removeClass("fan-spin-slower");
-          $("#fan2").removeClass("fan-spin-slow");
-          $("#fan2").removeClass("fan-spin-fast");
-          $("#fan2").removeClass("fan-spin-normal");
-          $("#fan2").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan2Speed === "13" ||
-        fan2Speed === "14" ||
-        fan2Speed === "15"
-      ) {
-        if (!$("#fan2").hasClass("fan-spin-veryfast")) {
-          $("#fan2").addClass("fan-spin-veryfast");
-          $("#fan2").removeClass("fan-spin-slower");
-          $("#fan2").removeClass("fan-spin-slow");
-          $("#fan2").removeClass("fan-spin-fast");
-          $("#fan2").removeClass("fan-spin-normal");
-          $("#fan2").removeClass("fan-spin-faster");
-        }
-      }
+// Fan 2
+    switch (fan2Speed) {
+      case "0":
+        $("#fan2").css({'-webkit-animation': ''});
+        break;
+      case "1":
+        updateAnimation("#fan2", 'spin 5s infinite linear');
+        break;
+      case "2":
+        updateAnimation("#fan2", 'spin 4.5s infinite linear');
+        break;
+      case "3":
+        updateAnimation("#fan2", 'spin 4s infinite linear');
+        break;
+      case "4":
+        updateAnimation("#fan2", 'spin 3.5s infinite linear');
+        break;
+      case "5":
+        updateAnimation("#fan2", 'spin 3s infinite linear');
+        break;
+      case "6":
+        updateAnimation("#fan2", 'spin 2.5s infinite linear');
+        break;
+      case "7":
+        updateAnimation("#fan2", 'spin 2s infinite linear');
+        break;
+      case "8":
+        updateAnimation("#fan2", 'spin 1.8s infinite linear');
+        break;
+      case "9":
+        updateAnimation("#fan2", 'spin 1.5s infinite linear');
+        break;
+      case "10":
+        updateAnimation("#fan2", 'spin 1.2s infinite linear');
+        break;
+      case "11":
+        updateAnimation("#fan2", 'spin 1.0s infinite linear');
+        break;
+      case "12":
+        updateAnimation("#fan2", 'spin .5s infinite linear');
+        break;
+      case "13":
+        updateAnimation("#fan2", 'spin .45s infinite linear');
+        break;
+      case "14":
+        updateAnimation("#fan2", 'spin .4s infinite linear');
+        break;
+      case "15":
+        updateAnimation("#fan2", 'spin .37s infinite linear');
+        break;
+      default:
+        break;
     }
 
     // Fan 3
-    if (fan3Speed === "0") {
-      $("#fan3").removeClass("fan-spin-slow");
-      $("#fan3").removeClass("fan-spin-slower");
-      $("#fan3").removeClass("fan-spin-normal");
-      $("#fan3").removeClass("fan-spin-fast");
-      $("#fan3").removeClass("fan-spin-faster");
-      $("#fan3").removeClass("fan-spin-veryfast");
-    } else {
-      if (fan3Speed === "1" || fan3Speed === "2") {
-        if (!$("#fan3").hasClass("fan-spin-slow")) {
-          $("#fan3").addClass("fan-spin-slow");
-          $("#fan3").removeClass("fan-spin-slower");
-          $("#fan3").removeClass("fan-spin-normal");
-          $("#fan3").removeClass("fan-spin-fast");
-          $("#fan3").removeClass("fan-spin-faster");
-          $("#fan3").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan3Speed === "3" || fan3Speed === "4") {
-        if (!$("#fan3").hasClass("fan-spin-slower")) {
-          $("#fan3").addClass("fan-spin-slower");
-          $("#fan3").removeClass("fan-spin-slow");
-          $("#fan3").removeClass("fan-spin-normal");
-          $("#fan3").removeClass("fan-spin-fast");
-          $("#fan3").removeClass("fan-spin-faster");
-          $("#fan3").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan3Speed === "5" || fan3Speed === "6") {
-        if (!$("#fan3").hasClass("fan-spin-normal")) {
-          $("#fan3").addClass("fan-spin-normal");
-          $("#fan3").removeClass("fan-spin-slower");
-          $("#fan3").removeClass("fan-spin-slow");
-          $("#fan3").removeClass("fan-spin-fast");
-          $("#fan3").removeClass("fan-spin-faster");
-          $("#fan3").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan3Speed === "7" || fan3Speed === "8" || fan3Speed === "9") {
-        if (!$("#fan3").hasClass("fan-spin-fast")) {
-          $("#fan3").addClass("fan-spin-fast");
-          $("#fan3").removeClass("fan-spin-slower");
-          $("#fan3").removeClass("fan-spin-slow");
-          $("#fan3").removeClass("fan-spin-normal");
-          $("#fan3").removeClass("fan-spin-faster");
-          $("#fan3").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan3Speed === "10" ||
-        fan3Speed === "11" ||
-        fan3Speed === "12"
-      ) {
-        if (!$("#fan3").hasClass("fan-spin-faster")) {
-          $("#fan3").addClass("fan-spin-faster");
-          $("#fan3").removeClass("fan-spin-slower");
-          $("#fan3").removeClass("fan-spin-slow");
-          $("#fan3").removeClass("fan-spin-fast");
-          $("#fan3").removeClass("fan-spin-normal");
-          $("#fan3").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan3Speed === "13" ||
-        fan3Speed === "14" ||
-        fan3Speed === "15"
-      ) {
-        if (!$("#fan3").hasClass("fan-spin-veryfast")) {
-          $("#fan3").addClass("fan-spin-veryfast");
-          $("#fan3").removeClass("fan-spin-slower");
-          $("#fan3").removeClass("fan-spin-slow");
-          $("#fan3").removeClass("fan-spin-fast");
-          $("#fan3").removeClass("fan-spin-normal");
-          $("#fan3").removeClass("fan-spin-faster");
-        }
-      }
+    switch (fan3Speed) {
+      case "0":
+        $("#fan3").css({'-webkit-animation': ''});
+        break;
+      case "1":
+        updateAnimation("#fan3", 'spin 5s infinite linear');
+        break;
+      case "2":
+        updateAnimation("#fan3", 'spin 4.5s infinite linear');
+        break;
+      case "3":
+        updateAnimation("#fan3", 'spin 4s infinite linear');
+        break;
+      case "4":
+        updateAnimation("#fan3", 'spin 3.5s infinite linear');
+        break;
+      case "5":
+        updateAnimation("#fan3", 'spin 3s infinite linear');
+        break;
+      case "6":
+        updateAnimation("#fan3", 'spin 2.5s infinite linear');
+        break;
+      case "7":
+        updateAnimation("#fan3", 'spin 2s infinite linear');
+        break;
+      case "8":
+        updateAnimation("#fan3", 'spin 1.8s infinite linear');
+        break;
+      case "9":
+        updateAnimation("#fan3", 'spin 1.5s infinite linear');
+        break;
+      case "10":
+        updateAnimation("#fan3", 'spin 1.2s infinite linear');
+        break;
+      case "11":
+        updateAnimation("#fan3", 'spin 1.0s infinite linear');
+        break;
+      case "12":
+        updateAnimation("#fan3", 'spin .5s infinite linear');
+        break;
+      case "13":
+        updateAnimation("#fan3", 'spin .45s infinite linear');
+        break;
+      case "14":
+        updateAnimation("#fan3", 'spin .4s infinite linear');
+        break;
+      case "15":
+        updateAnimation("#fan3", 'spin .37s infinite linear');
+        break;
+      default:
+        break;
     }
 
+
     // Fan 4
-    if (fan4Speed === "0") {
-      $("#fan4").removeClass("fan-spin-slow");
-      $("#fan4").removeClass("fan-spin-slower");
-      $("#fan4").removeClass("fan-spin-normal");
-      $("#fan4").removeClass("fan-spin-fast");
-      $("#fan4").removeClass("fan-spin-faster");
-      $("#fan4").removeClass("fan-spin-veryfast");
-    } else {
-      if (fan4Speed === "1" || fan4Speed === "2") {
-        if (!$("#fan4").hasClass("fan-spin-slow")) {
-          $("#fan4").addClass("fan-spin-slow");
-          $("#fan4").removeClass("fan-spin-slower");
-          $("#fan4").removeClass("fan-spin-normal");
-          $("#fan4").removeClass("fan-spin-fast");
-          $("#fan4").removeClass("fan-spin-faster");
-          $("#fan4").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan4Speed === "3" || fan4Speed === "4") {
-        if (!$("#fan4").hasClass("fan-spin-slower")) {
-          $("#fan4").addClass("fan-spin-slower");
-          $("#fan4").removeClass("fan-spin-slow");
-          $("#fan4").removeClass("fan-spin-normal");
-          $("#fan4").removeClass("fan-spin-fast");
-          $("#fan4").removeClass("fan-spin-faster");
-          $("#fan4").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan4Speed === "5" || fan4Speed === "6") {
-        if (!$("#fan4").hasClass("fan-spin-normal")) {
-          $("#fan4").addClass("fan-spin-normal");
-          $("#fan4").removeClass("fan-spin-slower");
-          $("#fan4").removeClass("fan-spin-slow");
-          $("#fan4").removeClass("fan-spin-fast");
-          $("#fan4").removeClass("fan-spin-faster");
-          $("#fan4").removeClass("fan-spin-veryfast");
-        }
-      } else if (fan4Speed === "7" || fan4Speed === "8" || fan4Speed === "9") {
-        if (!$("#fan4").hasClass("fan-spin-fast")) {
-          $("#fan4").addClass("fan-spin-fast");
-          $("#fan4").removeClass("fan-spin-slower");
-          $("#fan4").removeClass("fan-spin-slow");
-          $("#fan4").removeClass("fan-spin-normal");
-          $("#fan4").removeClass("fan-spin-faster");
-          $("#fan4").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan4Speed === "10" ||
-        fan4Speed === "11" ||
-        fan4Speed === "12"
-      ) {
-        if (!$("#fan4").hasClass("fan-spin-faster")) {
-          $("#fan4").addClass("fan-spin-faster");
-          $("#fan4").removeClass("fan-spin-slower");
-          $("#fan4").removeClass("fan-spin-slow");
-          $("#fan4").removeClass("fan-spin-fast");
-          $("#fan4").removeClass("fan-spin-normal");
-          $("#fan4").removeClass("fan-spin-veryfast");
-        }
-      } else if (
-        fan4Speed === "13" ||
-        fan4Speed === "14" ||
-        fan4Speed === "15"
-      ) {
-        if (!$("#fan4").hasClass("fan-spin-veryfast")) {
-          $("#fan4").addClass("fan-spin-veryfast");
-          $("#fan4").removeClass("fan-spin-slower");
-          $("#fan4").removeClass("fan-spin-slow");
-          $("#fan4").removeClass("fan-spin-fast");
-          $("#fan4").removeClass("fan-spin-normal");
-          $("#fan4").removeClass("fan-spin-faster");
-        }
-      }
+    switch (fan4Speed) {
+      case "0":
+        $("#fan4").css({'-webkit-animation': ''});
+        break;
+      case "1":
+        updateAnimation("#fan4", 'spin 5s infinite linear');
+        break;
+      case "2":
+        updateAnimation("#fan4", 'spin 4.5s infinite linear');
+        break;
+      case "3":
+        updateAnimation("#fan4", 'spin 4s infinite linear');
+        break;
+      case "4":
+        updateAnimation("#fan4", 'spin 3.5s infinite linear');
+        break;
+      case "5":
+        updateAnimation("#fan4", 'spin 3s infinite linear');
+        break;
+      case "6":
+        updateAnimation("#fan4", 'spin 2.5s infinite linear');
+        break;
+      case "7":
+        updateAnimation("#fan4", 'spin 2s infinite linear');
+        break;
+      case "8":
+        updateAnimation("#fan4", 'spin 1.8s infinite linear');
+        break;
+      case "9":
+        updateAnimation("#fan4", 'spin 1.5s infinite linear');
+        break;
+      case "10":
+        updateAnimation("#fan4", 'spin 1.2s infinite linear');
+        break;
+      case "11":
+        updateAnimation("#fan4", 'spin 1.0s infinite linear');
+        break;
+      case "12":
+        updateAnimation("#fan4", 'spin .5s infinite linear');
+        break;
+      case "13":
+        updateAnimation("#fan4", 'spin .45s infinite linear');
+        break;
+      case "14":
+        updateAnimation("#fan4", 'spin .4s infinite linear');
+        break;
+      case "15":
+        updateAnimation("#fan4", 'spin .37s infinite linear');
+        break;
+      default:
+        break;
     }
   } catch (error) {
     console.error("Error: ", error);
@@ -984,6 +901,12 @@ function dBmToPercentage(dBm) {
     $("#tray4Active").css("background-color", "grey");
   }
 
+  function updateAnimation(selector, newValue) {
+    var currentAnimation = $(selector).css('-webkit-animation');
+    if (currentAnimation !== newValue) {
+      $(selector).css({'-webkit-animation': newValue});
+    }
+  }
 
   function convertUtc(timestampUtcMs) {
     var localTime = new Date(timestampUtcMs);
