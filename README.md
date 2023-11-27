@@ -11,6 +11,10 @@ Accelerated Startup Video: Watch the dashboard in action at 2.5x speed during a 
 
 https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
 
+Running on physical dashboard:
+
+![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/70efb648-0484-4ad1-b020-1c6981c7e6ea)
+
 
 # BambuBoard Setup Guide
 
