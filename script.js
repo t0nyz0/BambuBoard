@@ -75,10 +75,11 @@ async function updateUI(telemetryObject) {
       );
       $("#printProgressBar").width(
         (telemetryObject.mc_percent * progressParentWidth) / 100
-      );
-      $("#printRemaining").text(telemetryObject.mc_remaining_time);
-      $("#printETA").text("Around " + formattedTime);
+        );
+        $("#printRemaining").text(telemetryObject.mc_remaining_time);
+        $("#printETA").text("Around " + formattedTime);
     } else if (printStatus === "FINISH") {
+   
       printStatus = "Print Complete";
       $("#printStatus").text(printStatus + "... ");
       $("#printProgressBar").width(
