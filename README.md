@@ -1,19 +1,15 @@
 # BambuBoard
 Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 
-# Demonstration Videos:
+# Screenshots:
 
-Regular Speed Video: Observe the dashboard functionality at a standard pace.
+Screenshot (Updated version: 1/6/24):
+![Xnip2024-01-06_12-45-07](https://github.com/t0nyz0/BambuBoard/assets/63085518/4010842e-e7b9-4094-82e9-5b5d6a8cb1bf)
 
-https://github.com/t0nyz0/BambuBoard/assets/63085518/45ac9987-666e-457f-94ab-9478a71d4c6a
 
-Accelerated Startup Video: Watch the dashboard in action at 2.5x speed during a printer startup sequence.
+Running on physical dashboard (Updated version: 1/6/24):
 
-https://github.com/t0nyz0/BambuBoard/assets/63085518/abd8cd9c-779b-4f17-b1a1-a9392366b98e
-
-Running on physical dashboard:
-
-![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/70efb648-0484-4ad1-b020-1c6981c7e6ea)
+![IMG_0531](https://github.com/t0nyz0/BambuBoard/assets/63085518/9439a858-b5bc-4ced-81da-fcf20f3dfcf8)
 
 
 # BambuBoard Setup Guide
