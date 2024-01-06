@@ -1,31 +1,125 @@
 //-------------------------------------------------------------------------------------------------------------
 /// Configure your settings here:
 
-const httpPort = 8080; // (8080) Without admin on windows getting anything under like 1000 to work is challenging
+const httpPort = 8080; // (8080) Without admin on windows getting anything under like 1000 to work is challenging, currently port 3000 is also used regardless of what port is used here
 const printerURL = '10.0.0.1'; // Bambu printer IP - (Located in settings on printer)
 const printerPort = '8883'; // Bambu printer port - dont change
-const printerSN = 'INSERT SERIAL NUMBER HERE'; // Bambu Serial Number (Located in settings on printer)
-const printerAccessCode = 'INSERT ACCESS CODE HERE'; // Bambu Access Code (Located in settings on printer)
+const printerSN = 'FILL_THIS_OUT'; // Bambu Serial Number (Located in settings on printer)
+const printerAccessCode = 'FILL_THIS_OUT'; // Bambu Access Code (Located in settings on printer)
+const bambuUsername = 'FILL_THIS_OUT'; // Bambu Username to access API and get image of current print, if this is not provided no image will show
+const bambuPassword = 'FILL_THIS_OUT'; //
+
+
+//-------------------------------------------------------------------------------------------------------------
+
+// Enable if you want to see console log events
+const consoleLogging = false;
 
 //-------------------------------------------------------------------------------------------------------------
 
 
-
-const consoleLogging = false;
-
-// Removed some constant console.logs, re-enable for full verbosity
+// -- Dont touch below
 
 const mqtt = require("mqtt");
 const fs = require("fs");
 const http = require("http");
 const url = require("url");
+const cors = require('cors');
 const path = require("path");
+const express = require('express');
+const fetch = require('node-fetch');
+
+const app = express();
+
+app.use(express.json());
+
+function extractToken(cookies) {
+  // Implement token extraction from the cookies string
+  // This is a placeholder, actual implementation depends on the cookie format
+  return cookies.split('; ').find(row => row.startsWith('token=')).split('=')[1];
+}
+
 const protocol = "mqtts";
 let SequenceID = 20000;
 let topic = "device/" + printerSN + "/report";
 let topicRequest = "device/" + printerSN + "/request";
+app.use(cors({
+  origin: '*' // Set the origin that you want to allow
+}));
+// Build node.js http server to host dashboard login and fetch method
+app.get('/login-and-fetch-image', async (req, res) => {
+  try {
+    if (bambuUsername != '')
+    {
+        // 1. Perform Authentication
+        const authResponse = await fetch('https://bambulab.com/api/sign-in/form', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account: bambuUsername, password: bambuPassword, apiError: '' })
+        });
 
-// Build node.js http server to host dashboard
+        if (!authResponse.ok) {
+            throw new Error('Authentication failed');
+        }
+
+        const cookies = authResponse.headers.raw()['set-cookie'][1];
+        const token = extractToken(cookies); // Extract the token from the cookies
+
+        // 2. Make API call to get the image URL
+        const apiResponse = await fetch('https://api.bambulab.com/v1/user-service/my/tasks', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!apiResponse.ok) {
+            throw new Error('API request failed');
+        }
+
+        const data = await apiResponse.json();
+        const imageUrl = data.hits[0].cover; 
+        const modelTitle = data.hits[0].title;
+        const modelWeight = data.hits[0].weight;
+        const modelCostTime = data.hits[0].costTime;
+        const totalPrints = data.total;
+
+        // Constructing a JSON object with the extracted values
+        const responseObject = {
+          imageUrl: imageUrl,
+          modelTitle: modelTitle,
+          modelWeight: modelWeight,
+          modelCostTime: modelCostTime,
+          totalPrints: totalPrints
+        };
+
+      // Sending the JSON object as the response
+      res.json(responseObject);
+  }
+  else
+  {
+        // Constructing a JSON object with the extracted values
+        const responseObject = {
+          imageUrl: 'NOTENROLLED',
+          modelTitle: '',
+          modelWeight: '',
+          modelCostTime: '',
+          totalPrints: ''
+        };
+      
+        res.json(responseObject);
+  }
+
+  } catch (error) {
+      console.error('Error:', error);
+      res.status(500).send('Internal Server Error');
+      await sleep(5000);
+  }
+});
+
+
+const PORT = 3000; // or any other port you prefer
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
 
 http
   .createServer(function (req, res) {
@@ -170,6 +264,12 @@ function connectClient() {
     connectClient; // Reconnect after 5 seconds
   });
 
+  client.on("disconnect", async () => {
+    log("Connection disconnected. Reconnecting...");
+    await sleep(1000);
+    connectClient; // Reconnect after 5 seconds
+  });
+
   client.on("reconnect", async () => {
     log("Reconnecting...");
     await sleep(1000);
@@ -187,7 +287,6 @@ function connectClient() {
 connectClient();
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-
 
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);

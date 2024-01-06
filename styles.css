@@ -6,15 +6,17 @@ body {
   color: #404040;
   background: #2a2a2a;
   font-weight:400;
+  overflow: hidden;
 }
 
 .container {
-  margin: 20px;
-  padding-top: 20px;
+  margin: 15px;
+  padding-top: 15px;
 }
 
 .printDetailsContainer {
-  margin-top: 40px;
+  margin-top: 20px;
+
 }
 
 .printDetailsContainer h3 {
@@ -26,8 +28,8 @@ body {
 }
 
 .dot {
-  height: 30px;
-  width: 30px;
+  height: 35px;
+  width: 35px;
   border-radius: 50%;
   -webkit-box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px rgba(255, 255, 255, 0.08);
@@ -62,12 +64,53 @@ body {
   border-radius: 10rem;
   padding: .24em .74em;
   font-size: .8em;
+  font-weight: 500;
   margin:5px 20px 0 20px;
 }
   
 .column {
   display: grid;
   grid-template-rows:auto;
+}
+
+.model-image {
+  justify-content: end;
+
+}
+.model-image-test {
+  background: -webkit-linear-gradient(45deg, rgba(0, 0, 0, 0.0980392) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.0980392) 75%, rgba(0, 0, 0, 0.0980392) 0), -webkit-linear-gradient(45deg, rgba(0, 0, 0, 0.0980392) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.0980392) 75%, rgba(0, 0, 0, 0.0980392) 0), rgb(208, 208, 208);
+  background: -moz-linear-gradient(45deg, rgba(0, 0, 0, 0.0980392) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.0980392) 75%, rgba(0, 0, 0, 0.0980392) 0), -moz-linear-gradient(45deg, rgba(0, 0, 0, 0.0980392) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.0980392) 75%, rgba(0, 0, 0, 0.0980392) 0), rgb(208, 208, 208);
+  background: linear-gradient(45deg, rgba(0, 0, 0, 0.0980392) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.0980392) 75%, rgba(0, 0, 0, 0.0980392) 0), linear-gradient(45deg, rgba(0, 0, 0, 0.0980392) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.0980392) 75%, rgba(0, 0, 0, 0.0980392) 0), rgb(208, 208, 208);
+  background-repeat: repeat, repeat;
+  background-position: 0px 0, 5px 5px;
+  -webkit-transform-origin: 0 0 0;
+  transform-origin: 0 0 0;
+  -webkit-background-origin: padding-box, padding-box;
+  background-origin: padding-box, padding-box;
+  -webkit-background-clip: border-box, border-box;
+  background-clip: border-box, border-box;
+  -webkit-background-size: 10px 10px, 10px 10px;
+  background-size: 10px 10px, 10px 10px;
+  -webkit-box-shadow: none;
+  box-shadow: 1px;
+  text-shadow: none;
+  -webkit-transition: none;
+  -moz-transition: none;
+  -o-transition: none;
+  transition: none;
+  -webkit-transform: scaleX(1) scaleY(1) scaleZ(1);
+  transform: scaleX(1) scaleY(1) scaleZ(1);
+}
+
+
+.model-image img {
+  height: 260px;
+  width: 350px;
+  margin-right:10px;
+  object-fit: cover;
+  overflow: hidden;
+  border-radius: 1rem;
+
 }
 
 .flex {
@@ -80,9 +123,16 @@ body {
 }
 
 .bedcontainer {
-    margin-top: 20px;
+    margin-top: 15px;
+
 }
 
+.light-border{
+  border-radius: 6px;
+  -webkit-box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px rgba(255, 255, 255, 0.08);
+  padding: 10px;
+}
 
 .partTitle {
   margin-bottom:10px;
@@ -136,7 +186,7 @@ body {
 
 
 .progressTitle {
-  font-size: 1.5em;
+  font-size: 1.4em;
   color: #ffffff;
   padding-bottom: 10px;
 }
@@ -165,8 +215,13 @@ body {
 
 .printStatus {
   color: white;
-  font-size: 2em;
+  font-size: 1.6em;
   margin-bottom: 10px;
+}
+
+.printRemaining {
+  font-weight: 600 !important;
+
 }
 
 .nozzleType {
@@ -232,7 +287,7 @@ body {
 
 
 .bed-title {
-  padding: 15px 25px;
+  padding: 10px 25px;
   background: rgba(0, 0, 0, 0.25);
   border-radius: 6px;
   -webkit-box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px rgba(255, 255, 255, 0.08);
@@ -245,7 +300,7 @@ body {
 }
 
 .fans .material-symbols-outlined {
-    font-size: 5em;
+    font-size: 4em;
 }
 
 .fan1 h4,
@@ -281,7 +336,7 @@ h4 {
 h3 {
   margin: 5px 0 3px 0;
   font-weight: 400;
-  font-size: 1.5em;
+  font-size: 1.3em;
 }
 
 p {
