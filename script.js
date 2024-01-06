@@ -1,7 +1,20 @@
+//-------------------------------------------------------------------------------------------------------------
+/// Configure your settings here:
+
+const serverURL = '127.0.0.1'; // IP of the computer running this dashboard
+
+// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
+//       Those features will only work if viewing the dashboard locally.
+
+//-------------------------------------------------------------------------------------------------------------
+
+// -- Dont touch below
+
+
+
 // BambuBoard
 // TZ | 11/20/23
-//const mqtt = require('mqtt');
-//const fs = require('fs');
+
 
 let currentState = "OFF";
 let modelImage = "";
@@ -81,6 +94,12 @@ async function updateUI(telemetryObject) {
         (telemetryObject.mc_percent * progressParentWidth) / 100
         );
         let readableTimeRemaining = convertMinutesToReadableTime(telemetryObject.mc_remaining_time);
+        
+        if (readableTimeRemaining == 0)
+        {
+          readableTimeRemaining = "...";
+        }
+        
         $("#printRemaining").text(readableTimeRemaining);
         $("#printETA").text(formattedTime);
     } else if (printStatus === "FINISH") {
@@ -983,10 +1002,9 @@ function convertMinutesToReadableTime(totalMinutes) {
   // Send credentials to your own server
   async function loginAndFetchImage() {
     try {
-        const response =  await fetch('http://127.0.0.1:3000/login-and-fetch-image', {
+        const response =  await fetch('http://' + serverURL + ':3000/login-and-fetch-image', {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            mode: 'cors'
+            headers: { 'Content-Type': 'application/json' }
         });
   
         const data = await response.json();

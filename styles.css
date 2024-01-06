@@ -10,12 +10,12 @@ body {
 }
 
 .container {
-  margin: 15px;
-  padding-top: 15px;
+  margin: 10px;
+  padding-top: 10px;
 }
 
 .printDetailsContainer {
-  margin-top: 20px;
+  margin-top: 15px;
 
 }
 
@@ -24,7 +24,7 @@ body {
 }
 
 .fade {
-  color: grey;
+  color: rgb(180, 180, 180);
 }
 
 .dot {
@@ -141,7 +141,7 @@ body {
 .material-percentage {
   padding-left: 10px;
   text-shadow: 0 1px black;
-  color: grey;
+  color: rgb(180, 180, 180);
   font-size: .9em;
   text-align: right;
 }
@@ -208,7 +208,7 @@ body {
 }
 
 .finePrint {
-  color: grey;
+  color: rgb(180, 180, 180);
   font-size: 1.25em;
   text-shadow: 0 1px black;
 }
@@ -276,7 +276,7 @@ body {
 
 .bed-temp {
   display: block;
-  color: grey;
+  color: rgb(180, 180, 180);
   color: white;
   margin-left: 20px;
   background: rgba(0, 0, 0, 0.25);
@@ -297,6 +297,7 @@ body {
 .material-symbols-outlined {
   margin-top: 5px;
   vertical-align: sub;
+  color: rgb(150, 150, 150);
 }
 
 .fans .material-symbols-outlined {
@@ -384,7 +385,7 @@ p {
   display: inline-block;
   margin: 0 5px 20px;
   padding: 3px 8px;
-  color: #aaa;
+  color: rgb(180, 180, 180);
   text-shadow: 0 1px black;
   border-radius: 3px;
   cursor: pointer;
