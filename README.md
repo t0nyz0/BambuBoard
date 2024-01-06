@@ -1,7 +1,7 @@
 # BambuBoard
 Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 
-# Demonstration Videos:
+# Screenshots:
 
 Screenshot (Updated version: 1/6/24):
 ![Xnip2024-01-06_12-45-07](https://github.com/t0nyz0/BambuBoard/assets/63085518/4010842e-e7b9-4094-82e9-5b5d6a8cb1bf)
