@@ -4,7 +4,9 @@
 //const fs = require('fs');
 
 let currentState = "OFF";
+let modelImage = "";
 const consoleLogging = false;
+let telemetryObjectMain;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -31,6 +33,8 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
+    
+
     let printStatus = telemetryObject.gcode_state;
     let progressParentWidth = $("#printParentProgressBar").width();
 
@@ -64,7 +68,7 @@ async function updateUI(telemetryObject) {
 
     $("#printModelName").text(telemetryObject.subtask_name);
     $("#printCurrentLayer").text(
-      telemetryObject.layer_num + "/" + telemetryObject.total_layer_num
+      telemetryObject.layer_num + " of " + telemetryObject.total_layer_num
     );
 
     if (printStatus === "RUNNING") {
@@ -76,8 +80,9 @@ async function updateUI(telemetryObject) {
       $("#printProgressBar").width(
         (telemetryObject.mc_percent * progressParentWidth) / 100
         );
-        $("#printRemaining").text(telemetryObject.mc_remaining_time);
-        $("#printETA").text("Around " + formattedTime);
+        let readableTimeRemaining = convertMinutesToReadableTime(telemetryObject.mc_remaining_time);
+        $("#printRemaining").text(readableTimeRemaining);
+        $("#printETA").text(formattedTime);
     } else if (printStatus === "FINISH") {
    
       printStatus = "Print Complete";
@@ -802,30 +807,11 @@ async function updateAMS(telemetryObject) {
   }
 }
 
-// Call the updateLog function to fetch and parse the data
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete"){
-        await updateUI(telemetryObject);
-        await updateFans(telemetryObject);
-        await updateWifi(telemetryObject);
-        await updateAMS(telemetryObject);
-      }
-    }
-    else if (telemetryObject != "Incomplete")
-    {
-      // Data is incomplete, but we did get something, just skip for now
-    }else
-    {
-      disableUI();
-    }
 
-  } catch (error) {
-    console.error(error);
-  }
-}, 1000);
+
+
+
+
 
 // Pulled from GPT, my printer is VERY close to my router, so to make this more interesting,
 // I have updated the maxSignal from -50 dBm to -40 dBm making it more difficult to reach max.
@@ -916,6 +902,13 @@ function dBmToPercentage(dBm) {
     return localTime.toLocaleString();
   } 
 
+
+
+
+
+
+
+
   function log(logText)
   {
     if (consoleLogging)
@@ -923,4 +916,107 @@ function dBmToPercentage(dBm) {
       console.log(logText);
     }
   }
+  
+  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
 
+
+// Call the updateLog function to fetch and parse the data
+setInterval(async () => {
+  try {
+    var telemetryObject = await retrieveData();
+    telemetryObjectMain = telemetryObject;
+    if (telemetryObject != null) {
+      if (telemetryObject != "Incomplete"){
+        await updateUI(telemetryObject);
+        await updateFans(telemetryObject);
+        await updateWifi(telemetryObject);
+        await updateAMS(telemetryObject);
+      }
+    }
+    else if (telemetryObject != "Incomplete")
+    {
+      // Data is incomplete, but we did get something, just skip for now
+    }else
+    {
+      disableUI();
+    }
+
+  } catch (error) {
+    //console.error(error);
+    await sleep(1000);
+  }
+}, 1000);
+
+// Call the updateLog function to fetch and parse the data
+(async function runOnceThenSetTimeout() {
+  try {
+      var telemetryObject = telemetryObjectMain;
+      if (telemetryObject != null) {
+          if (telemetryObject != "Incomplete") {
+              if (telemetryObject.layer_num == 0 && currentState == "RUNNING") {
+                  await loginAndFetchImage();
+              } else if (modelImage == "") {
+                  await loginAndFetchImage();
+              }
+          }
+      } 
+  } catch (error) {
+      //console.error(error);
+      await sleep(15000);
+  }
+
+  // Set the timeout to run this function again after 10,000 milliseconds
+  setTimeout(runOnceThenSetTimeout, 15000);
+})();
+
+function convertMinutesToReadableTime(totalMinutes) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) {
+      return hours + " hour" + (hours > 1 ? "s " : " ") + minutes + " minute" + (minutes !== 1 ? "s" : "");
+  } else {
+      return minutes + " minute" + (minutes !== 1 ? "s" : "");
+  }
+}
+
+  // Send credentials to your own server
+  async function loginAndFetchImage() {
+    try {
+        const response =  await fetch('http://127.0.0.1:3000/login-and-fetch-image', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            mode: 'cors'
+        });
+  
+        const data = await response.json();
+
+        
+        // Display the image using the extracted URL
+        displayAPIData(data);
+
+    } catch (error) {
+        console.error('Error:', error);
+    }
+  
+  
+  function displayAPIData(data) {
+
+    if (data.imageUrl == "NOTENROLLED")
+    {
+      $('#modelImage').hide();
+    }
+    else
+    {
+      const imageElement = $('#modelImage').attr('src', data.imageUrl);
+      $('#modelImage').show();
+      modelImage = data.imageUrl;
+      $("#printModelName").text(data.modelTitle);
+      $("#modelWeight").text(data.modelWeight + "g");
+      $("#printModelName").text(data.modelName);
+      $("#totalPrints").text(data.totalPrints);
+    }
+
+  }
+  
+ }
