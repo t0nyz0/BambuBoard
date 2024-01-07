@@ -9,6 +9,7 @@ const printerAccessCode = 'FILL_THIS_OUT'; // Bambu Access Code (Located in sett
 const bambuUsername = 'FILL_THIS_OUT'; // Bambu Username to access API and get image of current print, if this is not provided no image will show
 const bambuPassword = 'FILL_THIS_OUT'; //
 
+
 //-------------------------------------------------------------------------------------------------------------
 
 // Enable if you want to see console log events
@@ -21,6 +22,7 @@ const consoleLogging = false;
 
 const mqtt = require("mqtt");
 const fs = require("fs");
+const fsp = require('fs').promises;
 const http = require("http");
 const url = require("url");
 const cors = require('cors');
@@ -114,6 +116,33 @@ app.get('/login-and-fetch-image', async (req, res) => {
   }
 });
 
+app.put('/note', async (req, res) => {
+  let dataToWrite = JSON.stringify(req.body);
+
+  try {
+    await fsp.writeFile("note.json", dataToWrite);
+    res.send('Note updated');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error writing note');
+  }
+});
+
+app.get('/note', async (req, res) => {
+  try {
+    const data = await fsp.readFile("note.json", "utf8");
+    
+    res.json(JSON.parse(data));
+  } catch (err) {
+    console.error(err);
+
+    if (err.code === 'ENOENT') {
+      res.status(404).send('File not found');
+    } else {
+      res.status(500).send('Error reading the file');
+    }
+  }
+});
 
 const PORT = 3000; // or any other port you prefer
 app.listen(PORT, () => {

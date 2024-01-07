@@ -10,11 +10,8 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 
 // -- Dont touch below
 
-
-
 // BambuBoard
 // TZ | 11/20/23
-
 
 let currentState = "OFF";
 let modelImage = "";
@@ -23,20 +20,18 @@ let telemetryObjectMain;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://" + serverURL + ":" + window.location.port + "/data.json");
+  const response = await fetch(
+    "http://" + serverURL + ":" + window.location.port + "/data.json"
+  );
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
+  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
-  }
-  else if (telemetryObject.print)
-  {
+  } else if (telemetryObject.print) {
     telemetryObject = "Incomplete";
-  } 
-  else
-  {
+  } else {
     telemetryObject = null;
   }
 
@@ -59,7 +54,7 @@ async function updateUI(telemetryObject) {
     const minutes = futureTime.getMinutes();
 
     // Determine AM or PM suffix
-    const ampm = hours >= 12 ? 'pm' : 'am';
+    const ampm = hours >= 12 ? "pm" : "am";
 
     // Format hours for 12-hour format and handle midnight/noon cases
     const formattedHours = hours % 12 === 0 ? 12 : hours % 12;
@@ -72,13 +67,10 @@ async function updateUI(telemetryObject) {
 
     log(formattedTime);
 
-
     if (printStatus === "RUNNING") {
       printStatus = "Printing";
     } else if (printStatus === "FINISH") {
-   
       printStatus = "Print Complete";
-
     } else if (printStatus === "FAILED") {
     }
 
@@ -98,9 +90,7 @@ async function updateUI(telemetryObject) {
     log("bedTempPercentage = " + bedTempPercentage);
 
     if (bedTempPercentage > 100) {
-      log(
-        "Bed percentage over 100, adjusting..." + nozzleTempPercentage
-      );
+      log("Bed percentage over 100, adjusting..." + nozzleTempPercentage);
       bedTempPercentage = 100;
     }
 
@@ -138,30 +128,25 @@ async function updateUI(telemetryObject) {
   }
 }
 
+function disableUI() {
+  $("#bedProgressBar").css("background-color", "grey");
+  $("#bedTargetTempTempSymbols").hide();
+}
 
-  function disableUI(){
-    $("#bedProgressBar").css("background-color", "grey");
-    $("#bedTargetTempTempSymbols").hide();
+function convertUtc(timestampUtcMs) {
+  var localTime = new Date(timestampUtcMs);
+
+  // Formatting the date to a readable string in local time
+  return localTime.toLocaleString();
+}
+
+function log(logText) {
+  if (consoleLogging) {
+    console.log(logText);
   }
+}
 
-
-  function convertUtc(timestampUtcMs) {
-    var localTime = new Date(timestampUtcMs);
-
-    // Formatting the date to a readable string in local time
-    return localTime.toLocaleString();
-  } 
-
-  function log(logText)
-  {
-    if (consoleLogging)
-    {
-      console.log(logText);
-    }
-  }
-  
-  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
 // Call the updateLog function to fetch and parse the data
 setInterval(async () => {
@@ -169,22 +154,16 @@ setInterval(async () => {
     var telemetryObject = await retrieveData();
     telemetryObjectMain = telemetryObject;
     if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete"){
+      if (telemetryObject != "Incomplete") {
         await updateUI(telemetryObject);
       }
-    }
-    else if (telemetryObject != "Incomplete")
-    {
+    } else if (telemetryObject != "Incomplete") {
       // Data is incomplete, but we did get something, just skip for now
-    }else
-    {
+    } else {
       disableUI();
     }
-
   } catch (error) {
     //console.error(error);
     await sleep(1000);
   }
 }, 1000);
-
- 

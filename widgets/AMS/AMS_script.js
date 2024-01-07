@@ -10,11 +10,8 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 
 // -- Dont touch below
 
-
-
 // BambuBoard
 // TZ | 11/20/23
-
 
 let currentState = "OFF";
 let modelImage = "";
@@ -23,27 +20,24 @@ let telemetryObjectMain;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://" + serverURL + ":" + window.location.port + "/data.json");
+  const response = await fetch(
+    "http://" + serverURL + ":" + window.location.port + "/data.json"
+  );
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
+  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
-  }
-  else if (telemetryObject.print)
-  {
+  } else if (telemetryObject.print) {
     telemetryObject = "Incomplete";
-  } 
-  else
-  {
+  } else {
     telemetryObject = null;
   }
 
   return telemetryObject;
 }
-
 
 async function updateAMS(telemetryObject) {
   /// AMS
@@ -313,34 +307,28 @@ async function updateAMS(telemetryObject) {
   }
 }
 
+function disableUI() {
+  $("#tray1ProgressBar").css("background-color", "grey");
+  $("#tray2ProgressBar").css("background-color", "grey");
+  $("#tray3ProgressBar").css("background-color", "grey");
+  $("#tray4ProgressBar").css("background-color", "grey");
+  $("#tray1Active").hide();
+  $("#tray2Active").hide();
+  $("#tray3Active").hide();
+  $("#tray4Active").hide();
+  $("#tray1Active").css("background-color", "grey");
+  $("#tray2Active").css("background-color", "grey");
+  $("#tray3Active").css("background-color", "grey");
+  $("#tray4Active").css("background-color", "grey");
+}
 
-  function disableUI(){
-    $("#tray1ProgressBar").css("background-color", "grey");
-    $("#tray2ProgressBar").css("background-color", "grey");
-    $("#tray3ProgressBar").css("background-color", "grey");
-    $("#tray4ProgressBar").css("background-color", "grey");
-    $("#tray1Active").hide();
-    $("#tray2Active").hide();
-    $("#tray3Active").hide();
-    $("#tray4Active").hide();
-    $("#tray1Active").css("background-color", "grey");
-    $("#tray2Active").css("background-color", "grey");
-    $("#tray3Active").css("background-color", "grey");
-    $("#tray4Active").css("background-color", "grey");
+function log(logText) {
+  if (consoleLogging) {
+    console.log(logText);
   }
+}
 
-
-
-  function log(logText)
-  {
-    if (consoleLogging)
-    {
-      console.log(logText);
-    }
-  }
-  
-  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
 // Call the updateLog function to fetch and parse the data
 setInterval(async () => {
@@ -348,18 +336,14 @@ setInterval(async () => {
     var telemetryObject = await retrieveData();
     telemetryObjectMain = telemetryObject;
     if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete"){
+      if (telemetryObject != "Incomplete") {
         await updateAMS(telemetryObject);
       }
-    }
-    else if (telemetryObject != "Incomplete")
-    {
+    } else if (telemetryObject != "Incomplete") {
       // Data is incomplete, but we did get something, just skip for now
-    }else
-    {
+    } else {
       disableUI();
     }
-
   } catch (error) {
     //console.error(error);
     await sleep(1000);
