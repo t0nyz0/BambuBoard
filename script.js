@@ -1,7 +1,7 @@
 //-------------------------------------------------------------------------------------------------------------
 /// Configure your settings here:
 
-const serverURL = '127.0.0.1'; // IP of the computer running this dashboard
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
 
 // Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
 //       Those features will only work if viewing the dashboard locally.
@@ -112,6 +112,7 @@ async function updateUI(telemetryObject) {
       $("#printProgressBar").css("background-color", "grey");
       $("#printRemaining").text(telemetryObject.mc_remaining_time);
       $("#printETA").text("Done");
+      $("#printRemaining").text("...");
     } else if (printStatus === "FAILED") {
       $("#printStatus").text("Print failed" + "... ");
       $("#printProgressBar").width(
@@ -120,6 +121,7 @@ async function updateUI(telemetryObject) {
       $("#printProgressBar").css("background-color", "#red");
       $("#printRemaining").text(telemetryObject.mc_remaining_time);
       $("#printETA").text("");
+      $("#printRemaining").text("...");
     }
 
     /// Bed Temp
@@ -922,12 +924,6 @@ function dBmToPercentage(dBm) {
   } 
 
 
-
-
-
-
-
-
   function log(logText)
   {
     if (consoleLogging)
@@ -1030,6 +1026,14 @@ function convertMinutesToReadableTime(totalMinutes) {
       $('#modelImage').show();
       modelImage = data.imageUrl;
       $("#printModelName").text(data.modelTitle);
+      if($("#printModelName").text() != data.modelTitle)
+      {
+        $("#printModelName2").text(" | " + data.modelTitle);
+      }
+      else
+      {
+        $("#printModelName2").text("");
+      }
       $("#modelWeight").text(data.modelWeight + "g");
       $("#printModelName").text(data.modelName);
       $("#totalPrints").text(data.totalPrints);
