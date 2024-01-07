@@ -118,8 +118,8 @@ In the "OBS_Settings" folder in the project root you will find the scene file fo
 
 List of all widget addresses:
 ```
-"AMS widget": "http://127.0.0.1:8080/widgets/AMS/index.html"
-"Bed Temp widget": "http://127.0.0.1:8080/widgets/BED-TEMP/index.html"
+"AMS widget": "http://127.0.0.1:8080/widgets/ams/index.html"
+"Bed Temp widget": "http://127.0.0.1:8080/widgets/bed-temp/index.html"
 "Chamber Temp widget": "http://127.0.0.1:8080/widgets/chamber-temp/index.html"
 "Fan widget": "http://127.0.0.1:8080/widgets/fans/index.html"
 "Model image widget": "http://127.0.0.1:8080/widgets/model-image/index.html"
