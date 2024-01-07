@@ -10,11 +10,8 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 
 // -- Dont touch below
 
-
-
 // BambuBoard
 // TZ | 11/20/23
-
 
 let currentState = "OFF";
 let modelImage = "";
@@ -23,21 +20,19 @@ let telemetryObjectMain;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://" + serverURL + ":" + window.location.port + "/data.json");
+  const response = await fetch(
+    "http://" + serverURL + ":" + window.location.port + "/data.json"
+  );
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
+  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
-  }
-  else if (telemetryObject.print)
-  {
+  } else if (telemetryObject.print) {
     telemetryObject = "Incomplete";
-  } 
-  else
-  {
+  } else {
     telemetryObject = null;
   }
 
@@ -46,10 +41,7 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
-    
-
     let printStatus = telemetryObject.gcode_state;
-
 
     // mc_remaining_time in minutes
     const mcRemainingTime = telemetryObject.mc_remaining_time;
@@ -62,7 +54,7 @@ async function updateUI(telemetryObject) {
     const minutes = futureTime.getMinutes();
 
     // Determine AM or PM suffix
-    const ampm = hours >= 12 ? 'pm' : 'am';
+    const ampm = hours >= 12 ? "pm" : "am";
 
     // Format hours for 12-hour format and handle midnight/noon cases
     const formattedHours = hours % 12 === 0 ? 12 : hours % 12;
@@ -75,7 +67,6 @@ async function updateUI(telemetryObject) {
 
     log(formattedTime);
 
-
     let modelName = telemetryObject.gcode_file;
     modelName = modelName.replace("/data/Metadata/", "");
 
@@ -87,32 +78,27 @@ async function updateUI(telemetryObject) {
     if (printStatus === "RUNNING") {
       printStatus = "Printing";
 
+      let readableTimeRemaining = convertMinutesToReadableTime(
+        telemetryObject.mc_remaining_time
+      );
 
-        let readableTimeRemaining = convertMinutesToReadableTime(telemetryObject.mc_remaining_time);
-        
-        if (readableTimeRemaining == 0)
-        {
-          readableTimeRemaining = "...";
-        }
-        
-        $("#printRemaining").text(readableTimeRemaining);
-        $("#printETA").text(formattedTime);
+      if (readableTimeRemaining == 0) {
+        readableTimeRemaining = "...";
+      }
+
+      $("#printRemaining").text(readableTimeRemaining);
+      $("#printETA").text(formattedTime);
     } else if (printStatus === "FINISH") {
-   
       printStatus = "Print Complete";
 
       $("#printRemaining").text(telemetryObject.mc_remaining_time);
       $("#printETA").text("Done");
       $("#printRemaining").text("...");
     } else if (printStatus === "FAILED") {
-
-      
       $("#printRemaining").text(telemetryObject.mc_remaining_time);
       $("#printETA").text("");
       $("#printRemaining").text("...");
     }
-
-   
 
     log(telemetryObject.t_utc);
     return telemetryObject;
@@ -121,32 +107,22 @@ async function updateUI(telemetryObject) {
   }
 }
 
+function disableUI() {}
 
+function convertUtc(timestampUtcMs) {
+  var localTime = new Date(timestampUtcMs);
 
+  // Formatting the date to a readable string in local time
+  return localTime.toLocaleString();
+}
 
-  function disableUI(){
+function log(logText) {
+  if (consoleLogging) {
+    console.log(logText);
   }
+}
 
-
-
-  function convertUtc(timestampUtcMs) {
-    var localTime = new Date(timestampUtcMs);
-
-    // Formatting the date to a readable string in local time
-    return localTime.toLocaleString();
-  } 
-
-
-  function log(logText)
-  {
-    if (consoleLogging)
-    {
-      console.log(logText);
-    }
-  }
-  
-  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
 // Call the updateLog function to fetch and parse the data
 setInterval(async () => {
@@ -154,18 +130,14 @@ setInterval(async () => {
     var telemetryObject = await retrieveData();
     telemetryObjectMain = telemetryObject;
     if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete"){
+      if (telemetryObject != "Incomplete") {
         await updateUI(telemetryObject);
       }
-    }
-    else if (telemetryObject != "Incomplete")
-    {
+    } else if (telemetryObject != "Incomplete") {
       // Data is incomplete, but we did get something, just skip for now
-    }else
-    {
+    } else {
       disableUI();
     }
-
   } catch (error) {
     //console.error(error);
     await sleep(1000);
@@ -175,19 +147,19 @@ setInterval(async () => {
 // Call the updateLog function to fetch and parse the data
 (async function runOnceThenSetTimeout() {
   try {
-      var telemetryObject = telemetryObjectMain;
-      if (telemetryObject != null) {
-          if (telemetryObject != "Incomplete") {
-              if (telemetryObject.layer_num == 0 && currentState == "RUNNING") {
-                  await loginAndFetchImage();
-              } else if (modelImage == "") {
-                  await loginAndFetchImage();
-              }
-          }
-      } 
+    var telemetryObject = telemetryObjectMain;
+    if (telemetryObject != null) {
+      if (telemetryObject != "Incomplete") {
+        if (telemetryObject.layer_num == 0 && currentState == "RUNNING") {
+          await loginAndFetchImage();
+        } else if (modelImage == "") {
+          await loginAndFetchImage();
+        }
+      }
+    }
   } catch (error) {
-      //console.error(error);
-      await sleep(15000);
+    //console.error(error);
+    await sleep(15000);
   }
 
   // Set the timeout to run this function again after 10,000 milliseconds
@@ -199,53 +171,49 @@ function convertMinutesToReadableTime(totalMinutes) {
   const minutes = totalMinutes % 60;
 
   if (hours > 0) {
-      return hours + " hour" + (hours > 1 ? "s " : " ") + minutes + " minute" + (minutes !== 1 ? "s" : "");
+    return (
+      hours +
+      " hour" +
+      (hours > 1 ? "s " : " ") +
+      minutes +
+      " minute" +
+      (minutes !== 1 ? "s" : "")
+    );
   } else {
-      return minutes + " minute" + (minutes !== 1 ? "s" : "");
+    return minutes + " minute" + (minutes !== 1 ? "s" : "");
   }
 }
 
-  // Send credentials to your own server
-  async function loginAndFetchImage() {
-    try {
-        const response =  await fetch('http://' + serverURL + ':3000/login-and-fetch-image', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-  
-        const data = await response.json();
-
-        
-        // Display the image using the extracted URL
-        displayAPIData(data);
-
-    } catch (error) {
-        console.error('Error:', error);
-    }
-  
-  
-  function displayAPIData(data) {
-
-    if (data.imageUrl == "NOTENROLLED")
-    {
-      
-    }
-    else
-    {
-   
-      
-      if($("#printModelName").text() != data.modelName)
+// Send credentials to your own server
+async function loginAndFetchImage() {
+  try {
+    const response = await fetch(
+      "http://" + serverURL + ":3000/login-and-fetch-image",
       {
-        $("#printModelName2").text(" | " + data.modelName);
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
       }
-      else
-      {
+    );
+
+    const data = await response.json();
+
+    // Display the image using the extracted URL
+    displayAPIData(data);
+  } catch (error) {
+    console.error("Error:", error);
+  }
+
+  function displayAPIData(data) {
+    if (data.imageUrl == "NOTENROLLED") {
+    } else {
+      if ($("#printModelName").text() != data.modelName) {
+        $("#printModelName2").text(" | " + data.modelName);
+      } else {
         $("#printModelName2").text("");
       }
       $("#modelWeight").text(data.modelWeight + "g");
-      
+
       $("#totalPrints").text(data.totalPrints);
     }
-
   }
 }

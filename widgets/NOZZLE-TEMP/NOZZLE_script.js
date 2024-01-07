@@ -10,11 +10,8 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 
 // -- Dont touch below
 
-
-
 // BambuBoard
 // TZ | 11/20/23
-
 
 let currentState = "OFF";
 let modelImage = "";
@@ -23,21 +20,19 @@ let telemetryObjectMain;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://" + serverURL + ":" + window.location.port + "/data.json");
+  const response = await fetch(
+    "http://" + serverURL + ":" + window.location.port + "/data.json"
+  );
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
+  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
-  }
-  else if (telemetryObject.print)
-  {
+  } else if (telemetryObject.print) {
     telemetryObject = "Incomplete";
-  } 
-  else
-  {
+  } else {
     telemetryObject = null;
   }
 
@@ -46,9 +41,8 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
-    
     let printStatus = telemetryObject.gcode_state;
-  
+
     let modelName = telemetryObject.gcode_file;
     modelName = modelName.replace("/data/Metadata/", "");
 
@@ -62,9 +56,7 @@ async function updateUI(telemetryObject) {
     } else if (printStatus === "FINISH") {
       printStatus = "Print Complete";
     } else if (printStatus === "FAILED") {
-
     }
-
 
     /// Nozzle Temp
 
@@ -81,9 +73,7 @@ async function updateUI(telemetryObject) {
     }
 
     if (nozzleTempPercentage > 100) {
-      log(
-        "Nozzle percentage over 100, adjusting..." + nozzleTempPercentage
-      );
+      log("Nozzle percentage over 100, adjusting..." + nozzleTempPercentage);
       nozzleTempPercentage = 100;
     }
 
@@ -126,24 +116,18 @@ async function updateUI(telemetryObject) {
   }
 }
 
+function disableUI() {
+  $("#nozzleProgressBar").css("background-color", "grey");
+  $("#nozzleTargetTempTempSymbols").hide();
+}
 
-  function disableUI(){
-    $("#nozzleProgressBar").css("background-color", "grey");
-    $("#nozzleTargetTempTempSymbols").hide();
+function log(logText) {
+  if (consoleLogging) {
+    console.log(logText);
   }
+}
 
-
-
-  function log(logText)
-  {
-    if (consoleLogging)
-    {
-      console.log(logText);
-    }
-  }
-  
-  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
 // Call the updateLog function to fetch and parse the data
 setInterval(async () => {
@@ -151,18 +135,14 @@ setInterval(async () => {
     var telemetryObject = await retrieveData();
     telemetryObjectMain = telemetryObject;
     if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete"){
+      if (telemetryObject != "Incomplete") {
         await updateUI(telemetryObject);
       }
-    }
-    else if (telemetryObject != "Incomplete")
-    {
+    } else if (telemetryObject != "Incomplete") {
       // Data is incomplete, but we did get something, just skip for now
-    }else
-    {
+    } else {
       disableUI();
     }
-
   } catch (error) {
     //console.error(error);
     await sleep(1000);

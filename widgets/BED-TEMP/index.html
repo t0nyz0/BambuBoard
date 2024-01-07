@@ -1,41 +1,46 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>Bambu Dash</title>
-  <link rel="stylesheet" type="text/css" href="../styles.css">
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <meta http-equiv="refresh" content="28800">
-</head>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bambu Dash</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
 
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-<body>
-<div class="container">
-
-  <div class="bedcontainer">
-    <div class="grid grid-gap-30">
-    <div class="column grid-gap-10">
-      <div class="bed-title">
-      <h2 class="partTitle">Bed Temperature</h2>
-                  <div class="progress-wrapper grid">
-            <div id="bedProgressBarParent" class="progress">
-              <div id="bedProgressBar" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+  />
+  <body>
+    <div class="container">
+      <div class="bedcontainer">
+        <div class="grid grid-gap-30">
+          <div class="column grid-gap-10">
+            <div class="bed-title">
+              <h2 class="partTitle">Bed Temperature</h2>
+              <div class="progress-wrapper grid">
+                <div id="bedProgressBarParent" class="progress">
+                  <div
+                    id="bedProgressBar"
+                    class="progress-bar"
+                    style="width: 5px; background-color: #ffcc41"
+                  ></div>
+                </div>
+                <div class="material-percentage">
+                  Target: <span id="bedTargetTemp">0</span
+                  ><span id="bedTargetTempTempSymbols"><sup>°</sup>F</span>
+                </div>
+              </div>
+              <h4 class="finePrint">
+                Current: <span id="bedCurrentTemp">0</span><sup>°</sup>F
+              </h4>
             </div>
-          <div class="material-percentage">Target: <span id="bedTargetTemp">0</span><span id="bedTargetTempTempSymbols"><sup>°</sup>F</span></div>
           </div>
-        <h4 class="finePrint">Current: <span id="bedCurrentTemp">0</span><sup>°</sup>F</h4>
-    
-    </div>
-  </div>
-      
+        </div>
+      </div>
     </div>
 
-      
-    </div>
-    </div>
-</div>
-
-<script src="BED_script.js"></script>
-
-</body>
+    <script src="BED_script.js"></script>
+  </body>
 </html>
