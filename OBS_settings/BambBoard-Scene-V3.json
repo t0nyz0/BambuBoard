@@ -134,7 +134,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://127.0.0.1:8080/widgets/AMS/index.html",
+                "url": "http://127.0.0.1:8080/widgets/ams/index.html",
                 "height": 620,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
             },
@@ -299,7 +299,7 @@
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
-                "local_file": "/Users/tony/Library/Application Support/BambuStudio/cameratools/ffmpeg.sdp",
+                "local_file": "/Users/UserName/Library/Application Support/BambuStudio/cameratools/ffmpeg.sdp",
                 "hw_decode": true,
                 "ffmpeg_options": "protocol_whitelist=file,udp,rtp",
                 "is_local_file": true
