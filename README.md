@@ -102,12 +102,41 @@ If you encounter any issues, consider the following:
 - Verify that the Raspberry Pi's firewall settings are not blocking the BambuBoard application.
 
 
+
+## OBS mode
+
+OBS widgets are now supported as of 1/7/24
+
+![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/e3691996-0dcd-436d-8c46-b5939d532714)
+
+I have provided a sample scene file that you can import into OBS, using "Scene Collection > Import".
+
+Note: Before importing, you will need to open the JSON and replace the 127.0.0.1 IP address with your server IP. 
+Also make sure to update the media feed to the ffmpeg provided to you from the Bambu software folder. Please refer to the Bambu GO Live documentation for more: https://wiki.bambulab.com/en/software/bambu-studio/virtual-camera
+
+In the "OBS_Settings" folder in the project root you will find the scene file for importing. If you run into any widgets not working, first check case sensitivity of the widget URL's. Depending on setup this can be an issue. 
+
+List of all widget addresses:
+```
+"AMS widget": "http://127.0.0.1:8080/widgets/AMS/index.html"
+"Bed Temp widget": "http://127.0.0.1:8080/widgets/BED-TEMP/index.html"
+"Chamber Temp widget": "http://127.0.0.1:8080/widgets/chamber-temp/index.html"
+"Fan widget": "http://127.0.0.1:8080/widgets/fans/index.html"
+"Model image widget": "http://127.0.0.1:8080/widgets/model-image/index.html"
+"Nozzle temperature widget": "http://127.0.0.1:8080/widgets/nozzle-temp/index.html"
+"Nozzle info widget": "http://127.0.0.1:8080/widgets/nozzle-info/index.html"
+"Print info widget": "http://127.0.0.1:8080/widgets/print-info/index.html"
+"Progress bar widget": "http://127.0.0.1:8080/widgets/progress-info/index.html"
+"Wifi widget": "http://127.0.0.1:8080/widgets/wifi/index.html"
+"Notes EDIT widget": "http://127.0.0.1:8080/widgets/notes/edit.html"
+"Notes VIEW widget": "http://127.0.0.1:8080/widgets/notes/index.html"
+```
 # Future Development Plans:
 
 ### (Completed 11/24/23) ~~Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js.~~
 ### (Completed) ~~Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.~~
 1. Add instructions on how to make the raspberry pi automatically boot into kiosk mode. Many tutorials online if you need immediate direction.
-2. Webcam feed from inside the printer added to the dashboard? (Currently in development) 
+~~2. Webcam feed from inside the printer added to the dashboard? (Currently in development)~~ In order to use webcam please use OBS mode, this will allow you to add the RTSP to your dashboard and place the dashboard widgets how you like.
 
 # Known Limitations:
 
