@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bambu Dash</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
+
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+  />
+  <body>
+    <div class="container">
+      <div class="bedcontainer light-border">
+        <div class="grid grid-gap-30">
+          <div class="column grid-gap-10">
+            <div>
+              <div class="printDetailsContainer">
+                <h3>
+                  <span class="fade printRemaining">Remaining:</span>
+                  <span class="printRemaining" id="printRemaining"
+                    >unknown</span
+                  >
+                  <span class="printRemaining"></span>
+                </h3>
+                <h3>
+                  <span class="fade">ETA:</span> <span id="printETA">...</span>
+                </h3>
+                <h3>
+                  <span class="fade">Model:</span>
+                  <span id="printModelName">...</span
+                  ><span id="printModeName2"></span>
+                </h3>
+                <h3>
+                  <span class="fade">Layer:</span>
+                  <span id="printCurrentLayer">...</span>
+                </h3>
+                <h3>
+                  <span class="fade">Filament weight:</span>
+                  <span id="modelWeight">...</span>
+                </h3>
+                <h3>
+                  <span class="fade">Total Prints:</span>
+                  <span id="totalPrints">...</span>
+                </h3>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="INFO_script.js"></script>
+  </body>
+</html>

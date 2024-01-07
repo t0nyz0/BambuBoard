@@ -1025,17 +1025,17 @@ function convertMinutesToReadableTime(totalMinutes) {
       const imageElement = $('#modelImage').attr('src', data.imageUrl);
       $('#modelImage').show();
       modelImage = data.imageUrl;
-      $("#printModelName").text(data.modelTitle);
-      if($("#printModelName").text() != data.modelTitle)
+      
+      if($("#printModelName").text() != data.modelName)
       {
-        $("#printModelName2").text(" | " + data.modelTitle);
+        $("#printModelName2").text(" | " + data.modelName);
       }
       else
       {
         $("#printModelName2").text("");
       }
       $("#modelWeight").text(data.modelWeight + "g");
-      $("#printModelName").text(data.modelName);
+      
       $("#totalPrints").text(data.totalPrints);
     }
 
