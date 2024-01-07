@@ -9,7 +9,6 @@ const printerAccessCode = 'FILL_THIS_OUT'; // Bambu Access Code (Located in sett
 const bambuUsername = 'FILL_THIS_OUT'; // Bambu Username to access API and get image of current print, if this is not provided no image will show
 const bambuPassword = 'FILL_THIS_OUT'; //
 
-
 //-------------------------------------------------------------------------------------------------------------
 
 // Enable if you want to see console log events
@@ -131,6 +130,11 @@ http
       pathname = "./index.html";
     }
 
+
+    // They should not be able to read the bambuConnection parameters. 
+    if (pathname ==="./bambuConnection.js") {
+      pathname = "./index.html";
+    }
     const ext = path.parse(pathname).ext;
     const map = {
       ".ico": "image/x-icon",
