@@ -107,7 +107,8 @@ If you encounter any issues, consider the following:
 
 OBS widgets are now supported as of 1/7/24
 
-![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/e3691996-0dcd-436d-8c46-b5939d532714)
+![Xnip2024-01-07_17-28-23](https://github.com/t0nyz0/BambuBoard/assets/63085518/ee7ce27c-a49f-4b2c-bfb7-c8f7ece13db8)
+
 
 I have provided a sample scene file that you can import into OBS, using "Scene Collection > Import".
 
