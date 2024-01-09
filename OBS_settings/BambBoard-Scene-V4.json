@@ -68,7 +68,7 @@
             "name": "Scene"
         }
     ],
-    "name": "Untitled",
+    "name": "Untitled 2",
     "groups": [],
     "quick_transitions": [
         {
@@ -299,9 +299,9 @@
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
-                "local_file": "/Users/UserName/Library/Application Support/BambuStudio/cameratools/ffmpeg.sdp",
-                "hw_decode": true,
                 "ffmpeg_options": "protocol_whitelist=file,udp,rtp",
+                "hw_decode": true,
+                "local_file": "/Users/UserName/Library/Application Support/BambuStudio/cameratools/ffmpeg.sdp",
                 "is_local_file": true
             },
             "mixers": 255,
@@ -340,7 +340,7 @@
                 "url": "http://127.0.0.1:8080/widgets/model-image/index.html",
                 "width": 512,
                 "height": 512,
-                "css": "body {margin: 0px auto; overflow: hidden; }"
+                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; }"
             },
             "mixers": 255,
             "sync": 0,
@@ -373,9 +373,9 @@
             "versioned_id": "browser_source",
             "settings": {
                 "url": "http://127.0.0.1:8080/widgets/notes/index.html",
-                "css": "body { margin: 0px auto; overflow: hidden; }",
-                "height": 100,
-                "width": 1100
+                "width": 1980,
+                "height": 70,
+                "css": "body { background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; font-size: 28px; }"
             },
             "mixers": 255,
             "sync": 0,
@@ -548,8 +548,8 @@
             "id": "scene",
             "versioned_id": "scene",
             "settings": {
-                "id_counter": 16,
                 "custom_size": false,
+                "id_counter": 17,
                 "items": [
                     {
                         "name": "Color Source",
@@ -558,7 +558,7 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 0.0,
+                            "x": -2.0,
                             "y": 0.0
                         },
                         "scale": {
@@ -635,7 +635,7 @@
                         "rot": 0.0,
                         "pos": {
                             "x": 0.0,
-                            "y": 567.0
+                            "y": 570.0
                         },
                         "scale": {
                             "x": 0.61374998092651367,
@@ -711,7 +711,7 @@
                         "rot": 0.0,
                         "pos": {
                             "x": 1738.0,
-                            "y": 119.0
+                            "y": 118.0
                         },
                         "scale": {
                             "x": 0.455078125,
@@ -939,7 +939,7 @@
                         "rot": 0.0,
                         "pos": {
                             "x": 0.0,
-                            "y": 86.0
+                            "y": 80.0
                         },
                         "scale": {
                             "x": 1.0,
@@ -1014,19 +1014,19 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 491.0,
-                            "y": 984.0
+                            "x": 494.0,
+                            "y": 113.0
                         },
                         "scale": {
-                            "x": 1.3536363840103149,
-                            "y": 1.3500000238418579
+                            "x": 1.0,
+                            "y": 1.0
                         },
                         "align": 5,
-                        "bounds_type": 0,
+                        "bounds_type": 1,
                         "bounds_align": 0,
                         "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
+                            "x": 1244.0,
+                            "y": 40.0
                         },
                         "crop_left": 0,
                         "crop_top": 0,

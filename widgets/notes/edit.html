@@ -45,6 +45,7 @@
                     body: JSON.stringify({ content: content })
                 });
                 if (response.ok) {
+                    alert('Note saved. The dashboard will update shortly.');
                 } else {
                     alert('Error saving note.');
                 }

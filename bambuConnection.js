@@ -9,7 +9,6 @@ const printerAccessCode = 'FILL_THIS_OUT'; // Bambu Access Code (Located in sett
 const bambuUsername = 'FILL_THIS_OUT'; // Bambu Username to access API and get image of current print, if this is not provided no image will show
 const bambuPassword = 'FILL_THIS_OUT'; //
 
-
 //-------------------------------------------------------------------------------------------------------------
 
 // Enable if you want to see console log events
@@ -34,6 +33,9 @@ const app = express();
 
 app.use(express.json());
 
+
+process.env.UV_THREADPOOL_SIZE = 128;
+
 function extractToken(cookies) {
   // Implement token extraction from the cookies string
   // This is a placeholder, actual implementation depends on the cookie format
@@ -48,16 +50,23 @@ app.use(cors({
   origin: '*' // Set the origin that you want to allow
 }));
 // Build node.js http server to host dashboard login and fetch method
+// Function to wrap a fetch call with a timeout
+function fetchWithTimeout(url, options, timeout = 8000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeout))
+  ]);
+}
+
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
-    if (bambuUsername != '')
-    {
-        // 1. Perform Authentication
-        const authResponse = await fetch('https://bambulab.com/api/sign-in/form', {
+    if (bambuUsername != '') {
+        // 1. Perform Authentication with timeout
+        const authResponse = await fetchWithTimeout('https://bambulab.com/api/sign-in/form', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ account: bambuUsername, password: bambuPassword, apiError: '' })
-        });
+        }, 7000); // 5000 milliseconds timeout
 
         if (!authResponse.ok) {
             throw new Error('Authentication failed');
@@ -66,11 +75,11 @@ app.get('/login-and-fetch-image', async (req, res) => {
         const cookies = authResponse.headers.raw()['set-cookie'][1];
         const token = extractToken(cookies); // Extract the token from the cookies
 
-        // 2. Make API call to get the image URL
-        const apiResponse = await fetch('https://api.bambulab.com/v1/user-service/my/tasks', {
+        // 2. Make API call to get the image URL with timeout
+        const apiResponse = await fetchWithTimeout('https://api.bambulab.com/v1/user-service/my/tasks', {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${token}` }
-        });
+        }, 7000); // 
 
         if (!apiResponse.ok) {
             throw new Error('API request failed');
@@ -92,12 +101,10 @@ app.get('/login-and-fetch-image', async (req, res) => {
           totalPrints: totalPrints
         };
 
-      // Sending the JSON object as the response
-      res.json(responseObject);
-  }
-  else
-  {
-        // Constructing a JSON object with the extracted values
+        // Sending the JSON object as the response
+        res.json(responseObject);
+    } else {
+        // Constructing a JSON object with default values
         const responseObject = {
           imageUrl: 'NOTENROLLED',
           modelTitle: '',
@@ -107,12 +114,10 @@ app.get('/login-and-fetch-image', async (req, res) => {
         };
       
         res.json(responseObject);
-  }
-
+    }
   } catch (error) {
       console.error('Error:', error);
-      res.status(500).send('Internal Server Error');
-      await sleep(5000);
+      res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 });
 

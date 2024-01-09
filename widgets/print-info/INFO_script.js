@@ -206,14 +206,16 @@ async function loginAndFetchImage() {
   function displayAPIData(data) {
     if (data.imageUrl == "NOTENROLLED") {
     } else {
-      if ($("#printModelName").text() != data.modelName) {
-        $("#printModelName2").text(" | " + data.modelName);
-      } else {
-        $("#printModelName2").text("");
-      }
-      $("#modelWeight").text(data.modelWeight + "g");
+      if (data.modelWeight !== null) {
+        if ($("#printModelName").text() != data.modelName) {
+          $("#printModelName2").text(" | " + data.modelName);
+        } else {
+          $("#printModelName2").text("");
+        }
+        $("#modelWeight").text(data.modelWeight + "g");
 
-      $("#totalPrints").text(data.totalPrints);
+        $("#totalPrints").text(data.totalPrints);
+      }
     }
   }
 }
