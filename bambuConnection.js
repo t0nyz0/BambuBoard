@@ -1,13 +1,14 @@
 //-------------------------------------------------------------------------------------------------------------
 /// Configure your settings here:
+const config = require('./config.json');
 
-const httpPort = 8080; // (8080) Without admin on windows getting anything under like 1000 to work is challenging, currently port 3000 is also used regardless of what port is used here
-const printerURL = '10.0.0.1'; // Bambu printer IP - (Located in settings on printer)
-const printerPort = '8883'; // Bambu printer port - dont change
-const printerSN = 'FILL_THIS_OUT'; // Bambu Serial Number (Located in settings on printer)
-const printerAccessCode = 'FILL_THIS_OUT'; // Bambu Access Code (Located in settings on printer)
-const bambuUsername = 'FILL_THIS_OUT'; // Bambu Username to access API and get image of current print, if this is not provided no image will show
-const bambuPassword = 'FILL_THIS_OUT'; //
+const httpPort = config.httpPort; // (8080) Without admin on windows getting anything under like 1000 to work is challenging, currently port 3000 is also used regardless of what port is used here
+const printerURL = config.printerURL; // Bambu printer IP - (Located in settings on printer)
+const printerPort = config.printerPort; // Bambu printer port - dont change
+const printerSN = config.printerSN; // Bambu Serial Number (Located in settings on printer)
+const printerAccessCode = config.printerAccessCode; // Bambu Access Code (Located in settings on printer)
+const bambuUsername = config.bambuUsername; // Bambu Username to access API and get image of current print, if this is not provided no image will show
+const bambuPassword = config.bambuPassword; //
 
 //-------------------------------------------------------------------------------------------------------------
 

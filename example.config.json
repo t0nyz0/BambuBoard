@@ -1,0 +1,9 @@
+{
+  "httpPort": 8080,
+  "printerURL": "10.0.0.1",
+  "printerPort": "8883",
+  "printerSN": "FILL_THIS_OUT",
+  "printerAccessCode": "FILL_THIS_OUT",
+  "bambuUsername": "FILL_THIS_OUT",
+  "bambuPassword": "FILL_THIS_OUT"
+}
