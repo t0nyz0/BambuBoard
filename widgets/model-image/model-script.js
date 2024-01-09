@@ -131,20 +131,7 @@ setInterval(async () => {
       const imageElement = $('#modelImage').attr('src', data.imageUrl);
       $('#modelImage').show();
       modelImage = data.imageUrl;
-      
-      if($("#printModelName").text() != data.modelName)
-      {
-        $("#printModelName2").text(" | " + data.modelName);
-      }
-      else
-      {
-        $("#printModelName2").text("");
-      }
-      $("#modelWeight").text(data.modelWeight + "g");
-      
-      $("#totalPrints").text(data.totalPrints);
     }
 
   }
-  
  }

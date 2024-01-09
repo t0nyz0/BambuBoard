@@ -1014,31 +1014,23 @@ function convertMinutesToReadableTime(totalMinutes) {
     }
   
   
-  function displayAPIData(data) {
-
-    if (data.imageUrl == "NOTENROLLED")
-    {
-      $('#modelImage').hide();
-    }
-    else
-    {
-      const imageElement = $('#modelImage').attr('src', data.imageUrl);
-      $('#modelImage').show();
-      modelImage = data.imageUrl;
-      
-      if($("#printModelName").text() != data.modelName)
-      {
-        $("#printModelName2").text(" | " + data.modelName);
+    function displayAPIData(data) {
+      if (data.imageUrl == "NOTENROLLED") {
+        $('#modelImage').hide();
+      } else {
+        if (data.modelWeight != null) {
+          if ($("#printModelName").text() != data.modelName) {
+            $("#printModelName2").text(" | " + data.modelName);
+          } else {
+            $("#printModelName2").text("");
+          }
+          $("#modelWeight").text(data.modelWeight + "g");
+          const imageElement = $('#modelImage').attr('src', data.imageUrl);
+          $('#modelImage').show();
+          modelImage = data.imageUrl;
+          $("#totalPrints").text(data.totalPrints);
+        }
       }
-      else
-      {
-        $("#printModelName2").text("");
-      }
-      $("#modelWeight").text(data.modelWeight + "g");
-      
-      $("#totalPrints").text(data.totalPrints);
     }
-
-  }
   
  }
