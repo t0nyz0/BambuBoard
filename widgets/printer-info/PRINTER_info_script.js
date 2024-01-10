@@ -167,17 +167,13 @@ executeTask();
   setTimeout(() => {
       executeTask();
       scheduleTask(); // Reschedule the next run
-  }, 5000);
+  }, 10000);
 })();
 
 
   // Send credentials to your own server
   async function loginAndFetchImage() {
     try {
-      $("#deviceName").text("Loading...");
-      $("#deviceModel").text("Loading...");
-      $("#bedType").text("Loading...");
-      $("#totalPrints").text("Loading...");
 
         const response =  await fetch('http://' + serverURL + ':3000/login-and-fetch-image', {
             method: 'GET',
