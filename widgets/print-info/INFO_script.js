@@ -14,7 +14,7 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 // TZ | 11/20/23
 
 let currentState = "OFF";
-let modelImage = "";
+let printModelName = "";
 const consoleLogging = false;
 let telemetryObjectMain;
 
@@ -144,27 +144,34 @@ setInterval(async () => {
   }
 }, 1000);
 
-// Call the updateLog function to fetch and parse the data
-(async function runOnceThenSetTimeout() {
+async function executeTask() {
   try {
-    var telemetryObject = telemetryObjectMain;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        if (telemetryObject.layer_num == 0 && currentState == "RUNNING") {
-          await loginAndFetchImage();
-        } else if (modelImage == "") {
-          await loginAndFetchImage();
-        }
+      var telemetryObject = telemetryObjectMain;
+      if (telemetryObject != null && telemetryObject != "Incomplete") {
+          if (telemetryObject.layer_num == 0 && currentState == "RUNNING" || printModelName == "") {
+              await loginAndFetchImage();
+          }
+      } 
+      else if (telemetryObject == null){
+        await loginAndFetchImage();
       }
-    }
   } catch (error) {
-    //console.error(error);
-    await sleep(15000);
+      //console.error(error);
+      await sleep(12000);
   }
+}
 
-  // Set the timeout to run this function again after 10,000 milliseconds
-  setTimeout(runOnceThenSetTimeout, 15000);
+// Run the task immediately
+executeTask();
+
+// Then set it to run at intervals
+(function scheduleTask() {
+  setTimeout(() => {
+      executeTask();
+      scheduleTask(); // Reschedule the next run
+  }, 5000);
 })();
+
 
 function convertMinutesToReadableTime(totalMinutes) {
   const hours = Math.floor(totalMinutes / 60);
@@ -206,9 +213,10 @@ async function loginAndFetchImage() {
   function displayAPIData(data) {
     if (data.imageUrl == "NOTENROLLED") {
     } else {
-      if (data.modelWeight !== null) {
-        if ($("#printModelName").text() != data.modelName) {
-          $("#printModelName2").text(" | " + data.modelName);
+      if (data.printModelName !== null) {
+        printModelName = data.modelTitle;
+        if ($("#printModelName").text() != data.modelTitle) {
+          $("#printModelName2").text(" | " + data.modelTitle);
         } else {
           $("#printModelName2").text("");
         }
