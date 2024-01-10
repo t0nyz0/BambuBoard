@@ -77,28 +77,33 @@ setInterval(async () => {
   }
 }, 1000);
 
-// Call the updateLog function to fetch and parse the data
-(async function runOnceThenSetTimeout() {
+async function executeTask() {
   try {
       var telemetryObject = telemetryObjectMain;
-      if (telemetryObject != null) {
-          if (telemetryObject != "Incomplete") {
-              if (telemetryObject.layer_num == 0 && currentState == "RUNNING") {
-                  await loginAndFetchImage();
-              } else if (modelImage == "") {
-                  await loginAndFetchImage();
-              }
+      if (telemetryObject != null && telemetryObject != "Incomplete") {
+          if (telemetryObject.layer_num == 0 && currentState == "RUNNING" || modelImage == "") {
+              await loginAndFetchImage();
           }
       } 
+      else if (telemetryObject == null){
+        await loginAndFetchImage();
+      }
   } catch (error) {
       //console.error(error);
-      await sleep(15000);
+      await sleep(12000);
   }
+}
 
-  // Set the timeout to run this function again after 10,000 milliseconds
-  setTimeout(runOnceThenSetTimeout, 15000);
+// Run the task immediately
+executeTask();
+
+// Then set it to run at intervals
+(function scheduleTask() {
+  setTimeout(() => {
+      executeTask();
+      scheduleTask(); // Reschedule the next run
+  }, 5000);
 })();
-
 
 
   // Send credentials to your own server

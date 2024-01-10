@@ -59,66 +59,98 @@ function fetchWithTimeout(url, options, timeout = 8000) {
   ]);
 }
 
+let cache = {
+  lastRequestTime: 0,
+  data: null
+};
+const cacheDuration = 60000; // Cache duration set to 60 seconds
+
+// Helper function for fetch with timeout
+async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  return fetch(resource, {
+    ...options,
+    signal: controller.signal  
+  }).then(response => {
+    clearTimeout(id);
+    return response;
+  });
+}
+
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
+    const currentTime = new Date().getTime();
+
+    // Check if cached data is valid and return it if valid
+    if (currentTime - cache.lastRequestTime < cacheDuration && cache.data) {
+      return res.json(cache.data);
+    }
+
     if (bambuUsername != '') {
-        // 1. Perform Authentication with timeout
         const authResponse = await fetchWithTimeout('https://bambulab.com/api/sign-in/form', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ account: bambuUsername, password: bambuPassword, apiError: '' })
-        }, 7000); // 5000 milliseconds timeout
+        }, 7000);
 
         if (!authResponse.ok) {
             throw new Error('Authentication failed');
         }
 
         const cookies = authResponse.headers.raw()['set-cookie'][1];
-        const token = extractToken(cookies); // Extract the token from the cookies
+        const token = extractToken(cookies);
 
-        // 2. Make API call to get the image URL with timeout
         const apiResponse = await fetchWithTimeout('https://api.bambulab.com/v1/user-service/my/tasks', {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${token}` }
-        }, 7000); // 
+        }, 7000);
 
         if (!apiResponse.ok) {
             throw new Error('API request failed');
         }
 
         const data = await apiResponse.json();
-        const imageUrl = data.hits[0].cover; 
-        const modelTitle = data.hits[0].title;
-        const modelWeight = data.hits[0].weight;
-        const modelCostTime = data.hits[0].costTime;
-        const totalPrints = data.total;
-
-        // Constructing a JSON object with the extracted values
         const responseObject = {
-          imageUrl: imageUrl,
-          modelTitle: modelTitle,
-          modelWeight: modelWeight,
-          modelCostTime: modelCostTime,
-          totalPrints: totalPrints
+          imageUrl: data.hits[0].cover,
+          modelTitle: data.hits[0].title,
+          modelWeight: data.hits[0].weight,
+          modelCostTime: data.hits[0].costTime,
+          totalPrints: data.total,
+          deviceName: data.hits[0].deviceName,
+          deviceModel: data.hits[0].deviceModel,
+          bedType: data.hits[0].bedType
         };
 
-        // Sending the JSON object as the response
+        // Update cache
+        cache = {
+          lastRequestTime: new Date().getTime(),
+          data: responseObject
+        };
+
         res.json(responseObject);
     } else {
-        // Constructing a JSON object with default values
         const responseObject = {
           imageUrl: 'NOTENROLLED',
           modelTitle: '',
           modelWeight: '',
           modelCostTime: '',
-          totalPrints: ''
+          totalPrints: '',
+          deviceName: '',
+          deviceModel: '',
+          bedType: ''
+        };
+
+        // Update cache with default response
+        cache = {
+          lastRequestTime: new Date().getTime(),
+          data: responseObject
         };
       
         res.json(responseObject);
     }
   } catch (error) {
       console.error('Error:', error);
-      res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
 });
 
