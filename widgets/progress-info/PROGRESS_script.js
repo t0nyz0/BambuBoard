@@ -45,7 +45,7 @@ async function updateUI(telemetryObject) {
     let progressParentWidth = $("#printParentProgressBar").width();
 
     if (printStatus === "RUNNING") {
-      printStatus = "Printing";
+      printStatus = "Printing" + "... " + telemetryObject.mc_percent + "%";
 
       if(telemetryObject.stg_cur != 0)
       {
@@ -53,7 +53,7 @@ async function updateUI(telemetryObject) {
       }
       $("#printProgressBar").css("background-color", "#51a34f");
       $("#printStatus").text(
-        printStatus + "... " + telemetryObject.mc_percent + "%"
+        printStatus
       );
       $("#printProgressBar").width(
         (telemetryObject.mc_percent * progressParentWidth) / 100
