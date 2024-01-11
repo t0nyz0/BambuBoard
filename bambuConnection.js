@@ -184,7 +184,7 @@ app.get('/note', async (req, res) => {
 
 const PORT = 3000; // or any other port you prefer
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`BambuBoard running on port ${PORT}`);
 });
 
 http
@@ -211,8 +211,6 @@ http
       ".css": "text/css",
       ".png": "image/png",
       ".jpg": "image/jpeg",
-      ".wav": "audio/wav",
-      ".mp3": "audio/mpeg",
       ".svg": "image/svg+xml",
       ".pdf": "application/pdf",
       ".doc": "application/msword",
