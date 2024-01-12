@@ -139,6 +139,8 @@ function convertMinutesToReadableTime(totalMinutes) {
 function get_stage_string(stage)
 {
     switch(stage) {
+    case -1:
+        return ("Printing")
     case 0:
         return ("Printing");
     case 1:
