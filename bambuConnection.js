@@ -199,7 +199,7 @@ http
 
 
     // They should not be able to read the bambuConnection parameters. 
-    if (pathname ==="./bambuConnection.js") {
+    if (pathname ==="./bambuConnection.js" || pathname ==="./config.json") {
       pathname = "./index.html";
     }
     const ext = path.parse(pathname).ext;
