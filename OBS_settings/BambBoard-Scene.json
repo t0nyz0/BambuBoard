@@ -21,9 +21,9 @@
         "push-to-talk-delay": 0,
         "hotkeys": {
             "libobs.mute": [],
+            "libobs.unmute": [],
             "libobs.push-to-mute": [],
-            "libobs.push-to-talk": [],
-            "libobs.unmute": []
+            "libobs.push-to-talk": []
         },
         "deinterlace_mode": 0,
         "deinterlace_field_order": 0,
@@ -52,9 +52,9 @@
         "push-to-talk-delay": 0,
         "hotkeys": {
             "libobs.mute": [],
+            "libobs.unmute": [],
             "libobs.push-to-mute": [],
-            "libobs.push-to-talk": [],
-            "libobs.unmute": []
+            "libobs.push-to-talk": []
         },
         "deinterlace_mode": 0,
         "deinterlace_field_order": 0,
@@ -68,7 +68,7 @@
             "name": "Scene"
         }
     ],
-    "name": "Untitled 2",
+    "name": "BambuBoard 1.0.1",
     "groups": [],
     "quick_transitions": [
         {
@@ -124,12 +124,6 @@
             "switch_if_not_matching": false,
             "active": false,
             "switches": []
-        },
-        "captions": {
-            "source": "",
-            "enabled": false,
-            "lang_id": 1033,
-            "provider": "mssapi"
         }
     },
     "sources": [
@@ -140,7 +134,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/ams/index.html",
+                "url": "http://10.0.0.69:8080/widgets/ams/index.html",
                 "width": 700,
                 "height": 620,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -175,7 +169,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/bed-temp/index.html",
+                "url": "http://10.0.0.69:8080/widgets/bed-temp/index.html",
                 "width": 700,
                 "height": 160,
                 "css": "body {margin: 0px auto; overflow: hidden; }"
@@ -210,7 +204,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/chamber-temp/index.html",
+                "url": "http://10.0.0.69:8080/widgets/chamber-temp/index.html",
                 "width": 700,
                 "height": 160,
                 "css": "body {margin: 0px auto; overflow: hidden; }"
@@ -271,7 +265,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/fans/index.html",
+                "url": "http://10.0.0.69:8080/widgets/fans/index.html",
                 "width": 700,
                 "height": 200,
                 "fps": 60,
@@ -345,7 +339,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/model-image/index.html",
+                "url": "http://10.0.0.69:8080/widgets/model-image/index.html",
                 "width": 512,
                 "height": 512,
                 "css": "body {background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; }"
@@ -380,7 +374,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/notes/index.html",
+                "url": "http://10.0.0.69:8080/widgets/notes/index.html",
                 "width": 1500,
                 "height": 60,
                 "css": "body { border-radius:15px; background: rgb(0 0 0 / 95%); margin: 0px auto; overflow: hidden; font-size: 28px; }"
@@ -415,7 +409,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/nozzle-temp/index.html",
+                "url": "http://10.0.0.69:8080/widgets/nozzle-temp/index.html",
                 "width": 700,
                 "height": 160,
                 "css": "body {  margin: 0px auto; overflow: hidden; }"
@@ -450,11 +444,11 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/printer-info/index.html",
+                "undo_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
+                "url": "http://10.0.0.69:8080/widgets/printer-info/index.html",
                 "width": 355,
-                "height": 270,
-                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }",
-                "undo_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b"
+                "height": 265,
+                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }\n\n.bedcontainer {\n    margin-top: 5px;\n}\n\n.bed-title {\n    padding: 10px 15px;\n}"
             },
             "mixers": 255,
             "sync": 0,
@@ -486,7 +480,7 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/print-info/index.html",
+                "url": "http://10.0.0.69:8080/widgets/print-info/index.html",
                 "width": 1920,
                 "height": 290,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -522,7 +516,7 @@
             "versioned_id": "browser_source",
             "settings": {
                 "undo_uuid": "4afaa6aa-09d3-40f2-a3a8-41a96d3db274",
-                "url": "http://10.0.0.47:8080/widgets/progress-info/index.html",
+                "url": "http://10.0.0.69:8080/widgets/progress-info/index.html",
                 "width": 1920,
                 "height": 100,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -558,7 +552,7 @@
             "versioned_id": "scene",
             "settings": {
                 "custom_size": false,
-                "id_counter": 21,
+                "id_counter": 23,
                 "items": [
                     {
                         "name": "Color Source",
@@ -568,7 +562,7 @@
                         "rot": 0.0,
                         "pos": {
                             "x": 0.0,
-                            "y": -1.0
+                            "y": 0.0
                         },
                         "scale": {
                             "x": 1.0,
@@ -789,44 +783,6 @@
                         "private_settings": {}
                     },
                     {
-                        "name": "WIFI",
-                        "source_uuid": "1fa0a8a5-25db-4e9a-9a7c-bbcbc1d2898c",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 1004.0
-                        },
-                        "scale": {
-                            "x": 0.60000002384185791,
-                            "y": 0.60000002384185791
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 9,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
                         "name": "Progress",
                         "source_uuid": "89eca8d9-252b-4190-bdfa-8ffcc497759f",
                         "visible": true,
@@ -941,18 +897,18 @@
                         "private_settings": {}
                     },
                     {
-                        "name": "Model Image",
-                        "source_uuid": "67d89b49-2e86-48df-8c36-c875d19a5155",
+                        "name": "Version",
+                        "source_uuid": "1b2f1cee-e09d-46a6-8375-fd4db486da4f",
                         "visible": true,
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 1686.0,
-                            "y": 99.0
+                            "x": 1817.0,
+                            "y": 990.0
                         },
                         "scale": {
-                            "x": 0.45703125,
-                            "y": 0.45703125
+                            "x": 0.55000001192092896,
+                            "y": 0.55000001192092896
                         },
                         "align": 5,
                         "bounds_type": 0,
@@ -965,7 +921,7 @@
                         "crop_top": 0,
                         "crop_right": 0,
                         "crop_bottom": 0,
-                        "id": 6,
+                        "id": 23,
                         "group_item_backup": false,
                         "scale_filter": "disable",
                         "blend_method": "default",
@@ -1017,6 +973,44 @@
                         "private_settings": {}
                     },
                     {
+                        "name": "WIFI",
+                        "source_uuid": "1fa0a8a5-25db-4e9a-9a7c-bbcbc1d2898c",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": -3.0517578125e-5,
+                            "y": 1004.0
+                        },
+                        "scale": {
+                            "x": 0.60000002384185791,
+                            "y": 0.60000002384185791
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 9,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
                         "name": "Nozzle-Info",
                         "source_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
                         "visible": true,
@@ -1042,6 +1036,44 @@
                         "crop_right": 0,
                         "crop_bottom": 0,
                         "id": 10,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Model Image",
+                        "source_uuid": "67d89b49-2e86-48df-8c36-c875d19a5155",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 1686.0,
+                            "y": 99.0
+                        },
+                        "scale": {
+                            "x": 0.45703125,
+                            "y": 0.45703125
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 6,
                         "group_item_backup": false,
                         "scale_filter": "disable",
                         "blend_method": "default",
@@ -1081,20 +1113,57 @@
                 "libobs.hide_scene_item.4": [],
                 "libobs.show_scene_item.11": [],
                 "libobs.hide_scene_item.11": [],
-                "libobs.show_scene_item.9": [],
-                "libobs.hide_scene_item.9": [],
                 "libobs.show_scene_item.12": [],
                 "libobs.hide_scene_item.12": [],
                 "libobs.show_scene_item.8": [],
                 "libobs.hide_scene_item.8": [],
-                "libobs.show_scene_item.20": [],
-                "libobs.hide_scene_item.20": [],
                 "libobs.show_scene_item.6": [],
                 "libobs.hide_scene_item.6": [],
+                "libobs.show_scene_item.10": [],
+                "libobs.hide_scene_item.10": [],
+                "libobs.show_scene_item.23": [],
+                "libobs.hide_scene_item.23": [],
+                "libobs.show_scene_item.20": [],
+                "libobs.hide_scene_item.20": [],
                 "libobs.show_scene_item.16": [],
                 "libobs.hide_scene_item.16": [],
-                "libobs.show_scene_item.10": [],
-                "libobs.hide_scene_item.10": []
+                "libobs.show_scene_item.9": [],
+                "libobs.hide_scene_item.9": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503316482,
+            "name": "Version",
+            "uuid": "1b2f1cee-e09d-46a6-8375-fd4db486da4f",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://10.0.0.69:8080/widgets/version/index.html",
+                "width": 200,
+                "height": 60,
+                "css": "body {background: rgb(0 0 0 / 0%); color: white; margin: 0px auto; overflow: hidden; }"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
             },
             "deinterlace_mode": 0,
             "deinterlace_field_order": 0,
@@ -1108,9 +1177,9 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.47:8080/widgets/wifi/index.html",
+                "url": "http://10.0.0.69:8080/widgets/wifi/index.html",
                 "width": 700,
-                "height": 130,
+                "height": 120,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
             },
             "mixers": 255,
