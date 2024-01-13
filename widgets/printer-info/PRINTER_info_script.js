@@ -207,6 +207,10 @@ executeTask();
         {
           $("#bedType").text("Cool Plate");
         }
+        else if(data.bedType == "hot_plate")
+        {
+          $("#bedType").text("PEI Smooth Plate");
+        }
         else
         {
           $("#bedType").text(data.bedType);
