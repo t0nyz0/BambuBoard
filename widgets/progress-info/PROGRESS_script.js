@@ -140,7 +140,7 @@ function get_stage_string(stage)
 {
     switch(stage) {
     case -1:
-        return ("Printing")
+        return ("Working")
     case 0:
         return ("Printing");
     case 1:
