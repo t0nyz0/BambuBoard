@@ -107,12 +107,12 @@ If you encounter any issues, consider the following:
 
 OBS widgets are now supported as of 1/7/24
 
-![Xnip2024-01-07_17-28-23](https://github.com/t0nyz0/BambuBoard/assets/63085518/ee7ce27c-a49f-4b2c-bfb7-c8f7ece13db8)
+![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/801cfe92-aea2-456e-b311-73640101fa07)
 
 
 I have provided a sample scene file that you can import into OBS, using "Scene Collection > Import".
 
-Note: Before importing, you will need to open the JSON and replace the 127.0.0.1 IP address with your server IP. 
+Note: Before importing, you will need to open the JSON and replace the IP address listed with your server IP. 
 Also make sure to update the media feed to the ffmpeg provided to you from the Bambu software folder. Please refer to the Bambu GO Live documentation for more: https://wiki.bambulab.com/en/software/bambu-studio/virtual-camera
 
 In the "OBS_Settings" folder in the project root you will find the scene file for importing. If you run into any widgets not working, first check case sensitivity of the widget URL's. Depending on setup this can be an issue. 
@@ -131,7 +131,11 @@ List of all widget addresses:
 "Wifi widget": "http://127.0.0.1:8080/widgets/wifi/index.html"
 "Notes EDIT widget": "http://127.0.0.1:8080/widgets/notes/edit.html"
 "Notes VIEW widget": "http://127.0.0.1:8080/widgets/notes/index.html"
+"Version widget": "http://127.0.0.1:8080/widgets/version/index.html"
 ```
+
+Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/notes/index.html
+
 # Future Development Plans:
 
 ### (Completed 11/24/23) ~~Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js.~~
