@@ -26,6 +26,7 @@
   </div>
 
   <div class="bedcontainer light-border">
+    <div class="bed-title">
     <div class="grid grid-gap-30">
   <div class="column grid-gap-10">
     <div>
@@ -36,9 +37,9 @@
       <h3><span class="fade">Layer:</span> <span id="printCurrentLayer">...</span></h3>
       <h3><span class="fade">Filament weight:</span> <span id="modelWeight">...</span></h3>
       <h3><span class="fade">Total Prints:</span> <span id="totalPrints">...</span></h3>
+      <h3><span class="fade">Speed: <span id="printSpeed" style="color: #51a34f;">Normal</span></span></h3>
     </div>
   </div>
-
   </div>
 
   <div class="column model-image grid-gap-10">
@@ -48,41 +49,57 @@
     </div>
 </div>
 </div>
+</div>
   
   <div class="bedcontainer">
     <div class="grid grid-gap-30">
     <div class="column grid-gap-10">
       <div class="bed-title">
       <h2 class="partTitle">Bed Temperature</h2>
-                  <div class="progress-wrapper grid">
+                  <div class="progress-wrapper">
             <div id="bedProgressBarParent" class="progress">
               <div id="bedProgressBar" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
             </div>
-          <div class="material-percentage">Target: <span id="bedTargetTemp">0</span><span id="bedTargetTempTempSymbols"><sup>°</sup>F</span></div>
           </div>
-        <h4 class="finePrint">Current: <span id="bedCurrentTemp">0</span><sup>°</sup>F</h4>
+
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">
+            Current: <span id="bedCurrentTemp">0</span><sup>°</sup>F
+          </h4>
+          <h4 class="finePrint">
+            Target: <span id="bedTargetTemp">0</span><span id="bedTargetTempTempSymbols"><sup>°</sup>F</span>
+          </h4>
+      </div>
 
     </div>
       <div class="bed-title">
       <h2 class="partTitle">Nozzle Temperature</h2>
-                  <div class="progress-wrapper grid">
+                  <div class="progress-wrapper">
             <div id="nozzleProgressBarParent" class="progress">
               <div id="nozzleProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
             </div>
-          <div class="material-percentage">Target: <span id="nozzleTargetTemp">0</span><span id="nozzleTargetTempTempSymbols"><sup>°</sup>F</span></div>
           </div>
-        <h4 class="finePrint">Current: <span id="nozzleCurrentTemp">0</span><sup>°</sup>F</h4>
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">Current: <span id="nozzleCurrentTemp">0</span><sup>°</sup>F</h4>
+          <h4 class="finePrint">
+            Target: <span id="nozzleTargetTemp">0</span><span id="nozzleTargetTempTempSymbols"><sup>°</sup>F</span>
+          </h4>
+      </div>
     </div>
 
     <div class="bed-title">
       <h2 class="partTitle">Chamber Temperature</h2>
-                  <div class="progress-wrapper grid">
+                  <div class="progress-wrapper">
             <div id="chamberProgressBarParent" class="progress">
               <div id="chamberProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
             </div>
-          <div class="material-percentage">Max: <span id="chamberTargetTemp">0</span><span id="chamberTargetTempTempSymbols"><sup>°</sup>F</span></div>
           </div>
-        <h4 class="finePrint">Current: <span id="chamberCurrentTemp">0</span><sup>°</sup>F</h4>
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">Current: <span id="chamberCurrentTemp">0</span><sup>°</sup>F</h4>
+          <h4 class="finePrint">
+            Max: <span id="chamberTargetTemp">0</span><span id="chamberTargetTempTempSymbols"><sup>°</sup>F</span>
+          </h4>
+      </div>
     </div>
 
 
@@ -110,7 +127,7 @@
 
       <div class="fan3">
         <h4 class="finePrint">
-          Cooling Fan
+          Cooling
         </h4>
         <span id="fan3" class="material-symbols-outlined" style="will-change: transform;">
           toys_fan
@@ -119,7 +136,7 @@
 
       <div class="fan4">
         <h4 class="finePrint">
-          Heatbreak Fan
+          Heatbreak
         </h4>
         <span id="fan4" class="material-symbols-outlined" style="will-change: transform;">
           toys_fan
@@ -142,14 +159,15 @@
           <h3 id="tray1Material" class="material">Unknown</h3>
           <span id="tray1Active" class="badge-active">active</span>
           </div>
-          <h4 id="tray1Type" class="finePrint">Unknown • Unknown</h4>
-          <div class="progress-wrapper grid">
+          <div class="ams-type-remaining">
+            <h4 id="tray1Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray1Remaining" class="finePrint">75%</h4>
+          </div>
+          <div class="progress-wrapper">
             <div id="tray1ProgressBarParent" class="progress">
               <div id="tray1ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
             </div>
-          <div id="tray1Remaining" class="material-percentage">75%</div>
-          </div>
-          
+          </div>    
         </div>
       </div>
 
@@ -161,14 +179,15 @@
           <h3 id="tray2Material" class="material">Unknown</h3>
           <span id="tray2Active" class="badge-active">active</span>
           </div>
-          <h4 id="tray2Type" class="finePrint">Unknown • Unknown</h4>
-          <div class="progress-wrapper grid">
+          <div class="ams-type-remaining">
+            <h4 id="tray2Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray2Remaining" class="finePrint">75%</h4>
+         </div>
+          <div class="progress-wrapper">
             <div id="tray2ProgressBarParent" class="progress">
               <div id="tray2ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
             </div>
-          <div id="tray2Remaining" class="material-percentage">75%</div>
-          </div>
-          
+          </div>   
         </div>
       </div>
 
@@ -179,14 +198,15 @@
           <h3 id="tray3Material" class="material">Unknown</h3>
           <span id="tray3Active" class="badge-active">active</span>
           </div>
-          <h4 id="tray3Type" class="finePrint">Unknown • Unknown</h4>
-          <div class="progress-wrapper grid">
+          <div class="ams-type-remaining">
+            <h4 id="tray3Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray3Remaining" class="finePrint">75%</h4>
+         </div>
+          <div class="progress-wrapper">
             <div id="tray3ProgressBarParent"  class="progress">
               <div id="tray3ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
-            </div>
-          <div id="tray3Remaining" class="material-percentage">75%</div>
-          </div>
-          
+            </div>         
+          </div>       
         </div>
       </div>
 
@@ -197,16 +217,18 @@
           <h3 id="tray4Material" class="material">Unknown</h3>
            <span id="tray4Active" class="badge-active">active</span>
           </div>
-          <h4 id="tray4Type" class="finePrint">Unknown • Unknown</h4>
-          <div class="progress-wrapper grid">
+          <div class="ams-type-remaining">
+            <h4 id="tray4Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray4Remaining" class="finePrint">75%</h4>
+         </div>
+          <div class="progress-wrapper">
             <div id="tray4ProgressBarParent" class="progress">
               <div id="tray4ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
             </div>
-          <div id="tray4Remaining" class="material-percentage">75%</div>
-          </div>
-          
+          </div>  
         </div>
       </div>
+
     </div>
           </div>
  
@@ -217,19 +239,20 @@
             <div class="ams-container">
               <h4 class="finePrint">Type: <span id="nozzleType">Hardened Steel</span></h4>
               <h4 class="finePrint">Size: <span id="nozzleSize">0.4</span></h4>
-              <h4 class="finePrint">Speed: <span id="printSpeed" style="color: #51a34f;">Normal</span></h4>
             </div>
           </div>
 
-          <div class="bed-title column">
+          <div class="bed-title">
             <h2 class="partTitle">Wifi</h2>
-            <div class="progress-wrapper grid">
-              <div id="wifiProgressBarParent"  class="progress">
+            <div class="progress-wrapper">
+              <div class="flex" style="justify-content: flex-end;">
+                <h4 class="finePrint"><span id="wifiValue">100</span>%</h4>
+              </div>
+              <div id="wifiProgressBarParent" class="progress">
                 <div id="wifiProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
               </div>
-                <div class="material-percentage"><span id="wifiValue">100</span>%</div>
+                
             </div>
-                <h4 class="finePrint">Signal</h4>
           </div> 
 
         </div>
