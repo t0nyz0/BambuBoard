@@ -17,10 +17,19 @@
             <div id="chamberProgressBarParent" class="progress">
               <div id="chamberProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
             </div>
-          <div class="material-percentage">Max: <span id="chamberTargetTemp">0</span><span id="chamberTargetTempTempSymbols"><sup>°</sup>F</span></div>
           </div>
-        <h4 class="finePrint">Current: <span id="chamberCurrentTemp">0</span><sup>°</sup>F</h4>
-    </div>
+        
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">
+            Current: <span id="chamberCurrentTemp">0</span><sup>°</sup><span id="tempMeasurementType2">F</span>
+          </h4>
+          <h4 class="finePrint">
+            Max: 
+            <span id="chamberTargetTemp">0</span><span id="chamberTargetTempTempSymbols"><sup>°</sup><span id="tempMeasurementType">F</span></span>
+          </h4>
+      </div>
+    
+      </div>
 
 <script src="CHAMBER_script.js"></script>
 

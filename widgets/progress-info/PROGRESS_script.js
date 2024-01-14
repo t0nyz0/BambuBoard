@@ -178,7 +178,7 @@ function get_stage_string(stage)
     case 17:
         return ("Pause of front cover falling");
     case 18:
-        return ("Calibrating the micro lida");
+        return ("Calibrating the micro lidar");
     case 19:
         return ("Calibrating extrusion flow");
     case 20:

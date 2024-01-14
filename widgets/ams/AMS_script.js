@@ -52,11 +52,11 @@ async function updateAMS(telemetryObject) {
   var tray1Remaining = telemetryObject.ams.ams[0].tray[0].remain;
 
   if (!tray1Remaining) {
-    $("#tray1Remaining").text("Unknown");
+    $("#tray1Remaining").text("0%");
     $("#tray1ProgressBar").css("background-color", "grey");
   } else {
     if (!tray1FilamentType) {
-      tray1FilamentType = "Unknown";
+      tray1FilamentType = "";
     }
 
     log(tray1Color);
@@ -66,7 +66,7 @@ async function updateAMS(telemetryObject) {
     if (!tray1UID) {
       tray1Type = tray1FilamentType;
     } else if (tray1UID === "0000000000000000") {
-      tray1Type = "Unknown • " + tray1FilamentType;
+      tray1Type = "";
     } else {
       tray1Type = "Bambu • " + tray1FilamentType;
     }
@@ -109,11 +109,11 @@ async function updateAMS(telemetryObject) {
   var tray2Remaining = telemetryObject.ams.ams[0].tray[1].remain;
 
   if (!tray2Remaining) {
-    $("#tray2Remaining").text("Unknown");
+    $("#tray2Remaining").text("0%");
     $("#tray2ProgressBar").css("background-color", "grey");
   } else {
     if (!tray2FilamentType) {
-      tray2FilamentType = "Unknown";
+      tray2FilamentType = "";
     }
 
     log(tray2Color);
@@ -123,7 +123,7 @@ async function updateAMS(telemetryObject) {
     if (!tray2UID) {
       tray2Type = tray2FilamentType;
     } else if (tray2UID === "0000000000000000") {
-      tray2Type = "Unknown • " + tray2FilamentType;
+      tray2Type = "" + tray2FilamentType;
     } else {
       tray2Type = "Bambu • " + tray2FilamentType;
     }
@@ -168,11 +168,11 @@ async function updateAMS(telemetryObject) {
 
   // Does not exist
   if (!tray3Remaining) {
-    $("#tray3Remaining").text("Unknown");
+    $("#tray3Remaining").text("0%");
     $("#tray3ProgressBar").css("background-color", "grey");
   } else {
     if (!tray3FilamentType) {
-      tray3FilamentType = "Unknown";
+      tray3FilamentType = "";
     }
 
     log(tray3Color);
@@ -182,7 +182,7 @@ async function updateAMS(telemetryObject) {
     if (!tray3UID) {
       tray3Type = tray3FilamentType;
     } else if (tray3UID === "0000000000000000") {
-      tray3Type = "Unknown • " + tray3FilamentType;
+      tray3Type = "" + tray3FilamentType;
     } else {
       tray3Type = "Bambu • " + tray3FilamentType;
     }
@@ -225,11 +225,11 @@ async function updateAMS(telemetryObject) {
   var tray4Remaining = telemetryObject.ams.ams[0].tray[3].remain;
 
   if (!tray4Remaining) {
-    $("#tray4Remaining").text("Unknown");
+    $("#tray4Remaining").text("0%");
     $("#tray4ProgressBar").css("background-color", "grey");
   } else {
     if (!tray4FilamentType) {
-      tray4FilamentType = "Unknown";
+      tray4FilamentType = "";
     }
 
     log(tray4Color);
@@ -239,7 +239,7 @@ async function updateAMS(telemetryObject) {
     if (!tray4UID) {
       tray4Type = tray4FilamentType;
     } else if (tray4UID === "0000000000000000") {
-      tray4Type = "Unknown • " + tray4FilamentType;
+      tray4Type = "" + tray4FilamentType;
     } else {
       tray4Type = "Bambu • " + tray4FilamentType;
     }
