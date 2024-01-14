@@ -1,15 +1,11 @@
 # BambuBoard
-Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
+Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. Looking for the best Bambu printer OBS overlay? Scroll to the bottom
 
 # Screenshots:
 
-Screenshot (Updated version: 1/6/24):
-![Xnip2024-01-06_12-45-07](https://github.com/t0nyz0/BambuBoard/assets/63085518/4010842e-e7b9-4094-82e9-5b5d6a8cb1bf)
+Screenshot (Updated version: 1/14/24):
+![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/33ebcaa1-a80b-4372-b218-1b22901b0695)
 
-
-Running on physical dashboard (Updated version: 1/6/24):
-
-![IMG_0531](https://github.com/t0nyz0/BambuBoard/assets/63085518/9439a858-b5bc-4ced-81da-fcf20f3dfcf8)
 
 
 # BambuBoard Setup Guide
@@ -107,7 +103,8 @@ If you encounter any issues, consider the following:
 
 OBS widgets are now supported as of 1/7/24
 
-![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/801cfe92-aea2-456e-b311-73640101fa07)
+![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/6a8f19e5-6c56-43e4-8c77-a0e36ca53f13)
+
 
 
 I have provided a sample scene file that you can import into OBS, using "Scene Collection > Import".
