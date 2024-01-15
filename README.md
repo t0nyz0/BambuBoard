@@ -10,7 +10,7 @@ Screenshot (Updated version: 1/14/24):
 
 # BambuBoard Setup Guide
 
-Welcome to the BambuBoard Setup Guide. This document will walk you through the process of cloning the BambuBoard repository and setting up Node.js on your Raspberry Pi to run the BambuBoard dashboard.
+Welcome to the BambuBoard Setup Guide. This document will walk you through the process of cloning the BambuBoard repository and setting up Node.js on a Raspberry Pi to run the BambuBoard dashboard.
 
 
 ## Step 1: Install Node.js
@@ -131,14 +131,14 @@ List of all widget addresses:
 "Version widget": "http://127.0.0.1:8080/widgets/version/index.html"
 ```
 
-Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/notes/index.html
+Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/notes/edit.html
 
 # Future Development Plans:
 
-### (Completed 11/24/23) ~~Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js.~~
-### (Completed) ~~Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.~~
-1. Add instructions on how to make the raspberry pi automatically boot into kiosk mode. Many tutorials online if you need immediate direction.
-~~2. Webcam feed from inside the printer added to the dashboard? (Currently in development)~~ In order to use webcam please use OBS mode, this will allow you to add the RTSP to your dashboard and place the dashboard widgets how you like.
+- Celcius / Fahrenheit preference setting
+- Better settings configuration
+- Add AMS humidty / temp
+- AMS Active tray tracking
 
 # Known Limitations:
 
