@@ -23,6 +23,14 @@ body {
   color: rgb(180, 180, 180);
 }
 
+.ellipsis {
+  white-space: nowrap; 
+  text-overflow: ellipsis; 
+  overflow: hidden;
+  display: block;
+  position: relative;
+}
+
 .dot {
   height: 60px;
   width: 60px;
