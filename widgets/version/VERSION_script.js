@@ -31,7 +31,7 @@ async function retrieveData() {
 }
 
 function setVersion(telemetryObject) {
-  $("#versionNumber").text("Version: " + telemetryObject.version);
+  $("#versionNumber").text("BambuBoard Version: " + telemetryObject.version);
 }
 
 function log(logText) {

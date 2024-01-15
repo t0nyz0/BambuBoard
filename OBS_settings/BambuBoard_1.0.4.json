@@ -903,12 +903,12 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 1806.0,
-                            "y": 988.0
+                            "x": 1721.6363525390625,
+                            "y": 979.0
                         },
                         "scale": {
-                            "x": 0.61500000953674316,
-                            "y": 0.61428570747375488
+                            "x": 0.70454543828964233,
+                            "y": 0.69999998807907104
                         },
                         "align": 5,
                         "bounds_type": 0,
@@ -1143,7 +1143,7 @@
             "versioned_id": "browser_source",
             "settings": {
                 "url": "http://10.0.0.69:8080/widgets/version/index.html",
-                "width": 190,
+                "width": 290,
                 "height": 70,
                 "css": "body {background: rgb(0 0 0 / 0%); margin: 0px auto; overflow: hidden; }"
             },
