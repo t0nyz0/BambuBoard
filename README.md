@@ -10,7 +10,7 @@ Screenshot (Updated version: 1/14/24):
 
 # BambuBoard Setup Guide
 
-Welcome to the BambuBoard Setup Guide. This document will walk you through the process of cloning the BambuBoard repository and setting up Node.js on your Raspberry Pi to run the BambuBoard dashboard.
+Welcome to the BambuBoard Setup Guide. This document will walk you through the process of cloning the BambuBoard repository and setting up Node.js on a Raspberry Pi to run the BambuBoard dashboard.
 
 
 ## Step 1: Install Node.js
