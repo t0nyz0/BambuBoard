@@ -131,7 +131,7 @@ List of all widget addresses:
 "Version widget": "http://127.0.0.1:8080/widgets/version/index.html"
 ```
 
-Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/notes/index.html
+Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/notes/edit.html
 
 # Future Development Plans:
 
