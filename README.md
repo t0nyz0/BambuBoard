@@ -135,10 +135,10 @@ Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/note
 
 # Future Development Plans:
 
-### (Completed 11/24/23) ~~Investigating the integration of native MQTT capabilities using libraries like Paho or MQTT.js.~~
-### (Completed) ~~Upcoming updates will include photos of the actual dashboard setup to demonstrate its real-world application.~~
-1. Add instructions on how to make the raspberry pi automatically boot into kiosk mode. Many tutorials online if you need immediate direction.
-~~2. Webcam feed from inside the printer added to the dashboard? (Currently in development)~~ In order to use webcam please use OBS mode, this will allow you to add the RTSP to your dashboard and place the dashboard widgets how you like.
+- Celcius / Fahrenheit preference setting
+- Better settings configuration
+- Add AMS humidty / temp
+- AMS Active tray tracking
 
 # Known Limitations:
 
