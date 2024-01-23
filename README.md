@@ -1,5 +1,5 @@
 # BambuBoard
-Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. Are you looking for the best Bambu printer OBS overlay? Scroll to the bottom, we have OBS support also! Check out a live stream here: https://www.youtube.com/watch?v=WIrwoydCmFw
+Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. Are you looking for the best Bambu printer OBS overlay? Scroll to the bottom, we have OBS support also! Check out a live stream here: https://www.youtube.com/watch?v=bpprL0Pt40k
 
 # Screenshots:
 
