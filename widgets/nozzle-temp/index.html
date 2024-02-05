@@ -19,25 +19,20 @@
           <div class="column grid-gap-10">
             <div class="bed-title">
               <h2 class="partTitle">Nozzle Temperature</h2>
-              <div class="progress-wrapper grid">
-                <div id="nozzleProgressBarParent" class="progress">
-                  <div
-                    id="nozzleProgressBar"
-                    class="progress-bar"
-                    style="width: 5px; background-color: #5c0000"
-                  ></div>
-                </div>
-              <div style="display: flex;justify-content: space-between;">
-                <h4 class="finePrint">
-                  Current: <span id="nozzleCurrentTemp">0</span><sup>°</sup>F
-                </h4>
-                <h4 class="finePrint">
-                  Target: <span id="nozzleTargetTemp">0</span
-                    ><span id="nozzleTargetTempTempSymbols"><sup>°</sup>F</span>
-                </h4>
+                          <div class="progress-wrapper">
+                    <div id="nozzleProgressBarParent" class="progress">
+                      <div id="nozzleProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
+                    </div>
+                  </div>
+                <div style="display: flex;justify-content: space-between;">
+                  <h4 class="finePrint">
+                    <b>Current: <span id="nozzleCurrentTempC">0</span></b><span id="nozzleCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleCurrentTempF">0</span><span id="nozzleCurrentTempSymbolsF"><sup>°</sup>F</span>
+                  </h4>
+                  <h4 class="finePrint">
+                    <b>Target: <span id="nozzleTargetTempC">0</span><span id="nozzleTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleTargetTempF">0</span><span id="nozzleTargetTempSymbolsF"><sup>°</sup>F</span></span>
+                  </h4>
+              </div>
             </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
