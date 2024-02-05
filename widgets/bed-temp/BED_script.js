@@ -15,8 +15,24 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 
 let currentState = "OFF";
 let modelImage = "";
+let tempSetting = "Fahrenheit"; // Celsius or Both
 const consoleLogging = false;
 let telemetryObjectMain;
+
+async function loadSettings() {
+  try {
+      const serverURL = window.location.hostname;
+      const response = await fetch('http://' + serverURL + ':3000/settings');
+      if (response.ok) {
+          const data = await response.json();
+          tempSetting = data;
+      } 
+  } catch (error) {
+      console.error('Error loading settings:', error);
+  }
+}
+
+loadSettings();
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -82,7 +98,9 @@ async function updateUI(telemetryObject) {
     if (telemetryObject.bed_target_temper === 0) {
       bedTargetTemp = "OFF";
     } else {
+      
       bedTargetTemp = (telemetryObject.bed_target_temper * 9) / 5 + 32;
+      
       bedTempPercentage =
         (telemetryObject.bed_temper / telemetryObject.bed_target_temper) * 100;
     }
@@ -90,18 +108,24 @@ async function updateUI(telemetryObject) {
     log("bedTempPercentage = " + bedTempPercentage);
 
     if (bedTempPercentage > 100) {
-      log("Bed percentage over 100, adjusting..." + nozzleTempPercentage);
+      log(
+        "Bed percentage over 100, adjusting..." + nozzleTempPercentage
+      );
       bedTempPercentage = 100;
     }
 
     // Set target temp in UI
-    $("#bedTargetTemp").text(bedTargetTemp);
+    $("#bedTargetTempF").text(bedTargetTemp);
+    $("#bedTargetTempC").text(telemetryObject.bed_target_temper);
 
     // Set current temp in UI
     var bedCurrentTemp = (telemetryObject.bed_temper * 9) / 5 + 32;
-    $("#bedCurrentTemp").text(bedCurrentTemp);
+    $("#bedCurrentTempF").text(bedCurrentTemp);
+    $("#bedCurrentTempC").text(telemetryObject.bed_temper);
+
     log("bedCurrentTemp = " + bedCurrentTemp);
     let progressBedParentWidth = $("#bedProgressBarParent").width();
+
     log("progressBedParentWidth = " + progressBedParentWidth);
     $("#bedProgressBar").width(
       (bedTempPercentage * progressBedParentWidth) / 100
@@ -109,9 +133,49 @@ async function updateUI(telemetryObject) {
 
     if (bedTargetTemp === "OFF") {
       $("#bedProgressBar").css("background-color", "grey");
-      $("#bedTargetTempTempSymbols").hide();
+
+
+      $("#bedTargetTempC").hide();
+      $("#bedTargetTempSymbolsF").hide();
+      $("#bedTargetTempSymbolsC").hide();
     } else {
-      $("#bedTargetTempTempSymbols").show();
+      if (tempSetting === "Fahrenheit")
+      {
+        $("#bedTargetTempSymbolsF").show();
+        $("#bedCurrentTempSymbolsF").show();
+        $("#bedTargetTempF").show();
+        $("#bedCurrentTempF").show();
+
+        $("#bedCurrentTempC").hide();
+        $("#bedTargetTempSymbolsC").hide();
+        $("#bedCurrentTempSymbolsC").hide();
+        $("#bedTargetTempC").hide();
+      }
+      else if (tempSetting === "Celsius")
+      {
+        $("#bedTargetTempSymbolsF").hide();
+        $("#bedCurrentTempSymbolsF").hide();
+        $("#bedTargetTempF").hide();
+        $("#bedCurrentTempF").hide();
+
+        $("#bedCurrentTempC").show();
+        $("#bedTargetTempSymbolsC").show();
+        $("#bedCurrentTempSymbolsC").show();
+        $("#bedTargetTempC").show();
+      }
+      else if (tempSetting === "Both")
+      {
+        $("#bedTargetTempSymbolsF").show();
+        $("#bedCurrentTempSymbolsF").show();
+        $("#bedTargetTempF").show();
+        $("#bedCurrentTempF").show();
+
+        $("#bedCurrentTempC").show();
+        $("#bedTargetTempSymbolsC").show();
+        $("#bedCurrentTempSymbolsC").show();
+        $("#bedTargetTempC").show();
+      }
+
       if (bedTempPercentage > 80) {
         $("#bedProgressBar").css("background-color", "red");
       } else if (bedTempPercentage > 50) {

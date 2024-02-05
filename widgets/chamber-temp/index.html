@@ -11,23 +11,22 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
 <body>
 <div class="container">
-    <div class="bed-title" style="margin-top:15px;">
+    <div class="bed-title">
       <h2 class="partTitle">Chamber Temperature</h2>
-                  <div class="progress-wrapper grid">
+                  <div class="progress-wrapper">
             <div id="chamberProgressBarParent" class="progress">
               <div id="chamberProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
             </div>
           </div>
-        
         <div style="display: flex;justify-content: space-between;">
           <h4 class="finePrint">
-            Current: <span id="chamberCurrentTemp">0</span><sup>°</sup><span id="tempMeasurementType2">F</span>
+            <b>Current: <span id="chamberCurrentTempC">0</span></b><span id="chamberCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="chamberCurrentTempF">0</span><span id="chamberCurrentTempSymbolsF"><sup>°</sup>F</span>
           </h4>
           <h4 class="finePrint">
-            Max: 
-            <span id="chamberTargetTemp">0</span><span id="chamberTargetTempTempSymbols"><sup>°</sup><span id="tempMeasurementType">F</span></span>
+            <b>Max: <span id="chamberTargetTempC">0</span><span id="chamberTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="chamberTargetTempF">0</span><span id="chamberTargetTempSymbolsF"><sup>°</sup>F</span></span>
           </h4>
       </div>
+    </div>
     
       </div>
 

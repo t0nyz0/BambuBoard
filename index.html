@@ -64,10 +64,10 @@
 
         <div style="display: flex;justify-content: space-between;">
           <h4 class="finePrint">
-            Current: <span id="bedCurrentTemp">0</span><sup>°</sup>F
+            <b>Current: <span id="bedCurrentTempC">0</span></b></span><span id="bedCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="bedCurrentTempF">0</span><span id="bedCurrentTempSymbolsF"><sup>°</sup>F</span>
           </h4>
           <h4 class="finePrint">
-            Target: <span id="bedTargetTemp">0</span><span id="bedTargetTempTempSymbols"><sup>°</sup>F</span>
+            <b>Target: <span id="bedTargetTempC">0</span><span id="bedTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="bedTargetTempF">0</span><span id="bedTargetTempSymbolsF"><sup>°</sup>F</span></span>
           </h4>
       </div>
 
@@ -80,9 +80,11 @@
             </div>
           </div>
         <div style="display: flex;justify-content: space-between;">
-          <h4 class="finePrint">Current: <span id="nozzleCurrentTemp">0</span><sup>°</sup>F</h4>
           <h4 class="finePrint">
-            Target: <span id="nozzleTargetTemp">0</span><span id="nozzleTargetTempTempSymbols"><sup>°</sup>F</span>
+            <b>Current: <span id="nozzleCurrentTempC">0</span></b><span id="nozzleCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleCurrentTempF">0</span><span id="nozzleCurrentTempSymbolsF"><sup>°</sup>F</span>
+          </h4>
+          <h4 class="finePrint">
+            <b>Target: <span id="nozzleTargetTempC">0</span><span id="nozzleTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleTargetTempF">0</span><span id="nozzleTargetTempSymbolsF"><sup>°</sup>F</span></span>
           </h4>
       </div>
     </div>
@@ -95,9 +97,11 @@
             </div>
           </div>
         <div style="display: flex;justify-content: space-between;">
-          <h4 class="finePrint">Current: <span id="chamberCurrentTemp">0</span><sup>°</sup>F</h4>
           <h4 class="finePrint">
-            Max: <span id="chamberTargetTemp">0</span><span id="chamberTargetTempTempSymbols"><sup>°</sup>F</span>
+            <b>Current: <span id="chamberCurrentTempC">0</span></b><span id="chamberCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="chamberCurrentTempF">0</span><span id="chamberCurrentTempSymbolsF"><sup>°</sup>F</span>
+          </h4>
+          <h4 class="finePrint">
+            <b>Max: <span id="chamberTargetTempC">0</span><span id="chamberTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="chamberTargetTempF">0</span><span id="chamberTargetTempSymbolsF"><sup>°</sup>F</span></span>
           </h4>
       </div>
     </div>
@@ -157,7 +161,7 @@
         <div class="dot-content">
           <div class="flex">
           <h3 id="tray1Material" class="material">Unknown</h3>
-          <span id="tray1Active" class="badge-active">active</span>
+          <span id="tray1Active" class="badge-active" style="display:none">active</span>
           </div>
           <div class="ams-type-remaining">
             <h4 id="tray1Type" class="finePrint">Unknown • Unknown</h4>
@@ -177,7 +181,7 @@
         <div class="dot-content">
           <div class="flex">
           <h3 id="tray2Material" class="material">Unknown</h3>
-          <span id="tray2Active" class="badge-active">active</span>
+          <span id="tray2Active" class="badge-active" style="display:none">active</span>
           </div>
           <div class="ams-type-remaining">
             <h4 id="tray2Type" class="finePrint">Unknown • Unknown</h4>
@@ -196,7 +200,7 @@
         <div class="dot-content">
           <div class="flex">
           <h3 id="tray3Material" class="material">Unknown</h3>
-          <span id="tray3Active" class="badge-active">active</span>
+          <span id="tray3Active" class="badge-active" style="display:none">active</span>
           </div>
           <div class="ams-type-remaining">
             <h4 id="tray3Type" class="finePrint">Unknown • Unknown</h4>
@@ -215,7 +219,7 @@
         <div class="dot-content">
           <div class="flex">
           <h3 id="tray4Material" class="material">Unknown</h3>
-           <span id="tray4Active" class="badge-active">active</span>
+           <span id="tray4Active" class="badge-active" style="display:none">active</span>
           </div>
           <div class="ams-type-remaining">
             <h4 id="tray4Type" class="finePrint">Unknown • Unknown</h4>
