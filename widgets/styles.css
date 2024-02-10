@@ -120,10 +120,15 @@ align-items:center;
 }
 .grid-columns-2 {
     display: grid;
-  grid-gap: 20px;
+    grid-gap: 20px;
     padding: 25px 30px;
-    /*border: 2px solid #000;*/
     margin: 0px 0 10px 0;
+}
+.grid-columns-3 {
+  display: grid;
+  grid-gap: 20px;
+  padding: 5px 5px;
+  margin: 0px 0 10px 0;
 }
 
 .progress-segment {
