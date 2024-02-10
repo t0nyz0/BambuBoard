@@ -9,6 +9,7 @@ const printerSN = process.env.BAMBUBOARD_PRINTER_SN || config.BambuBoard_printer
 const printerAccessCode = process.env.BAMBUBOARD_PRINTER_ACCESS_CODE || config.BambuBoard_printerAccessCode; // Checks for PRINTER_ACCESS_CODE in environment variables, if not found uses config.printerAccessCode
 const bambuUsername = process.env.BAMBUBOARD_BAMBU_USERNAME || config.BambuBoard_bambuUsername; // Checks for BAMBU_USERNAME in environment variables, if not found uses config.bambuUsername
 const bambuPassword = process.env.BAMBUBOARD_BAMBU_PASSWORD || config.BambuBoard_bambuPassword; // Checks for BAMBU_PASSWORD in environment variables, if not found uses config.bambuPassword
+const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting; // Checks to see how you want your temp displayed 
 
 //-------------------------------------------------------------------------------------------------------------
 
@@ -179,6 +180,15 @@ app.get('/note', async (req, res) => {
     } else {
       res.status(500).send('Error reading the file');
     }
+  }
+});
+
+app.get('/settings', async (req, res) => {
+  try {
+    res.json(tempSetting);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error');
   }
 });
 

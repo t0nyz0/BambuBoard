@@ -18,8 +18,10 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 
 let currentState = "OFF";
 let modelImage = "";
+let tempSetting = "Fahrenheit"; // Celsius or Both
 const consoleLogging = false;
 let telemetryObjectMain;
+
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -132,7 +134,9 @@ async function updateUI(telemetryObject) {
     if (telemetryObject.bed_target_temper === 0) {
       bedTargetTemp = "OFF";
     } else {
+      
       bedTargetTemp = (telemetryObject.bed_target_temper * 9) / 5 + 32;
+      
       bedTempPercentage =
         (telemetryObject.bed_temper / telemetryObject.bed_target_temper) * 100;
     }
@@ -147,13 +151,17 @@ async function updateUI(telemetryObject) {
     }
 
     // Set target temp in UI
-    $("#bedTargetTemp").text(bedTargetTemp);
+    $("#bedTargetTempF").text(bedTargetTemp);
+    $("#bedTargetTempC").text(telemetryObject.bed_target_temper);
 
     // Set current temp in UI
     var bedCurrentTemp = (telemetryObject.bed_temper * 9) / 5 + 32;
-    $("#bedCurrentTemp").text(bedCurrentTemp);
+    $("#bedCurrentTempF").text(bedCurrentTemp);
+    $("#bedCurrentTempC").text(telemetryObject.bed_temper);
+
     log("bedCurrentTemp = " + bedCurrentTemp);
     let progressBedParentWidth = $("#bedProgressBarParent").width();
+
     log("progressBedParentWidth = " + progressBedParentWidth);
     $("#bedProgressBar").width(
       (bedTempPercentage * progressBedParentWidth) / 100
@@ -161,9 +169,49 @@ async function updateUI(telemetryObject) {
 
     if (bedTargetTemp === "OFF") {
       $("#bedProgressBar").css("background-color", "grey");
-      $("#bedTargetTempTempSymbols").hide();
+
+
+      $("#bedTargetTempC").hide();
+      $("#bedTargetTempSymbolsF").hide();
+      $("#bedTargetTempSymbolsC").hide();
     } else {
-      $("#bedTargetTempTempSymbols").show();
+      if (tempSetting === "Fahrenheit")
+      {
+        $("#bedTargetTempSymbolsF").show();
+        $("#bedCurrentTempSymbolsF").show();
+        $("#bedTargetTempF").show();
+        $("#bedCurrentTempF").show();
+
+        $("#bedCurrentTempC").hide();
+        $("#bedTargetTempSymbolsC").hide();
+        $("#bedCurrentTempSymbolsC").hide();
+        $("#bedTargetTempC").hide();
+      }
+      else if (tempSetting === "Celsius")
+      {
+        $("#bedTargetTempSymbolsF").hide();
+        $("#bedCurrentTempSymbolsF").hide();
+        $("#bedTargetTempF").hide();
+        $("#bedCurrentTempF").hide();
+
+        $("#bedCurrentTempC").show();
+        $("#bedTargetTempSymbolsC").show();
+        $("#bedCurrentTempSymbolsC").show();
+        $("#bedTargetTempC").show();
+      }
+      else if (tempSetting === "Both")
+      {
+        $("#bedTargetTempSymbolsF").show();
+        $("#bedCurrentTempSymbolsF").show();
+        $("#bedTargetTempF").show();
+        $("#bedCurrentTempF").show();
+
+        $("#bedCurrentTempC").show();
+        $("#bedTargetTempSymbolsC").show();
+        $("#bedCurrentTempSymbolsC").show();
+        $("#bedTargetTempC").show();
+      }
+
       if (bedTempPercentage > 80) {
         $("#bedProgressBar").css("background-color", "red");
       } else if (bedTempPercentage > 50) {
@@ -198,11 +246,13 @@ async function updateUI(telemetryObject) {
     log("nozzleTempPercentage = " + nozzleTempPercentage);
 
     // Set target temp in UI
-    $("#nozzleTargetTemp").text(nozzleTargetTemp);
+    $("#nozzleTargetTempF").text(nozzleTargetTemp);
+    $("#nozzleTargetTempC").text(telemetryObject.nozzle_target_temper);
 
     // Set current temp in UI
     var nozzleCurrentTemp = (telemetryObject.nozzle_temper * 9) / 5 + 32;
-    $("#nozzleCurrentTemp").text(nozzleCurrentTemp);
+    $("#nozzleCurrentTempF").text(nozzleCurrentTemp);
+    $("#nozzleCurrentTempC").text(telemetryObject.nozzle_target_temper);
 
     log("nozzleCurrentTemp = " + nozzleCurrentTemp);
 
@@ -214,9 +264,48 @@ async function updateUI(telemetryObject) {
 
     if (nozzleTargetTemp === "OFF") {
       $("#nozzleProgressBar").css("background-color", "grey");
-      $("#nozzleTargetTempTempSymbols").hide();
+
+      $("#nozzleTargetTempC").hide();
+      $("#nozzleTargetTempSymbolsF").hide();
+      $("#nozzleTargetTempSymbolsC").hide();
     } else {
-      $("#nozzleTargetTempTempSymbols").show();
+      if (tempSetting === "Fahrenheit")
+      {
+        $("#nozzleTargetTempSymbolsF").show();
+        $("#nozzleCurrentTempSymbolsF").show();
+        $("#nozzleTargetTempF").show();
+        $("#nozzleCurrentTempF").show();
+
+        $("#nozzleCurrentTempC").hide();
+        $("#nozzleTargetTempSymbolsC").hide();
+        $("#nozzleCurrentTempSymbolsC").hide();
+        $("#nozzleTargetTempC").hide();
+      }
+      else if (tempSetting === "Celsius")
+      {
+        $("#nozzleTargetTempSymbolsF").hide();
+        $("#nozzleCurrentTempSymbolsF").hide();
+        $("#nozzleTargetTempF").hide();
+        $("#nozzleCurrentTempF").hide();
+
+        $("#nozzleCurrentTempC").show();
+        $("#nozzleTargetTempSymbolsC").show();
+        $("#nozzleCurrentTempSymbolsC").show();
+        $("#nozzleTargetTempC").show();
+      }
+      else if (tempSetting === "Both")
+      {
+        $("#nozzleTargetTempSymbolsF").show();
+        $("#nozzleCurrentTempSymbolsF").show();
+        $("#nozzleTargetTempF").show();
+        $("#nozzleCurrentTempF").show();
+
+        $("#nozzleCurrentTempC").show();
+        $("#nozzleTargetTempSymbolsC").show();
+        $("#nozzleCurrentTempSymbolsC").show();
+        $("#nozzleTargetTempC").show();
+      }
+
       if (nozzleTempPercentage > 80) {
         $("#nozzleProgressBar").css("background-color", "red");
       } else if (nozzleTempPercentage > 50) {
@@ -227,19 +316,23 @@ async function updateUI(telemetryObject) {
     }
 
     /// Chamber Temperature
-    let chamberTargetTemp = 140;
+    let chamberTargetTempF = 140;
+    let chamberTargetTempC = 60;
     let chamberTempPercentage = 1;
     // Bed Target Temp
 
     // Set target temp in UI
-    $("#chamberTargetTemp").text(chamberTargetTemp);
+    $("#chamberTargetTempF").text(chamberTargetTempF);
+    $("#chamberTargetTempC").text(chamberTargetTempC);
 
     // Set current temp in UI
     var chamberCurrentTemp = (telemetryObject.chamber_temper * 9) / 5 + 32;
-    $("#chamberCurrentTemp").text(chamberCurrentTemp);
+    $("#chamberCurrentTempF").text(chamberCurrentTemp);
+    $("#chamberCurrentTempC").text(telemetryObject.chamber_temper );
+
     log("chamberCurrentTemp = " + chamberCurrentTemp);
 
-    chamberTempPercentage = (chamberCurrentTemp / chamberTargetTemp) * 100;
+    chamberTempPercentage = (chamberCurrentTemp / chamberTargetTempF) * 100;
 
     let progressChamberParentWidth = $("#chamberProgressBarParent").width();
     log("progressChamberParentWidth = " + progressChamberParentWidth);
@@ -247,7 +340,43 @@ async function updateUI(telemetryObject) {
       (chamberTempPercentage * progressChamberParentWidth) / 100
     );
 
-    $("#chamberTargetTempTempSymbols").show();
+    if (tempSetting === "Fahrenheit")
+      {
+        $("#chamberTargetTempSymbolsF").show();
+        $("#chamberCurrentTempSymbolsF").show();
+        $("#chamberTargetTempF").show();
+        $("#chamberCurrentTempF").show();
+
+        $("#chamberCurrentTempC").hide();
+        $("#chamberTargetTempSymbolsC").hide();
+        $("#chamberCurrentTempSymbolsC").hide();
+        $("#chamberTargetTempC").hide();
+      }
+      else if (tempSetting === "Celsius")
+      {
+        $("#chamberTargetTempSymbolsF").hide();
+        $("#chamberCurrentTempSymbolsF").hide();
+        $("#chamberTargetTempF").hide();
+        $("#chamberCurrentTempF").hide();
+
+        $("#chamberCurrentTempC").show();
+        $("#chamberTargetTempSymbolsC").show();
+        $("#chamberCurrentTempSymbolsC").show();
+        $("#chamberTargetTempC").show();
+      }
+      else if (tempSetting === "Both")
+      {
+        $("#chamberTargetTempSymbolsF").show();
+        $("#chamberCurrentTempSymbolsF").show();
+        $("#chamberTargetTempF").show();
+        $("#chamberCurrentTempF").show();
+
+        $("#chamberCurrentTempC").show();
+        $("#chamberTargetTempSymbolsC").show();
+        $("#chamberCurrentTempSymbolsC").show();
+        $("#chamberTargetTempC").show();
+      }
+
     if (chamberCurrentTemp > 110) {
       $("#chamberProgressBar").css("background-color", "red");
     } else if (chamberCurrentTemp > 100) {
@@ -1003,15 +1132,28 @@ function convertMinutesToReadableTime(totalMinutes) {
   
         const data = await response.json();
 
-        
         // Display the image using the extracted URL
         displayAPIData(data);
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error fetching model image:', error);
     }
   
-  
+    async function loadSettings() {
+      try {
+          const serverURL = window.location.hostname;
+          const response = await fetch('http://' + serverURL + ':3000/settings');
+          if (response.ok) {
+              const data = await response.json();
+              tempSetting = data;
+          } 
+      } catch (error) {
+          console.error('Error loading settings:', error);
+      }
+    }
+
+    loadSettings();
+
     function displayAPIData(data) {
       if (data.imageUrl == "NOTENROLLED") {
         $('#modelImage').hide();

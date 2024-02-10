@@ -16,7 +16,23 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
+let tempSetting = "Fahrenheit"; // Celsius or Both
 let telemetryObjectMain;
+
+async function loadSettings() {
+  try {
+      const serverURL = window.location.hostname;
+      const response = await fetch('http://' + serverURL + ':3000/settings');
+      if (response.ok) {
+          const data = await response.json();
+          tempSetting = data;
+      } 
+  } catch (error) {
+      console.error('Error loading settings:', error);
+  }
+}
+
+loadSettings();
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -62,7 +78,7 @@ async function updateUI(telemetryObject) {
 
     let nozzleTargetTemp = 0;
     let nozzleTempPercentage = 1;
-
+    // Bed Target Temp
     if (telemetryObject.nozzle_target_temper === 0) {
       nozzleTargetTemp = "OFF";
     } else {
@@ -73,7 +89,9 @@ async function updateUI(telemetryObject) {
     }
 
     if (nozzleTempPercentage > 100) {
-      log("Nozzle percentage over 100, adjusting..." + nozzleTempPercentage);
+      log(
+        "Nozzle percentage over 100, adjusting..." + nozzleTempPercentage
+      );
       nozzleTempPercentage = 100;
     }
 
@@ -81,13 +99,15 @@ async function updateUI(telemetryObject) {
     log("nozzleTempPercentage = " + nozzleTempPercentage);
 
     // Set target temp in UI
-    $("#nozzleTargetTemp").text(nozzleTargetTemp);
+    $("#nozzleTargetTempF").text(nozzleTargetTemp);
+    $("#nozzleTargetTempC").text(telemetryObject.nozzle_target_temper);
 
     // Set current temp in UI
     var nozzleCurrentTemp = (telemetryObject.nozzle_temper * 9) / 5 + 32;
-    $("#nozzleCurrentTemp").text(nozzleCurrentTemp);
+    $("#nozzleCurrentTempF").text(nozzleCurrentTemp);
+    $("#nozzleCurrentTempC").text(telemetryObject.nozzle_temper);
 
-    log("nozzleCurrentTemp = " + nozzleCurrentTemp);
+    log("nozzleCurrentTemp = " + nozzleCurrentTemp); 
 
     let progressNozzleParentWidth = $("#nozzleProgressBarParent").width();
     log("progressNozzleParentWidth = " + progressNozzleParentWidth);
@@ -97,9 +117,48 @@ async function updateUI(telemetryObject) {
 
     if (nozzleTargetTemp === "OFF") {
       $("#nozzleProgressBar").css("background-color", "grey");
-      $("#nozzleTargetTempTempSymbols").hide();
+
+      $("#nozzleTargetTempC").hide();
+      $("#nozzleTargetTempSymbolsF").hide();
+      $("#nozzleTargetTempSymbolsC").hide();
     } else {
-      $("#nozzleTargetTempTempSymbols").show();
+      if (tempSetting === "Fahrenheit")
+      {
+        $("#nozzleTargetTempSymbolsF").show();
+        $("#nozzleCurrentTempSymbolsF").show();
+        $("#nozzleTargetTempF").show();
+        $("#nozzleCurrentTempF").show();
+
+        $("#nozzleCurrentTempC").hide();
+        $("#nozzleTargetTempSymbolsC").hide();
+        $("#nozzleCurrentTempSymbolsC").hide();
+        $("#nozzleTargetTempC").hide();
+      }
+      else if (tempSetting === "Celsius")
+      {
+        $("#nozzleTargetTempSymbolsF").hide();
+        $("#nozzleCurrentTempSymbolsF").hide();
+        $("#nozzleTargetTempF").hide();
+        $("#nozzleCurrentTempF").hide();
+
+        $("#nozzleCurrentTempC").show();
+        $("#nozzleTargetTempSymbolsC").show();
+        $("#nozzleCurrentTempSymbolsC").show();
+        $("#nozzleTargetTempC").show();
+      }
+      else if (tempSetting === "Both")
+      {
+        $("#nozzleTargetTempSymbolsF").show();
+        $("#nozzleCurrentTempSymbolsF").show();
+        $("#nozzleTargetTempF").show();
+        $("#nozzleCurrentTempF").show();
+
+        $("#nozzleCurrentTempC").show();
+        $("#nozzleTargetTempSymbolsC").show();
+        $("#nozzleCurrentTempSymbolsC").show();
+        $("#nozzleTargetTempC").show();
+      }
+
       if (nozzleTempPercentage > 80) {
         $("#nozzleProgressBar").css("background-color", "red");
       } else if (nozzleTempPercentage > 50) {
