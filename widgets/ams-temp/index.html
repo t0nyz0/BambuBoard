@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BambuBoard | AMS</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
+
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
+  <body>
+    <div class="container">
+      <div class="bedcontainer">
+      <div class="bed-title">
+        <h2 class="partTitle">AMS Temperature</h2>
+
+        <div class="grid-columns-3">
+
+       <div class="temperature-container">
+                    <div class="progress-wrapper">
+              <div id="amsProgressBarParent" class="progress">
+                <div id="amsProgressBar" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
+              </div>
+            </div>
+  
+          <div style="display: flex;justify-content: space-between;">
+            <h4 class="finePrint">
+              <b>Current: <span id="amsCurrentTempC">0</span></b><span id="amsCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="amsCurrentTempF">0</span><span id="amsCurrentTempSymbolsF"><sup>°</sup>F</span>
+            </h4>
+            <h4 class="finePrint">
+              <b>Max: <span id="amsTargetTempC">0</span><span id="amsTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="amsTargetTempF">0</span><span id="amsTargetTempSymbolsF"><sup>°</sup>F</span></span>
+            </h4>
+          </div>
+        </div>
+
+        <div class="humidity-container">
+          <div class="progress-segment">
+            <div id="humidity1" class="humidity-item green-common"></div>
+            <div id="humidity2" class="humidity-item green-common"></div>
+            <div id="humidity3" class="humidity-item green-common"></div>
+            <div id="humidity4" class="humidity-item green-common"></div>
+            <div id="humidity5" class="humidity-item "></div>
+          </div>
+          <div class="ams-type-remaining">
+            <h4 class="finePrint">Humidity</h4>
+            <h4 id="humidityLevelText" class="finePrint">Low</h4>
+          </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+    </div>
+    <script src="AMS_temp_script.js"></script>
+  </body>
+</html>

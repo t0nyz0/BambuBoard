@@ -107,7 +107,7 @@ async function updateUI(telemetryObject) {
     $("#nozzleCurrentTempF").text(nozzleCurrentTemp);
     $("#nozzleCurrentTempC").text(telemetryObject.nozzle_temper);
 
-    log("nozzleCurrentTemp = " + nozzleCurrentTemp);
+    log("nozzleCurrentTemp = " + nozzleCurrentTemp); 
 
     let progressNozzleParentWidth = $("#nozzleProgressBarParent").width();
     log("progressNozzleParentWidth = " + progressNozzleParentWidth);
