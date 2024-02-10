@@ -19,29 +19,26 @@
           <div class="column grid-gap-10">
             <div class="bed-title">
               <h2 class="partTitle">Bed Temperature</h2>
-              <div class="progress-wrapper grid">
-                <div id="bedProgressBarParent" class="progress">
-                  <div
-                    id="bedProgressBar"
-                    class="progress-bar"
-                    style="width: 5px; background-color: #ffcc41"
-                  ></div>
-                </div>
+                          <div class="progress-wrapper">
+                    <div id="bedProgressBarParent" class="progress">
+                      <div id="bedProgressBar" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
+                    </div>
+                  </div>
+        
                 <div style="display: flex;justify-content: space-between;">
                   <h4 class="finePrint">
-                    Current: <span id="bedCurrentTemp">0</span><sup>°</sup>F
+                    <b>Current: <span id="bedCurrentTempC">0</span></b></span><span id="bedCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="bedCurrentTempF">0</span><span id="bedCurrentTempSymbolsF"><sup>°</sup>F</span>
                   </h4>
                   <h4 class="finePrint">
-                  Target: <span id="bedTargetTemp">0</span
-                  ><span id="bedTargetTempTempSymbols"><sup>°</sup>F</span>
+                    <b>Target: <span id="bedTargetTempC">0</span><span id="bedTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="bedTargetTempF">0</span><span id="bedTargetTempSymbolsF"><sup>°</sup>F</span></span>
                   </h4>
-              </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+
 
     <script src="BED_script.js"></script>
   </body>

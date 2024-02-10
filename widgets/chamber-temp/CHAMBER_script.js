@@ -16,7 +16,23 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
+let tempSetting = "Fahrenheit"; // Celsius or Both
 let telemetryObjectMain;
+
+async function loadSettings() {
+  try {
+      const serverURL = window.location.hostname;
+      const response = await fetch('http://' + serverURL + ':3000/settings');
+      if (response.ok) {
+          const data = await response.json();
+          tempSetting = data;
+      } 
+  } catch (error) {
+      console.error('Error loading settings:', error);
+  }
+}
+
+loadSettings();
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -51,19 +67,23 @@ async function updateUI(telemetryObject) {
     }
 
     /// Chamber Temperature
-    let chamberTargetTemp = 140;
+    let chamberTargetTempF = 140;
+    let chamberTargetTempC = 60;
     let chamberTempPercentage = 1;
     // Bed Target Temp
 
     // Set target temp in UI
-    $("#chamberTargetTemp").text(chamberTargetTemp);
+    $("#chamberTargetTempF").text(chamberTargetTempF);
+    $("#chamberTargetTempC").text(chamberTargetTempC);
 
     // Set current temp in UI
     var chamberCurrentTemp = (telemetryObject.chamber_temper * 9) / 5 + 32;
-    $("#chamberCurrentTemp").text(chamberCurrentTemp);
+    $("#chamberCurrentTempF").text(chamberCurrentTemp);
+    $("#chamberCurrentTempC").text(telemetryObject.chamber_temper );
+
     log("chamberCurrentTemp = " + chamberCurrentTemp);
 
-    chamberTempPercentage = (chamberCurrentTemp / chamberTargetTemp) * 100;
+    chamberTempPercentage = (chamberCurrentTemp / chamberTargetTempF) * 100;
 
     let progressChamberParentWidth = $("#chamberProgressBarParent").width();
     log("progressChamberParentWidth = " + progressChamberParentWidth);
@@ -71,7 +91,43 @@ async function updateUI(telemetryObject) {
       (chamberTempPercentage * progressChamberParentWidth) / 100
     );
 
-    $("#chamberTargetTempTempSymbols").show();
+    if (tempSetting === "Fahrenheit")
+      {
+        $("#chamberTargetTempSymbolsF").show();
+        $("#chamberCurrentTempSymbolsF").show();
+        $("#chamberTargetTempF").show();
+        $("#chamberCurrentTempF").show();
+
+        $("#chamberCurrentTempC").hide();
+        $("#chamberTargetTempSymbolsC").hide();
+        $("#chamberCurrentTempSymbolsC").hide();
+        $("#chamberTargetTempC").hide();
+      }
+      else if (tempSetting === "Celsius")
+      {
+        $("#chamberTargetTempSymbolsF").hide();
+        $("#chamberCurrentTempSymbolsF").hide();
+        $("#chamberTargetTempF").hide();
+        $("#chamberCurrentTempF").hide();
+
+        $("#chamberCurrentTempC").show();
+        $("#chamberTargetTempSymbolsC").show();
+        $("#chamberCurrentTempSymbolsC").show();
+        $("#chamberTargetTempC").show();
+      }
+      else if (tempSetting === "Both")
+      {
+        $("#chamberTargetTempSymbolsF").show();
+        $("#chamberCurrentTempSymbolsF").show();
+        $("#chamberTargetTempF").show();
+        $("#chamberCurrentTempF").show();
+
+        $("#chamberCurrentTempC").show();
+        $("#chamberTargetTempSymbolsC").show();
+        $("#chamberCurrentTempSymbolsC").show();
+        $("#chamberTargetTempC").show();
+      }
+
     if (chamberCurrentTemp > 110) {
       $("#chamberProgressBar").css("background-color", "red");
     } else if (chamberCurrentTemp > 100) {
@@ -83,6 +139,7 @@ async function updateUI(telemetryObject) {
     if (currentState !== "RUNNING") {
       $("#chamberProgressBar").css("background-color", "grey");
     }
+    
     return telemetryObject;
   } catch (error) {
     console.error("Error: ", error);

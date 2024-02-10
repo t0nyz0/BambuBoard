@@ -121,6 +121,33 @@ body {
   transform: scaleX(1) scaleY(1) scaleZ(1);
 }
 
+.humidity-container {
+  max-width: 60em;
+  margin: 0 auto;
+}
+
+.progress-segment {
+  display: flex;
+  margin-bottom: 4em;
+}
+
+.humidity-item {
+  width: 20px;
+  background-color: lightgray;
+  margin-right: 4px;
+  height: 8px;
+}
+.humidity-item:first-child {
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+.humidity-item:last-child {
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+.humidity-item.green-common {
+  background: #9EC232 !important;
+}
 
 .model-image img {
   height: 260px;
