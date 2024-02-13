@@ -135,10 +135,12 @@ Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/note
 
 # Future Development Plans:
 
-- Celcius / Fahrenheit preference setting
+- ~~Celcius / Fahrenheit preference setting~~
+- Rebuild using React?
 - Better settings configuration
-- Add AMS humidty / temp
-- AMS Active tray tracking
+- ~~Add AMS humidty / temp~~
+- ~~AMS Active tray tracking~~
+- There might be a bug with the "Total Prints" data point, the API does not appear to keep an entire record of all cloud prints. Total print count might always been inaccurate and may need to be removed in future versions.
 
 # Known Limitations:
 
