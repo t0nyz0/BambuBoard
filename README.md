@@ -103,7 +103,7 @@ If you encounter any issues, consider the following:
 
 OBS widgets are now supported as of 1/7/24
 
-![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/6a8f19e5-6c56-43e4-8c77-a0e36ca53f13)
+![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/3c0d17fb-0c20-4b22-a1b6-91086ab732e6)
 
 
 
@@ -117,6 +117,7 @@ In the "OBS_Settings" folder in the project root you will find the scene file fo
 List of all widget addresses:
 ```
 "AMS widget": "http://127.0.0.1:8080/widgets/ams/index.html"
+"AMS Temp widget: "http://127.0.0.1:8080/widgets/ams-temp/index.html"
 "Bed Temp widget": "http://127.0.0.1:8080/widgets/bed-temp/index.html"
 "Chamber Temp widget": "http://127.0.0.1:8080/widgets/chamber-temp/index.html"
 "Fan widget": "http://127.0.0.1:8080/widgets/fans/index.html"
@@ -140,7 +141,7 @@ Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/note
 - Better settings configuration
 - ~~Add AMS humidty / temp~~
 - ~~AMS Active tray tracking~~
-- There might be a bug with the "Total Prints" data point, the API does not appear to keep an entire record of all cloud prints. Total print count might always been inaccurate and may need to be removed in future versions.
+- Address bug with the "Total Prints" data point, the API does not appear to keep an entire record of all cloud prints. Total print count might always been inaccurate and may need to be removed in future versions.
 
 # Known Limitations:
 
