@@ -103,7 +103,7 @@ If you encounter any issues, consider the following:
 
 OBS widgets are now supported as of 1/7/24
 
-![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/3c0d17fb-0c20-4b22-a1b6-91086ab732e6)
+https://github.com/t0nyz0/BambuBoard/assets/63085518/716d8832-ae8d-49e3-84d7-3cdb1adbddbc
 
 
 
