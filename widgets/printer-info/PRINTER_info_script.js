@@ -83,9 +83,6 @@ async function updateUI(telemetryObject) {
   }
 }
 
-// Pulled from GPT, my printer is VERY close to my router, so to make this more interesting,
-// I have updated the maxSignal from -50 dBm to -40 dBm making it more difficult to reach max.
-
 function disableUI() {
   $("#printSpeed").css("color", "grey");
 }
