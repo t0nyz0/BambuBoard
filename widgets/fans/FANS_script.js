@@ -18,6 +18,10 @@ let modelImage = "";
 const consoleLogging = false;
 let telemetryObjectMain;
 
+// Preferences
+let displayFanPercentages = true; // Use percentages instead of icons for the fans
+let displayFanIcons = true; // Use percentages instead of icons for the fans
+
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch(
@@ -39,9 +43,71 @@ async function retrieveData() {
   return telemetryObject;
 }
 
+  function convertToPercentage(value) {
+    if (value < 0 || value > 15) {
+      return 0;
+    }
+    let percentage = (value / 15) * 100;
+    return percentage.toFixed(2) + "%";
+  }
+
+async function loadPreferences() {
+  try {
+      const serverURL = window.location.hostname;
+      const response = await fetch('http://' + serverURL + ':3000/preference-fan-icons');
+      if (response.ok) {
+          const data = await response.json();
+          displayFanIcons = data;
+      } 
+
+      const response2 = await fetch('http://' + serverURL + ':3000/preference-fan-percentages');
+      if (response.ok) {
+
+          const data = await response2.json();
+
+          console.log(data);
+          displayFanPercentages = data;
+      } 
+  } catch (error) {
+      console.error('Error loading preferences:', error);
+  }
+}
+
+
+
 // Some issues were found lumping all the DOM updates into the updateUI() function, split fans into their own function.
 async function updateFans(telemetryObject) {
   try {
+    /// Update preferences 
+    if (displayFanIcons == true)
+      {
+        $("#fan1").show();
+        $("#fan2").show();
+        $("#fan3").show();
+        $("#fan4").show();
+      }
+      else
+      {
+        $("#fan1").hide();
+        $("#fan2").hide();
+        $("#fan3").hide();
+        $("#fan4").hide();
+      }
+    if (displayFanPercentages == true)
+    {
+      $("#fan1-percent").show();
+      $("#fan2-percent").show();
+      $("#fan3-percent").show();
+      $("#fan4-percent").show();
+    }
+    else
+    {
+      $("#fan1-percent").hide();
+      $("#fan2-percent").hide();
+      $("#fan3-percent").hide();
+      $("#fan4-percent").hide();
+    }
+
     /// Fans
     let fan1Speed = telemetryObject.big_fan1_speed;
     let fan2Speed = telemetryObject.big_fan2_speed;
@@ -49,6 +115,8 @@ async function updateFans(telemetryObject) {
     let fan4Speed = telemetryObject.heatbreak_fan_speed;
 
     // Fan 1
+    $("#fan1-percent").text(convertToPercentage(fan1Speed));
+
     switch (fan1Speed) {
       case "0":
         $("#fan1").css({ "-webkit-animation": "" });
@@ -103,6 +171,8 @@ async function updateFans(telemetryObject) {
     }
 
     // Fan 2
+    $("#fan2-percent").text(convertToPercentage(fan2Speed));
+
     switch (fan2Speed) {
       case "0":
         $("#fan2").css({ "-webkit-animation": "" });
@@ -157,6 +227,8 @@ async function updateFans(telemetryObject) {
     }
 
     // Fan 3
+    $("#fan3-percent").text(convertToPercentage(fan3Speed));
+
     switch (fan3Speed) {
       case "0":
         $("#fan3").css({ "-webkit-animation": "" });
@@ -211,6 +283,8 @@ async function updateFans(telemetryObject) {
     }
 
     // Fan 4
+    $("#fan4-percent").text(convertToPercentage(fan4Speed));
+
     switch (fan4Speed) {
       case "0":
         $("#fan4").css({ "-webkit-animation": "" });
@@ -305,6 +379,14 @@ function updateAnimation(selector, newValue) {
   }
 }
 
+function convertToPercentage(value) {
+  if (value < 0 || value > 15) {
+    throw new Error("Value must be between 0 and 15");
+  }
+  let percentage = (value / 15) * 100;
+  return percentage.toFixed(0) + "%"; // Returns percentage with '%' sign and 2 decimal places
+}
+
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);
 
@@ -317,6 +399,8 @@ function log(logText) {
     console.log(logText);
   }
 }
+
+loadPreferences();
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
@@ -339,3 +423,4 @@ setInterval(async () => {
     await sleep(1000);
   }
 }, 1000);
+

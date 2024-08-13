@@ -5,5 +5,8 @@
   "BambuBoard_printerSN": "FILL_THIS_OUT",
   "BambuBoard_printerAccessCode": "FILL_THIS_OUT",
   "BambuBoard_bambuUsername": "FILL_THIS_OUT",
-  "BambuBoard_bambuPassword": "FILL_THIS_OUT"
+  "BambuBoard_bambuPassword": "FILL_THIS_OUT",
+  "BambuBoard_tempSetting": "Both",
+  "BambuBoard_displayFanPercentages": false,
+  "BambuBoard_displayFanIcons": true
 }

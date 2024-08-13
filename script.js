@@ -22,6 +22,11 @@ let tempSetting = "Fahrenheit"; // Celsius or Both
 const consoleLogging = false;
 let telemetryObjectMain;
 
+// Preferences // Keep in mind these default values overwrote in the next few steps
+let displayFanPercentages = false; // Use percentages instead of icons for the fans
+let displayFanIcons = true; // Use percentages instead of icons for the fans
+
+
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -44,6 +49,34 @@ async function retrieveData() {
   }
 
   return telemetryObject;
+}
+
+async function loadPreferences() {
+  try {
+      const serverURL = window.location.hostname;
+      const response = await fetch('http://' + serverURL + ':3000/preference-fan-icons');
+      if (response.ok) {
+          const data = await response.json();
+          displayFanIcons = data;
+      } 
+
+      const response2 = await fetch('http://' + serverURL + ':3000/preference-fan-percentages');
+      if (response.ok) {
+
+          const data = await response2.json();
+          displayFanPercentages = data;
+      } 
+  } catch (error) {
+      console.error('Error loading preferences:', error);
+  }
+}
+
+function convertToPercentage(value) {
+  if (value < 0 || value > 15) {
+    throw new Error("Value must be between 0 and 15");
+  }
+  let percentage = (value / 15) * 100;
+  return percentage.toFixed(0) + "%"; // Returns percentage with '%' sign and 2 decimal places
 }
 
 async function updateUI(telemetryObject) {
@@ -440,7 +473,39 @@ async function updateFans(telemetryObject) {
     let fan3Speed = telemetryObject.cooling_fan_speed;
     let fan4Speed = telemetryObject.heatbreak_fan_speed;
 
+    /// Update preferences 
+    if (displayFanIcons == true)
+      {
+        $("#fan1").show();
+        $("#fan2").show();
+        $("#fan3").show();
+        $("#fan4").show();
+      }
+      else
+      {
+        $("#fan1").hide();
+        $("#fan2").hide();
+        $("#fan3").hide();
+        $("#fan4").hide();
+      }
+    if (displayFanPercentages == true)
+    {
+      $("#fan1-percent").show();
+      $("#fan2-percent").show();
+      $("#fan3-percent").show();
+      $("#fan4-percent").show();
+    }
+    else
+    {
+      $("#fan1-percent").hide();
+      $("#fan2-percent").hide();
+      $("#fan3-percent").hide();
+      $("#fan4-percent").hide();
+    }
+
     // Fan 1
+    $("#fan1-percent").text(convertToPercentage(fan1Speed));
+
     switch (fan1Speed) {
       case "0":
         $("#fan1").css({'-webkit-animation': ''});
@@ -495,6 +560,7 @@ async function updateFans(telemetryObject) {
     }
 
 // Fan 2
+  $("#fan2-percent").text(convertToPercentage(fan2Speed));
     switch (fan2Speed) {
       case "0":
         $("#fan2").css({'-webkit-animation': ''});
@@ -549,6 +615,7 @@ async function updateFans(telemetryObject) {
     }
 
     // Fan 3
+    $("#fan3-percent").text(convertToPercentage(fan3Speed));
     switch (fan3Speed) {
       case "0":
         $("#fan3").css({'-webkit-animation': ''});
@@ -604,6 +671,7 @@ async function updateFans(telemetryObject) {
 
 
     // Fan 4
+    $("#fan4-percent").text(convertToPercentage(fan4Speed));
     switch (fan4Speed) {
       case "0":
         $("#fan4").css({'-webkit-animation': ''});
@@ -1153,6 +1221,9 @@ function convertMinutesToReadableTime(totalMinutes) {
     }
 
     loadSettings();
+    loadPreferences();
+
+
 
     function displayAPIData(data) {
       if (data.imageUrl == "NOTENROLLED") {
