@@ -12,9 +12,11 @@ const bambuPassword = process.env.BAMBUBOARD_BAMBU_PASSWORD || config.BambuBoard
 const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting; // Checks to see how you want your temp displayed 
 
 //-------------------------------------------------------------------------------------------------------------
+/// Preferences:
 
-// Enable if you want to see console log events
-const consoleLogging = false;
+const displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages || false; // Use percentages instead of icons for the fans
+const displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons || true; // Use percentages instead of icons for the fans
+const consoleLogging = true; // Enable if you want to see console log events
 
 //-------------------------------------------------------------------------------------------------------------
 
@@ -59,6 +61,8 @@ function fetchWithTimeout(url, options, timeout = 8000) {
     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeout))
   ]);
 }
+
+
 
 let cache = {
   lastRequestTime: 0,
@@ -192,6 +196,24 @@ app.get('/settings', async (req, res) => {
   }
 });
 
+app.get('/preference-fan-icons', async (req, res) => {
+  try {
+    res.json(displayFanIcons);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error');
+  }
+});
+
+app.get('/preference-fan-percentages', async (req, res) => {
+  try {
+    res.json(displayFanPercentages);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error');
+  }
+});
+
 const PORT = 3000; // or any other port you prefer
 app.listen(PORT, () => {
     console.log(`BambuBoard running on port ${PORT}`);
@@ -252,32 +274,36 @@ http
   })
   .listen(parseInt(httpPort));
 
-const clientId = `mqtt_${Math.random().toString(16)}`;
+  let client; // Declare client globally
 
-const connectUrl = `${protocol}://${printerURL}:${printerPort}`;
+let reconnecting = false;
+const reconnectInterval = 3000;
 
 function connectClient() {
-  const client = mqtt.connect(connectUrl, {
+  if (client) {
+    client.end(true); // Ensure any previous connection is closed before reconnecting
+  }
+
+  const clientId = `mqtt_${Math.random().toString(16)}`;
+  const connectUrl = `${protocol}://${printerURL}:${printerPort}`;
+  
+  client = mqtt.connect(connectUrl, {
     clientId,
     clean: true,
     connectTimeout: 3000,
     username: "bblp",
     password: printerAccessCode,
-    recconectPeriod: 1000,
+    reconnectPeriod: 0, // Disable automatic reconnection
     rejectUnauthorized: false,
   });
 
   client.on("connect", () => {
     log("Client connected!");
-    SequenceID = SequenceID + 1;
+    reconnecting = false; // Reset flag on successful connection
+    SequenceID++;
     client.subscribe(topic, () => {
       log(`Subscribed to topic: ${topic}`);
     });
-
-    client.publish(
-      topic,
-      '{"pushing": {"command": "start", "sequence_id": ' + 0 + "}}"
-    );
 
     const returnMsg = {
       pushing: {
@@ -292,13 +318,9 @@ function connectClient() {
 
   client.on("message", (topic, message) => {
     log(`Received message from topic: ${topic}`);
-
     try {
       const jsonData = JSON.parse(message.toString());
-
-      // Check if 'print' is present in the JSON data / verifies valid data / only writes data when it sees the full structure
       const dataToWrite = JSON.stringify(jsonData);
-
       let lastUpdate = convertUtc(jsonData.t_utc);
 
       if (jsonData.print) {
@@ -310,7 +332,6 @@ function connectClient() {
           }
         });
       } else {
-        // Since we are only getting a date time stamp back, lets force it to send everything
         const returnMsg = {
           pushing: {
             sequence_id: SequenceID,
@@ -318,7 +339,6 @@ function connectClient() {
           },
           user_id: "123456789",
         };
-
         client.publish(topicRequest, JSON.stringify(returnMsg));
       }
     } catch (err) {
@@ -333,50 +353,51 @@ function connectClient() {
 
   client.on("error", async (error) => {
     console.error(`Connection error: ${error}`);
-    client.end();
-    await sleep(1000);
+    await handleReconnection();
   });
 
   client.on("close", async () => {
     log("Connection closed. Reconnecting...");
-    await sleep(1000);
-    connectClient; // Reconnect after 5 seconds
+    await handleReconnection();
   });
 
   client.on("disconnect", async () => {
     log("Connection disconnected. Reconnecting...");
-    await sleep(1000);
-    connectClient; // Reconnect after 5 seconds
+    await handleReconnection();
+  });
+
+  client.on("offline", async () => {
+    log("Client is offline. Reconnecting...");
+    await handleReconnection();
   });
 
   client.on("reconnect", async () => {
     log("Reconnecting...");
-    await sleep(1000);
-    connectClient; // Reconnect after 5 seconds
   });
+}
 
-  client.on("offline", async () => {
-    log("Client is offline");
-    await sleep(1000);
-    connectClient;
-  });
+async function handleReconnection() {
+  if (!reconnecting) {
+    reconnecting = true;
+    await sleep(reconnectInterval);
+    connectClient(); // Reconnect using the `connectClient` function
+    reconnecting = false; // Reset the flag after attempting to reconnect
+  }
 }
 
 // Initial connection
 connectClient();
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
+// Helper functions
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);
-
-  // Formatting the date to a readable string in local time
   return localTime.toLocaleString();
 }
 
 function log(logText) {
-  if(consoleLogging)
-  {
+  if (consoleLogging) {
     console.log(logText);
   }
 }

@@ -374,6 +374,14 @@ align-items:center;
   width:100%;
 }
 
+.fan-percentage {
+  display: block;
+  text-align: center;
+  margin-top: 5px;
+  font-size: 1.5em;
+  color: rgb(150, 150, 150);
+}
+
 h2, h3 {
   color:#fff;
   font-weight: 400; 
