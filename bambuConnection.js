@@ -14,8 +14,8 @@ const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tem
 //-------------------------------------------------------------------------------------------------------------
 /// Preferences:
 
-const displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages || false; // Use percentages instead of icons for the fans
-const displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons || true; // Use percentages instead of icons for the fans
+const displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
+const displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons; // Use percentages instead of icons for the fans
 const consoleLogging = true; // Enable if you want to see console log events
 
 //-------------------------------------------------------------------------------------------------------------
