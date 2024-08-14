@@ -16,7 +16,7 @@ const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tem
 
 const displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
 const displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons; // Use percentages instead of icons for the fans
-const consoleLogging = true; // Enable if you want to see console log events
+const consoleLogging = false; // Enable if you want to see console log events
 
 //-------------------------------------------------------------------------------------------------------------
 
@@ -61,8 +61,6 @@ function fetchWithTimeout(url, options, timeout = 8000) {
     new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeout))
   ]);
 }
-
-
 
 let cache = {
   lastRequestTime: 0,
