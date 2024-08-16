@@ -38,7 +38,7 @@ loadSettings();
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
+    "http://" + serverURL + ":" + serverPort + "/data.json"
   );
 
   let data = await response.text();
