@@ -2,6 +2,7 @@
 /// Configure your settings here:
 
 const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
 
 // Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
 //       Those features will only work if viewing the dashboard locally.
@@ -22,7 +23,7 @@ let telemetryObjectMain;
 async function loadSettings() {
   try {
       const serverURL = window.location.hostname;
-      const response = await fetch('http://' + serverURL + ':3000/settings');
+      const response = await fetch('http://' + serverURL + ':' + serverPort + '/settings');
       if (response.ok) {
           const data = await response.json();
           tempSetting = data;
