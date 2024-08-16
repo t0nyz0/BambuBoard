@@ -1,21 +1,11 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
-
-
 // BambuBoard
 // TZ | 11/20/23
 
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let modelImage = "";
@@ -26,12 +16,12 @@ let telemetryObjectMain;
 // Preferences // Keep in mind these default values overwrote in the next few steps
 let displayFanPercentages = false; // Use percentages instead of icons for the fans
 let displayFanIcons = true; // Use percentages instead of icons for the fans
-
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://" + serverURL + ":" + window.location.port + "/data.json");
+  const response = await fetch(fullServerURL + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -54,14 +44,13 @@ async function retrieveData() {
 
 async function loadPreferences() {
   try {
-      const serverURL = window.location.hostname;
-      const response = await fetch('http://' + serverURL + ':' + serverPort + '/preference-fan-icons');
+      const response = await fetch(fullServerURL + '/preference-fan-icons');
       if (response.ok) {
           const data = await response.json();
           displayFanIcons = data;
       } 
 
-      const response2 = await fetch('http://' + serverURL + ':' + serverPort + '/preference-fan-percentages');
+      const response2 = await fetch(fullServerURL + '/preference-fan-percentages');
       if (response.ok) {
 
           const data = await response2.json();
@@ -256,7 +245,6 @@ async function updateUI(telemetryObject) {
     }
 
     /// Nozzle Temp
-
     let nozzleTargetTemp = 0;
     let nozzleTempPercentage = 1;
     // Bed Target Temp
@@ -1194,7 +1182,7 @@ function convertMinutesToReadableTime(totalMinutes) {
   // Send credentials to your own server
   async function loginAndFetchImage() {
     try {
-        const response =  await fetch('http://' + serverURL + ':' + serverPort + '/login-and-fetch-image', {
+        const response =  await fetch(fullServerURL + '/login-and-fetch-image', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -1211,7 +1199,7 @@ function convertMinutesToReadableTime(totalMinutes) {
     async function loadSettings() {
       try {
           const serverURL = window.location.hostname;
-          const response = await fetch('http://' + serverURL + ':' + serverPort + '/settings');
+          const response = await fetch(fullServerURL + '/settings');
           if (response.ok) {
               const data = await response.json();
               tempSetting = data;
