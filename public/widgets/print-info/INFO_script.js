@@ -72,6 +72,7 @@ async function updateUI(telemetryObject) {
     modelName = modelName.replace("/data/Metadata/", "");
 
     $("#printModelName").text(telemetryObject.subtask_name);
+    saveNote(telemetryObject.subtask_name);
     $("#printCurrentLayer").text(
       telemetryObject.layer_num + " of " + telemetryObject.total_layer_num
     );
@@ -121,6 +122,20 @@ function log(logText) {
   if (consoleLogging) {
     console.log(logText);
   }
+}
+
+async function saveNote(data) {
+  try {
+    const response = await fetch('http://' + serverURL + ':' + serverPort + '/note', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: data })
+    });
+    } catch (error) {
+        console.error('Error:', error);
+    }
 }
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
@@ -218,8 +233,10 @@ async function loginAndFetchImage() {
         printModelName = data.modelTitle;
         if ($("#printModelName").text() != data.modelTitle) {
           $("#printModelName2").text(" | " + data.modelTitle);
+          saveNote("| " + data.modelTitle);
         } else {
           $("#printModelName2").text("");
+          saveNote("");
         }
         $("#modelWeight").text(data.modelWeight + "g");
 
