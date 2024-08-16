@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>BambuBoard</title>
+  <link rel="stylesheet" type="text/css" href="styles.css">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <meta http-equiv="refresh" content="28800">
+</head>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+<body>
+<div class="container">
+  <div class="progressBarContainer">
+
+    <div class="printStatus" id="printStatus">
+      Printer offline <span id="printPercentage"></span>
+    </div>
+
+    <div class="progress" id="printParentProgressBar">
+      <div class="progress-bar" style="width: 5px; background-color: grey;" id="printProgressBar">
+      </div>
+    </div>
+
+    
+  </div>
+
+  <div class="bedcontainer light-border">
+    <div class="bed-title">
+    <div class="grid grid-gap-30">
+  <div class="column grid-gap-10">
+    <div>
+    <div class="printDetailsContainer">
+      <h3><span class="fade printRemaining">Remaining:</span> <span class="printRemaining" id="printRemaining">unknown</span> <span class="printRemaining"></span></h3>
+      <h3><span class="fade">ETA:</span> <span id="printETA">...</span></h3>
+      <h3><span class="fade">Model:</span> <span id="printModelName" >...</span><span id="printModeName2" ></span></h3>
+      <h3><span class="fade">Layer:</span> <span id="printCurrentLayer">...</span></h3>
+      <h3><span class="fade">Filament weight:</span> <span id="modelWeight">...</span></h3>
+      <h3><span class="fade">Total Prints:</span> <span id="totalPrints">...</span></h3>
+      <h3><span class="fade">Speed: <span id="printSpeed" style="color: #51a34f;">Normal</span></span></h3>
+    </div>
+  </div>
+  </div>
+
+  <div class="column model-image grid-gap-10">
+    <div>
+      <img id="modelImage" src="plate.png"> 
+    </div>
+    </div>
+</div>
+</div>
+</div>
+  
+  <div class="bedcontainer">
+    <div class="grid grid-gap-30">
+    <div class="column grid-gap-10">
+      <div class="bed-title">
+      <h2 class="partTitle">Bed Temperature</h2>
+                  <div class="progress-wrapper">
+            <div id="bedProgressBarParent" class="progress">
+              <div id="bedProgressBar" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
+            </div>
+          </div>
+
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">
+            <b>Current: <span id="bedCurrentTempC">0</span></b></span><span id="bedCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="bedCurrentTempF">0</span><span id="bedCurrentTempSymbolsF"><sup>°</sup>F</span>
+          </h4>
+          <h4 class="finePrint">
+            <b>Target: <span id="bedTargetTempC">0</span><span id="bedTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="bedTargetTempF">0</span><span id="bedTargetTempSymbolsF"><sup>°</sup>F</span></span>
+          </h4>
+      </div>
+
+    </div>
+      <div class="bed-title">
+      <h2 class="partTitle">Nozzle Temperature</h2>
+                  <div class="progress-wrapper">
+            <div id="nozzleProgressBarParent" class="progress">
+              <div id="nozzleProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
+            </div>
+          </div>
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">
+            <b>Current: <span id="nozzleCurrentTempC">0</span></b><span id="nozzleCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleCurrentTempF">0</span><span id="nozzleCurrentTempSymbolsF"><sup>°</sup>F</span>
+          </h4>
+          <h4 class="finePrint">
+            <b>Target: <span id="nozzleTargetTempC">0</span><span id="nozzleTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleTargetTempF">0</span><span id="nozzleTargetTempSymbolsF"><sup>°</sup>F</span></span>
+          </h4>
+      </div>
+    </div>
+
+    <div class="bed-title">
+      <h2 class="partTitle">Chamber Temperature</h2>
+                  <div class="progress-wrapper">
+            <div id="chamberProgressBarParent" class="progress">
+              <div id="chamberProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
+            </div>
+          </div>
+        <div style="display: flex;justify-content: space-between;">
+          <h4 class="finePrint">
+            <b>Current: <span id="chamberCurrentTempC">0</span></b><span id="chamberCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="chamberCurrentTempF">0</span><span id="chamberCurrentTempSymbolsF"><sup>°</sup>F</span>
+          </h4>
+          <h4 class="finePrint">
+            <b>Max: <span id="chamberTargetTempC">0</span><span id="chamberTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="chamberTargetTempF">0</span><span id="chamberTargetTempSymbolsF"><sup>°</sup>F</span></span>
+          </h4>
+      </div>
+    </div>
+
+
+      <div class="bed-title fans">
+    <h2 class="partTitle">Fans</h2>
+    <div class="fan-container flex">
+
+      <div class="fan1">
+        <h4 class="finePrint">
+          Fan 1
+        </h4>
+        <span id="fan1" class="material-symbols-outlined" style="will-change: transform;">
+          toys_fan
+        </span>
+        <span id="fan1-percent" class="fan-percentage">
+                
+        </span>
+      </div>
+
+      <div class="fan2">
+        <h4 class="finePrint">
+          Fan 2
+        </h4>
+        <span id="fan2"  class="material-symbols-outlined" style="will-change: transform;">
+          toys_fan
+        </span>
+        <span id="fan2-percent" class="fan-percentage">
+                
+        </span>
+      </div>
+
+      <div class="fan3">
+        <h4 class="finePrint">
+          Cooling
+        </h4>
+        <span id="fan3" class="material-symbols-outlined" style="will-change: transform;">
+          toys_fan
+        </span>
+        <span id="fan3-percent" class="fan-percentage">
+                
+        </span>
+      </div>
+
+      <div class="fan4">
+        <h4 class="finePrint">
+          Heatbreak
+        </h4>
+        <span id="fan4" class="material-symbols-outlined" style="will-change: transform;">
+          toys_fan
+        </span>
+        <span id="fan4-percent" class="fan-percentage">
+                
+        </span>
+      </div>
+    </div>
+  </div>
+      
+    </div>
+      
+      
+    <div class="column grid-gap-10">
+      <div class="bed-title">
+    <h2 class="partTitle">AMS</h2>
+    <div class="ams-container">
+      <div class="element">
+        <span id="tray1Color" class="dot" style="background-color: grey;"></span>
+        <div class="dot-content">
+          <div class="flex">
+          <h3 id="tray1Material" class="material">Unknown</h3>
+          <span id="tray1Active" class="badge-active" style="display:none">active</span>
+          </div>
+          <div class="ams-type-remaining">
+            <h4 id="tray1Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray1Remaining" class="finePrint">75%</h4>
+          </div>
+          <div class="progress-wrapper">
+            <div id="tray1ProgressBarParent" class="progress">
+              <div id="tray1ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
+            </div>
+          </div>    
+        </div>
+      </div>
+
+
+    <div class="element">
+        <span id="tray2Color" class="dot" id="tray1" style="background-color: grey;"></span>
+        <div class="dot-content">
+          <div class="flex">
+          <h3 id="tray2Material" class="material">Unknown</h3>
+          <span id="tray2Active" class="badge-active" style="display:none">active</span>
+          </div>
+          <div class="ams-type-remaining">
+            <h4 id="tray2Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray2Remaining" class="finePrint">75%</h4>
+         </div>
+          <div class="progress-wrapper">
+            <div id="tray2ProgressBarParent" class="progress">
+              <div id="tray2ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
+            </div>
+          </div>   
+        </div>
+      </div>
+
+    <div class="element">
+        <span id="tray3Color" class="dot" style="background-color: grey;"></span>
+        <div class="dot-content">
+          <div class="flex">
+          <h3 id="tray3Material" class="material">Unknown</h3>
+          <span id="tray3Active" class="badge-active" style="display:none">active</span>
+          </div>
+          <div class="ams-type-remaining">
+            <h4 id="tray3Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray3Remaining" class="finePrint">75%</h4>
+         </div>
+          <div class="progress-wrapper">
+            <div id="tray3ProgressBarParent"  class="progress">
+              <div id="tray3ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
+            </div>         
+          </div>       
+        </div>
+      </div>
+
+    <div class="element">
+        <span id="tray4Color" class="dot" style="background-color: grey;"></span>
+        <div class="dot-content">
+          <div class="flex">
+          <h3 id="tray4Material" class="material">Unknown</h3>
+           <span id="tray4Active" class="badge-active" style="display:none">active</span>
+          </div>
+          <div class="ams-type-remaining">
+            <h4 id="tray4Type" class="finePrint">Unknown • Unknown</h4>
+            <h4 id="tray4Remaining" class="finePrint">75%</h4>
+         </div>
+          <div class="progress-wrapper">
+            <div id="tray4ProgressBarParent" class="progress">
+              <div id="tray4ProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
+            </div>
+          </div>  
+        </div>
+      </div>
+
+    </div>
+          </div>
+ 
+
+        <div class="grid columns-2 grid-gap-30">
+          <div class="bed-title column">
+            <h2 class="partTitle">Nozzle</h2>
+            <div class="ams-container">
+              <h4 class="finePrint">Type: <span id="nozzleType">Hardened Steel</span></h4>
+              <h4 class="finePrint">Size: <span id="nozzleSize">0.4</span></h4>
+            </div>
+          </div>
+
+          <div class="bed-title">
+            <h2 class="partTitle">Wifi</h2>
+            <div class="progress-wrapper">
+              <div class="flex" style="justify-content: flex-end;">
+                <h4 class="finePrint"><span id="wifiValue">100</span>%</h4>
+              </div>
+              <div id="wifiProgressBarParent" class="progress">
+                <div id="wifiProgressBar" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
+              </div>
+                
+            </div>
+          </div> 
+
+        </div>
+
+      </div>
+      
+    </div>
+    </div>
+</div>
+  
+</div>
+
+
+
+<script src="script.js"></script>
+
+</body>
+</html>

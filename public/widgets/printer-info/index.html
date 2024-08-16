@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BambuBoard</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
+
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+  />
+  <body>
+    <div class="container">
+      <div class="bedcontainer">
+          <div class="bed-title column">
+              <h4 class="finePrint">
+                <b>Prints (Last 90 days):</b>
+                <span id="totalPrints">...</span>
+              </h4>
+              <h4 class="finePrint">
+                <b>Name:</b>
+                <span id="deviceName">...</span>
+              </h4>
+              <h4 class="finePrint">
+                <b>Model:</b>
+                <span id="deviceModel">...</span>
+              </h4>
+              <h4 class="finePrint">
+                <b>Bed Type:</b>
+                <span id="bedType">...</span>
+              </h4>
+              <h4 class="finePrint">
+                <b>Nozzle Type:</b> <span id="nozzleType">Hardened Steel</span>
+              </h4>
+              <h4 class="finePrint">
+                <b>Nozzle Size:</b> 
+                <span id="nozzleSize">0.4</span>
+              </h4>
+              <h4 class="finePrint">
+                <b>Speed:</b>
+                <span id="printSpeed" style="color: #51a34f">Normal</span>
+              </h4>
+            </div>
+        </div>
+    </div>
+
+    <script src="PRINTER_info_script.js"></script>
+  </body>
+</html>
