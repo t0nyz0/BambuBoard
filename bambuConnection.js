@@ -54,6 +54,7 @@ let cache = {
   data: null
 };
 const cacheDuration = 60000; // Cache duration set to 60 seconds
+// Why do we cache? So that we dont slam Bambu's API, ever.
 
 // Helper function for fetch with timeout
 async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
@@ -68,7 +69,6 @@ async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
   });
 }
 
-// Your existing API routes here (e.g., login-and-fetch-image, settings, etc.)
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
     const currentTime = new Date().getTime();
