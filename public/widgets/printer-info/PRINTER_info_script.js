@@ -173,7 +173,7 @@ executeTask();
   async function loginAndFetchImage() {
     try {
 
-        const response =  await fetch('http://' + serverURL + ':' + serverPort +' /login-and-fetch-image', {
+        const response =  await fetch('http://' + serverURL + ':' + serverPort + '/login-and-fetch-image', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
