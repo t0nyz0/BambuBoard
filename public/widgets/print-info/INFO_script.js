@@ -4,7 +4,7 @@
 const serverURL = window.location.hostname; // IP of the computer running this dashboard
 const serverPort = window.location.port;
 
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
+// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight, or total prints.
 //       Those features will only work if viewing the dashboard locally.
 
 //-------------------------------------------------------------------------------------------------------------
@@ -18,9 +18,12 @@ let currentState = "OFF";
 let printModelName = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+let lastFetchTime = 0; // Timestamp of the last fetch
+let lastNoteTime = 0; // Timestamp of the last note save
+const fetchInterval = 240000; // 4 minutes interval in milliseconds
+const noteInterval = 600000; // 10 minutes interval for note saving
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch(
     "http://" + serverURL + ":" + serverPort + "/data.json"
   );
@@ -72,7 +75,6 @@ async function updateUI(telemetryObject) {
     modelName = modelName.replace("/data/Metadata/", "");
 
     $("#printModelName").text(telemetryObject.subtask_name);
-    saveNote(telemetryObject.subtask_name);
     $("#printCurrentLayer").text(
       telemetryObject.layer_num + " of " + telemetryObject.total_layer_num
     );
@@ -90,6 +92,20 @@ async function updateUI(telemetryObject) {
 
       $("#printRemaining").text(readableTimeRemaining);
       $("#printETA").text(formattedTime);
+
+      const currentTime = new Date().getTime();
+
+      // Save note only when printing first starts or if it hasn't been updated recently
+      if (currentTime - lastNoteTime > noteInterval && telemetryObject.layer_num === 0 && currentState === "RUNNING") {
+        await saveNote(telemetryObject.subtask_name);
+        lastNoteTime = currentTime;
+      }
+
+      // Ensure saveNote and loginAndFetchImage only run every 4 minutes
+      if (currentTime - lastFetchTime > fetchInterval) {
+        await loginAndFetchImage();
+        lastFetchTime = currentTime;
+      }
     } else if (printStatus === "FINISH") {
       printStatus = "Print Complete";
 
@@ -113,8 +129,6 @@ function disableUI() {}
 
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);
-
-  // Formatting the date to a readable string in local time
   return localTime.toLocaleString();
 }
 
@@ -133,14 +147,13 @@ async function saveNote(data) {
         },
         body: JSON.stringify({ content: data })
     });
-    } catch (error) {
-        console.error('Error:', error);
-    }
+  } catch (error) {
+    console.error('Error:', error);
+  }
 }
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
-// Call the updateLog function to fetch and parse the data
 setInterval(async () => {
   try {
     var telemetryObject = await retrieveData();
@@ -155,25 +168,31 @@ setInterval(async () => {
       disableUI();
     }
   } catch (error) {
-    //console.error(error);
     await sleep(1000);
   }
 }, 1000);
 
 async function executeTask() {
   try {
-      var telemetryObject = telemetryObjectMain;
-      if (telemetryObject != null && telemetryObject != "Incomplete") {
-          if (telemetryObject.layer_num == 0 && currentState == "RUNNING" || printModelName == "") {
-              await loginAndFetchImage();
-          }
-      } 
-      else if (telemetryObject == null){
-        await loginAndFetchImage();
+    var telemetryObject = telemetryObjectMain;
+    const currentTime = new Date().getTime();
+
+    if (telemetryObject != null && telemetryObject != "Incomplete") {
+      if (telemetryObject.layer_num === 0 && currentState === "RUNNING" && printModelName === "") {
+        if (currentTime - lastNoteTime > noteInterval) {
+          await saveNote(telemetryObject.subtask_name);
+          lastNoteTime = currentTime;
+        }
+        if (currentTime - lastFetchTime > fetchInterval) {
+          await loginAndFetchImage();
+          lastFetchTime = currentTime;
+        }
       }
+    } else if (telemetryObject == null){
+      await loginAndFetchImage();
+    }
   } catch (error) {
-      //console.error(error);
-      await sleep(12000);
+    await sleep(12000);
   }
 }
 
@@ -183,11 +202,10 @@ executeTask();
 // Then set it to run at intervals
 (function scheduleTask() {
   setTimeout(() => {
-      executeTask();
-      scheduleTask(); // Reschedule the next run
+    executeTask();
+    scheduleTask(); // Reschedule the next run
   }, 5000);
 })();
-
 
 function convertMinutesToReadableTime(totalMinutes) {
   const hours = Math.floor(totalMinutes / 60);
