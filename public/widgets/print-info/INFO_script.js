@@ -21,7 +21,7 @@ let telemetryObjectMain;
 let lastFetchTime = 0; // Timestamp of the last fetch
 let lastNoteTime = 0; // Timestamp of the last note save
 const fetchInterval = 240000; // 4 minutes interval in milliseconds
-const noteInterval = 240000; // 4 minutes interval for note saving
+const noteInterval = 480000; // 6 minutes interval for note saving
 
 async function retrieveData() {
   const response = await fetch(
