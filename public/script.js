@@ -31,7 +31,7 @@ let displayFanIcons = true; // Use percentages instead of icons for the fans
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("data.json");
+  const response = await fetch("http://" + serverURL + ":" + window.location.port + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
