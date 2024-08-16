@@ -223,6 +223,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+app.get('/data.json', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'data.json'));
+});
+
 app.listen(httpPort, () => {
     console.log(`BambuBoard running on port ${httpPort}`);
 });
