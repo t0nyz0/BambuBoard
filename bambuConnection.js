@@ -281,7 +281,7 @@ function connectClient() {
       let lastUpdate = convertUtc(jsonData.t_utc);
 
       if (jsonData.print) {
-        fs.writeFile("/public/data.json", dataToWrite, (err) => {
+        fs.writeFile("./public/data.json", dataToWrite, (err) => {
           if (err) {
             log("Error writing file:" + err);
           } else {
