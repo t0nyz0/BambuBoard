@@ -188,6 +188,21 @@ app.get('/preference-fan-percentages', async (req, res) => {
   }
 });
 
+app.get('/version', async (req, res) => {
+  try {
+    const data = await fsp.readFile("package.json", "utf8");
+    res.json(JSON.parse(data));
+  } catch (err) {
+    console.error(err);
+
+    if (err.code === 'ENOENT') {
+      res.status(404).send('File not found');
+    } else {
+      res.status(500).send('Error reading the file');
+    }
+  }
+});
+
 app.get('/note', async (req, res) => {
   try {
     const data = await fsp.readFile("note.json", "utf8");

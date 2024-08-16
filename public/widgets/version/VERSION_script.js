@@ -22,13 +22,13 @@ let telemetryObjectMain;
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/package.json"
+    "http://" + serverURL + ":" + serverPort + "/version"
   );
 
   let data = await response.text();
-  let telemetryObject = JSON.parse(data);
+  let versionNumber = JSON.parse(data);
 
-  return telemetryObject;
+  return versionNumber;
 }
 
 function setVersion(telemetryObject) {
