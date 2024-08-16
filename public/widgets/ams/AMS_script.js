@@ -22,7 +22,6 @@ let telemetryObjectMain;
 
 async function loadSettings() {
   try {
-      const serverURL = window.location.hostname;
       const response = await fetch('http://' + serverURL + ':' + serverPort + '/settings');
       if (response.ok) {
           const data = await response.json();

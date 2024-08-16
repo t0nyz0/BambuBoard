@@ -22,7 +22,6 @@ let telemetryObjectMain;
 
 async function loadSettings() {
   try {
-      const serverURL = window.location.hostname;
       const response = await fetch('http://' + serverURL + ':' + serverPort + '/settings');
       if (response.ok) {
           const data = await response.json();
@@ -37,11 +36,11 @@ loadSettings();
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(
+  const response2 = await fetch(
     "http://" + serverURL + ":" + serverPort + "/data.json"
   );
 
-  let data = await response.text();
+  let data = await response2.text();
   let telemetryObject = JSON.parse(data);
 
   if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
