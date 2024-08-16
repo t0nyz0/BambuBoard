@@ -13,6 +13,7 @@
     <div style="font-size: 24px; color:white; text-align: center; margin:15px;" id="noteDisplay"></div>
 
     <script>
+        const serverPort = window.location.port;
         async function loadNote() {
             try {
                 const serverURL = window.location.hostname;
