@@ -20,8 +20,6 @@ const consoleLogging = process.env.BAMBUBOARD_LOGGING || config.BambuBoard_loggi
 
 //-------------------------------------------------------------------------------------------------------------
 
-// -- Dont touch below
-
 const mqtt = require("mqtt");
 const fs = require("fs");
 const fsp = require('fs').promises;
