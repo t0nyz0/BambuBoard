@@ -168,6 +168,19 @@ executeTask();
   }, 10000);
 })();
 
+  async function saveNote(data) {
+    try {
+      const response = await fetch('http://' + serverURL + ':' + serverPort + '/note', {
+          method: 'PUT',
+          headers: {
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content: data })
+      });
+      } catch (error) {
+          console.error('Error:', error);
+      }
+  }
 
   // Send credentials to your own server
   async function loginAndFetchImage() {
@@ -196,6 +209,7 @@ executeTask();
         totalPrints = data.totalPrints;
         $("#deviceName").text(data.deviceName);
         $("#deviceModel").text(data.deviceModel);
+        saveNote(data.deviceModel);
 
         if(data.bedType == "textured_plate")
         {
