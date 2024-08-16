@@ -233,10 +233,8 @@ async function loginAndFetchImage() {
         printModelName = data.modelTitle;
         if ($("#printModelName").text() != data.modelTitle) {
           $("#printModelName2").text(" | " + data.modelTitle);
-          saveNote("| " + data.modelTitle);
         } else {
           $("#printModelName2").text("");
-          saveNote("");
         }
         $("#modelWeight").text(data.modelWeight + "g");
 
