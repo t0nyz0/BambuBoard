@@ -2,6 +2,7 @@
 /// Configure your settings here:
 
 const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
 
 // Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
 //       Those features will only work if viewing the dashboard locally.
@@ -14,14 +15,14 @@ const serverURL = window.location.hostname; // IP of the computer running this d
 // TZ | 11/20/23
 
 let currentState = "OFF";
-let modelImage = "";
+let totalPrints = "";
 const consoleLogging = false;
 let telemetryObjectMain;
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
+    "http://" + serverURL + ':' + serverPort + "/data.json"
   );
 
   let data = await response.text();
@@ -83,9 +84,6 @@ async function updateUI(telemetryObject) {
   }
 }
 
-// Pulled from GPT, my printer is VERY close to my router, so to make this more interesting,
-// I have updated the maxSignal from -50 dBm to -40 dBm making it more difficult to reach max.
-
 function disableUI() {
   $("#printSpeed").css("color", "grey");
 }
@@ -142,3 +140,83 @@ function convertMinutesToReadableTime(totalMinutes) {
     return minutes + " minute" + (minutes !== 1 ? "s" : "");
   }
 }
+async function executeTask() {
+  try {
+      var telemetryObject = telemetryObjectMain;
+      if (telemetryObject != null && telemetryObject != "Incomplete") {
+          if (telemetryObject.layer_num == 0 && currentState == "RUNNING" || totalPrints == "") {
+              await loginAndFetchImage();
+          }
+      } 
+      else if (telemetryObject == null){
+        await loginAndFetchImage();
+      }
+  } catch (error) {
+      //console.error(error);
+      await sleep(12000);
+  }
+}
+
+// Run the task immediately
+executeTask();
+
+// Then set it to run at intervals
+(function scheduleTask() {
+  setTimeout(() => {
+      executeTask();
+      scheduleTask(); // Reschedule the next run
+  }, 10000);
+})();
+
+
+  // Send credentials to your own server
+  async function loginAndFetchImage() {
+    try {
+
+        const response =  await fetch('http://' + serverURL + ':' + serverPort +' /login-and-fetch-image', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+  
+        const data = await response.json();
+
+        
+        // Display the image using the extracted URL
+        displayAPIData(data);
+
+    } catch (error) {
+        console.error('Error:', error);
+    }
+  }
+  
+  function displayAPIData(data) {
+    if (data.imageUrl == "NOTENROLLED") {
+    } else {
+      if (data.modelWeight !== null) {
+        totalPrints = data.totalPrints;
+        $("#deviceName").text(data.deviceName);
+        $("#deviceModel").text(data.deviceModel);
+
+        if(data.bedType == "textured_plate")
+        {
+          $("#bedType").text("PEI Textured Plate");
+        }
+        else if(data.bedType == "cool_plate")
+        {
+          $("#bedType").text("Cool Plate");
+        }
+        else if(data.bedType == "hot_plate")
+        {
+          $("#bedType").text("PEI Smooth Plate");
+        }
+        else
+        {
+          $("#bedType").text(data.bedType);
+        }
+        
+        $("#totalPrints").text(data.totalPrints);
+      }
+    }
+  }
+
+

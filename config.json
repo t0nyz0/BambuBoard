@@ -8,5 +8,6 @@
   "BambuBoard_bambuPassword": "FILL_THIS_OUT",
   "BambuBoard_tempSetting": "Both",
   "BambuBoard_displayFanPercentages": false,
-  "BambuBoard_displayFanIcons": true
+  "BambuBoard_displayFanIcons": true,
+  "BambuBoard_logging": false
 }

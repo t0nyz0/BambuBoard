@@ -2,6 +2,7 @@
 /// Configure your settings here:
 
 const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
 
 // Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
 //       Those features will only work if viewing the dashboard locally.
@@ -54,13 +55,13 @@ async function retrieveData() {
 async function loadPreferences() {
   try {
       const serverURL = window.location.hostname;
-      const response = await fetch('http://' + serverURL + ':3000/preference-fan-icons');
+      const response = await fetch('http://' + serverURL + ':' + serverPort +'/preference-fan-icons');
       if (response.ok) {
           const data = await response.json();
           displayFanIcons = data;
       } 
 
-      const response2 = await fetch('http://' + serverURL + ':3000/preference-fan-percentages');
+      const response2 = await fetch('http://' + serverURL + ':' + serverPort + '/preference-fan-percentages');
       if (response.ok) {
 
           const data = await response2.json();

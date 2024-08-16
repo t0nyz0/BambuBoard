@@ -2,6 +2,7 @@
 /// Configure your settings here:
 
 const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
 
 // Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
 //       Those features will only work if viewing the dashboard locally.
@@ -21,7 +22,7 @@ let telemetryObjectMain;
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
   const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
+    "http://" + serverURL + ":" + serverPort + "/data.json"
   );
 
   let data = await response.text();
@@ -195,7 +196,7 @@ function convertMinutesToReadableTime(totalMinutes) {
 async function loginAndFetchImage() {
   try {
     const response = await fetch(
-      "http://" + serverURL + ":3000/login-and-fetch-image",
+      "http://" + serverURL + ':' + serverPort + "/login-and-fetch-image",
       {
         method: "GET",
         headers: { "Content-Type": "application/json" },

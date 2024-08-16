@@ -2,47 +2,42 @@
 /// Configure your settings here:
 const config = require('./config.json');
 
-const httpPort = process.env.BAMBUBOARD_HTTP_PORT || config.BambuBoard_httpPort; // Checks for HTTP_PORT in environment variables, if not found uses config.httpPort
-const printerURL = process.env.BAMBUBOARD_PRINTER_URL || config.BambuBoard_printerURL; // Checks for PRINTER_URL in environment variables, if not found uses config.printerURL
-const printerPort = process.env.BAMBUBOARD_PRINTER_PORT || config.BambuBoard_printerPort; // Checks for PRINTER_PORT in environment variables, if not found uses config.printerPort
-const printerSN = process.env.BAMBUBOARD_PRINTER_SN || config.BambuBoard_printerSN; // Checks for PRINTER_SN in environment variables, if not found uses config.printerSN
-const printerAccessCode = process.env.BAMBUBOARD_PRINTER_ACCESS_CODE || config.BambuBoard_printerAccessCode; // Checks for PRINTER_ACCESS_CODE in environment variables, if not found uses config.printerAccessCode
-const bambuUsername = process.env.BAMBUBOARD_BAMBU_USERNAME || config.BambuBoard_bambuUsername; // Checks for BAMBU_USERNAME in environment variables, if not found uses config.bambuUsername
-const bambuPassword = process.env.BAMBUBOARD_BAMBU_PASSWORD || config.BambuBoard_bambuPassword; // Checks for BAMBU_PASSWORD in environment variables, if not found uses config.bambuPassword
-const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting; // Checks to see how you want your temp displayed 
+const httpPort = process.env.BAMBUBOARD_HTTP_PORT || config.BambuBoard_httpPort || 8080;
+const printerURL = process.env.BAMBUBOARD_PRINTER_URL || config.BambuBoard_printerURL;
+const printerPort = process.env.BAMBUBOARD_PRINTER_PORT || config.BambuBoard_printerPort;
+const printerSN = process.env.BAMBUBOARD_PRINTER_SN || config.BambuBoard_printerSN;
+const printerAccessCode = process.env.BAMBUBOARD_PRINTER_ACCESS_CODE || config.BambuBoard_printerAccessCode;
+const bambuUsername = process.env.BAMBUBOARD_BAMBU_USERNAME || config.BambuBoard_bambuUsername;
+const bambuPassword = process.env.BAMBUBOARD_BAMBU_PASSWORD || config.BambuBoard_bambuPassword;
+const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting;
 
 //-------------------------------------------------------------------------------------------------------------
 /// Preferences:
 
 const displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
 const displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons; // Use percentages instead of icons for the fans
-const consoleLogging = false; // Enable if you want to see console log events
+const consoleLogging = process.env.BAMBUBOARD_LOGGING || config.BambuBoard_logging || false; // Enable if you want to
 
 //-------------------------------------------------------------------------------------------------------------
-
 
 // -- Dont touch below
 
 const mqtt = require("mqtt");
 const fs = require("fs");
 const fsp = require('fs').promises;
-const http = require("http");
-const url = require("url");
-const cors = require('cors');
 const path = require("path");
 const express = require('express');
 const fetch = require('node-fetch');
+const cors = require('cors');
 
 const app = express();
 
 app.use(express.json());
-
+app.use(cors({ origin: '*' })); // CORS setup
 
 process.env.UV_THREADPOOL_SIZE = 128;
 
 function extractToken(cookies) {
-  // Implement token extraction from the cookies string
-  // This is a placeholder, actual implementation depends on the cookie format
   return cookies.split('; ').find(row => row.startsWith('token=')).split('=')[1];
 }
 
@@ -50,17 +45,9 @@ const protocol = "mqtts";
 let SequenceID = 20000;
 let topic = "device/" + printerSN + "/report";
 let topicRequest = "device/" + printerSN + "/request";
-app.use(cors({
-  origin: '*' // Set the origin that you want to allow
-}));
-// Build node.js http server to host dashboard login and fetch method
-// Function to wrap a fetch call with a timeout
-function fetchWithTimeout(url, options, timeout = 8000) {
-  return Promise.race([
-    fetch(url, options),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeout))
-  ]);
-}
+
+// Serve static files from the 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
 
 let cache = {
   lastRequestTime: 0,
@@ -81,6 +68,7 @@ async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
   });
 }
 
+// Your existing API routes here (e.g., login-and-fetch-image, settings, etc.)
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
     const currentTime = new Date().getTime();
@@ -157,6 +145,19 @@ app.get('/login-and-fetch-image', async (req, res) => {
   }
 });
 
+app.get('/settings', async (req, res) => {
+  try {
+    res.json({
+      tempSetting,
+      displayFanIcons,
+      displayFanPercentages
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error');
+  }
+});
+
 app.put('/note', async (req, res) => {
   let dataToWrite = JSON.stringify(req.body);
 
@@ -166,31 +167,6 @@ app.put('/note', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Error writing note');
-  }
-});
-
-app.get('/note', async (req, res) => {
-  try {
-    const data = await fsp.readFile("note.json", "utf8");
-    
-    res.json(JSON.parse(data));
-  } catch (err) {
-    console.error(err);
-
-    if (err.code === 'ENOENT') {
-      res.status(404).send('File not found');
-    } else {
-      res.status(500).send('Error reading the file');
-    }
-  }
-});
-
-app.get('/settings', async (req, res) => {
-  try {
-    res.json(tempSetting);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error');
   }
 });
 
@@ -212,74 +188,38 @@ app.get('/preference-fan-percentages', async (req, res) => {
   }
 });
 
-const PORT = 3000; // or any other port you prefer
-app.listen(PORT, () => {
-    console.log(`BambuBoard running on port ${PORT}`);
+app.get('/note', async (req, res) => {
+  try {
+    const data = await fsp.readFile("note.json", "utf8");
+    res.json(JSON.parse(data));
+  } catch (err) {
+    console.error(err);
+
+    if (err.code === 'ENOENT') {
+      res.status(404).send('File not found');
+    } else {
+      res.status(500).send('Error reading the file');
+    }
+  }
 });
 
-http
-  .createServer(function (req, res) {
-    const parsedUrl = url.parse(req.url);
-    // extract URL path
-    let pathname = `.${parsedUrl.pathname}`;
+// Fallback route to serve index.html for any route not handled by the above routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-    if (pathname === "./") {
-      pathname = "./index.html";
-    }
+app.listen(httpPort, () => {
+    console.log(`BambuBoard running on port ${httpPort}`);
+});
 
-
-    // They should not be able to read the bambuConnection parameters. 
-    if (pathname ==="./bambuConnection.js" || pathname ==="./config.json") {
-      pathname = "./index.html";
-    }
-    const ext = path.parse(pathname).ext;
-    const map = {
-      ".ico": "image/x-icon",
-      ".html": "text/html",
-      ".js": "text/javascript",
-      ".json": "application/json",
-      ".css": "text/css",
-      ".png": "image/png",
-      ".jpg": "image/jpeg",
-      ".svg": "image/svg+xml",
-      ".pdf": "application/pdf",
-      ".doc": "application/msword",
-    };
-
-    fs.exists(pathname, function (exist) {
-      if (!exist) {
-        // if the file is not found, return 404
-        res.statusCode = 404;
-        res.end(`File ${pathname} not found!`);
-        return;
-      }
-
-      // if is a directory search for index file matching the extension
-      if (fs.statSync(pathname).isDirectory()) pathname += "/index";
-
-      // read file from file system
-      fs.readFile(pathname, function (err, data) {
-        if (err) {
-          res.statusCode = 500;
-          res.end(`Error getting the file: ${err}.`);
-        } else {
-          // if the file is found, set Content-type and send data
-          res.setHeader("Content-type", map[ext] || "text/plain");
-          res.end(data);
-        }
-      });
-    });
-  })
-  .listen(parseInt(httpPort));
-
-  let client; // Declare client globally
+let client;
 
 let reconnecting = false;
 const reconnectInterval = 3000;
 
 function connectClient() {
   if (client) {
-    client.end(true); // Ensure any previous connection is closed before reconnecting
+    client.end(true); 
   }
 
   const clientId = `mqtt_${Math.random().toString(16)}`;
@@ -291,13 +231,13 @@ function connectClient() {
     connectTimeout: 3000,
     username: "bblp",
     password: printerAccessCode,
-    reconnectPeriod: 0, // Disable automatic reconnection
+    reconnectPeriod: 0,
     rejectUnauthorized: false,
   });
 
   client.on("connect", () => {
     log("Client connected!");
-    reconnecting = false; // Reset flag on successful connection
+    reconnecting = false;
     SequenceID++;
     client.subscribe(topic, () => {
       log(`Subscribed to topic: ${topic}`);
@@ -313,7 +253,7 @@ function connectClient() {
 
     client.publish(topicRequest, JSON.stringify(returnMsg));
   });
-
+  
   client.on("message", (topic, message) => {
     log(`Received message from topic: ${topic}`);
     try {

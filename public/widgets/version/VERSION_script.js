@@ -2,6 +2,7 @@
 /// Configure your settings here:
 
 const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
 
 // Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
 //       Those features will only work if viewing the dashboard locally.
