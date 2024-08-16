@@ -54,20 +54,28 @@ let cache = {
   data: null
 };
 const cacheDuration = 60000; // Cache duration set to 60 seconds
-// Why do we cache? So that we dont slam Bambu's API, ever.
+// Why do we cache? So that we don't slam Bambu's API, ever.
 
 // Helper function for fetch with timeout
 async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  return fetch(resource, {
-    ...options,
-    signal: controller.signal  
-  }).then(response => {
-    clearTimeout(id);
-    return response;
+  return new Promise((resolve, reject) => {
+    // Set up the timeout
+    const timeoutId = setTimeout(() => {
+      console.error('Request timed out'); // Log the timeout error
+      resolve(null); // Resolve with null or a default value
+    }, timeout);
+
+    fetch(resource, options).then(response => {
+      clearTimeout(timeoutId);
+      resolve(response);
+    }).catch(error => {
+      clearTimeout(timeoutId);
+      console.error('Fetch error:', error); // Log the fetch error
+      resolve(null); // Resolve with null or a default value
+    });
   });
 }
+
 
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
