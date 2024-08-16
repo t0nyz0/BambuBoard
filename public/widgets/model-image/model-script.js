@@ -1,33 +1,20 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
-
-
 // BambuBoard
 // TZ | 11/20/23
 
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
-  );
-
+  const response = await fetch(fullServerURL + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -54,8 +41,6 @@ async function retrieveData() {
     // Formatting the date to a readable string in local time
     return localTime.toLocaleString();
   } 
-
-
   function log(logText)
   {
     if (consoleLogging)
@@ -66,8 +51,7 @@ async function retrieveData() {
   
   const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
 
-
-  // Call the updateLog function to fetch and parse the data
+// Call the updateLog function to fetch and parse the data
 setInterval(async () => {
   try {
     var telemetryObject = await retrieveData();
@@ -106,11 +90,10 @@ executeTask();
   }, 5000);
 })();
 
-
   // Send credentials to your own server
   async function loginAndFetchImage() {
     try {
-        const response =  await fetch('http://' + serverURL + ':' + serverPort + '/login-and-fetch-image', {
+        const response =  await fetch(fullServerURL + '/login-and-fetch-image', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });

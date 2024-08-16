@@ -1,29 +1,20 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
 // BambuBoard
 // TZ | 11/20/23
+
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(
-    "http://" + serverURL + ":" + serverPort + "/version"
-  );
+  const response = await fetch(fullServerURL+ "/version");
 
   let data = await response.text();
   let versionNumber = JSON.parse(data);
@@ -49,7 +40,7 @@ async function updateUI() {
       setVersion(telemetryObject);
     }
   } catch (error) {
-    //console.error(error);
+    // Not important if goes wrong
   }
 }
 
