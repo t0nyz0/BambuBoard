@@ -37,9 +37,16 @@ For detailed instructions, visit the [Docker installation documentation](https:/
 
 
 ## Step 2: Run the Docker Container
+> [!IMPORTANT]
+> Be sure to update these values. The minimum settings you should update:
+>
+> - *BAMBUBOARD_PRINTER_URL* **(Printer IP)**
+> - *BAMBUBOARD_BAMBU_USERNAME* **(Your BambuLabs email address)**
+> - *BAMBUBOARD_BAMBU_PASSWORD* **(Your BambuLabs password)**
+> - *BAMBUBOARD_PRINTER_ACCESS_CODE* **(Located on printer)**
+> - *BAMBUBOARD_PRINTER_SN* **(Located on printer)**
 
-Run the Docker container using the following command:
-> *Be sure to update these values with your settings*
+### Run the Docker container using the following command:
 
 ```ccp
 docker run -d \
@@ -128,7 +135,7 @@ To start the BambuBoard dashboard:
    node bambuConnection.js
    ```
 
-## Step 5: Accessing the Dashboard
+# Accessing the Dashboard
 
 Once the application is running, you can access the BambuBoard dashboard. Open your browser and navigate to:
    ```ccp
