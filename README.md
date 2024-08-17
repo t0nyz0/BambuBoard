@@ -23,27 +23,20 @@ Before running the BambuBoard in Docker, ensure that Docker is installed on your
 
 - **Linux:**
   1. Open a terminal and run the following commands to install Docker:
-     ```bash
+     ```cpp
      sudo apt-get update
      sudo apt-get install docker-ce docker-ce-cli containerd.io
      ```
   2. Start the Docker service:
-     ```bash
+     ```cpp
      sudo systemctl start docker
      sudo systemctl enable docker
      ```
 
 For detailed instructions, visit the [Docker installation documentation](https://docs.docker.com/get-docker/).
 
-## Step 2: Pull the Docker Image
 
-Once Docker is installed, pull the BambuBoard Docker image from GitHub Packages:
-
-```bash
-docker pull ghcr.io/t0nyz0/bambuboard:latest
-```
-
-## Step 3: Run the Docker Container
+## Step 2: Run the Docker Container
 
 Run the Docker container using the following command:
 > *Be sure to update these values with your settings*
@@ -75,23 +68,23 @@ Node.js is required to run the BambuBoard application. Here's how to install it 
 
 1. Open a terminal on your Raspberry Pi.
 2. Update your package list:
-   ```
+   ```ccp
    sudo apt update
    ```
 3. Upgrade your packages to their latest versions:
-   ```
+   ```ccp
    sudo apt full-upgrade
    ```
 4. Install Node.js:
-   ```
+   ```ccp
    sudo apt install nodejs
    ```
 5. (Optional) Install npm, Node.js' package manager:
-   ```
+   ```ccp
    sudo apt install npm
    ```
 6. Verify the installation by checking the version of Node.js and npm:
-   ```
+   ```ccp
    node -v
    npm -v
    ```
@@ -100,19 +93,19 @@ Node.js is required to run the BambuBoard application. Here's how to install it 
 To get the BambuBoard code, you need to clone its repository from GitHub:
 
 1. Navigate to the directory where you want to clone the repository:
-   ```
+   ```ccp
    cd /path/to/directory
    ```
 2. Clone the repository:
-   ```
+   ```ccp
    git clone https://github.com/t0nyz0/BambuBoard.git
    ```
 3. Change into the cloned repository's directory:
-   ```
+   ```ccp
    cd BambuBoard
    ```
 4. Update the config.json with your settings! This is important.
-   ```
+   ```ccp
    sudo nano config.json
    ```
   Note: CTRL+X to exit nano, make sure to hit Y to confirm saving changes.
@@ -122,7 +115,7 @@ To get the BambuBoard code, you need to clone its repository from GitHub:
 BambuBoard may have Node.js dependencies that need to be installed:
 
 1. Within the BambuBoard directory, install the dependencies:
-   ```
+   ```ccp
    npm install
    ```
 
@@ -131,15 +124,15 @@ BambuBoard may have Node.js dependencies that need to be installed:
 To start the BambuBoard dashboard:
 
 1. Run the application:
-   ```
+   ```ccp
    node bambuConnection.js
    ```
 
 ## Step 5: Accessing the Dashboard
 
-Once the application is running, you can access the BambuBoard dashboard via a web browser on the Raspberry Pi or another device on the same network. Open your browser and navigate to:
-   ```
-   http://raspberrypi.local:8080
+Once the application is running, you can access the BambuBoard dashboard. Open your browser and navigate to:
+   ```ccp
+   http://ipaddress:8080
    ```
 Replace `8080` with the actual port number if BambuBoard runs on a different port. (Configured in bambuConnection.js)
 
@@ -150,7 +143,7 @@ Note: If this doesnt work, try IP address of Raspberry Pi.
 If you encounter any issues, consider the following:
 
 - Check that you have the correct permissions to clone the repository and install Node.js packages.
-- Verify that the Raspberry Pi's firewall settings are not blocking the BambuBoard application.
+- Verify that the firewall settings are not blocking the BambuBoard application.
 
 
 
@@ -187,7 +180,7 @@ List of all widget addresses:
 "Version widget": "http://127.0.0.1:8080/widgets/version/index.html"
 ```
 
-Note: If you want to EDIT notes go to this URL: http:/{server}:8080/widgets/notes/edit.html
+Note: If you want to EDIT notes go to this URL: http://server:8080/widgets/notes/edit.html
 
 # Future Development Plans:
 
