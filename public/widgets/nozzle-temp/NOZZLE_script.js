@@ -1,45 +1,36 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
 // BambuBoard
 // TZ | 11/20/23
+
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
-let tempSetting = "Fahrenheit"; // Celsius or Both
+let tempSetting = "Fahrenheit";
 let telemetryObjectMain;
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function loadSettings() {
   try {
-      const serverURL = window.location.hostname;
-      const response = await fetch('http://' + serverURL + ':' + serverPort + '/settings');
-      if (response.ok) {
-          const data = await response.json();
-          tempSetting = data;
-      } 
+    const serverURL = window.location.hostname;
+    const response = await fetch(fullServerURL + "/settings");
+    if (response.ok) {
+      const data = await response.json();
+      tempSetting = data;
+    }
   } catch (error) {
-      console.error('Error loading settings:', error);
+    console.error("Error loading settings:", error);
   }
 }
 
 loadSettings();
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
-  );
+  const response = await fetch(fullServerURL + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -76,7 +67,6 @@ async function updateUI(telemetryObject) {
     }
 
     /// Nozzle Temp
-
     let nozzleTargetTemp = 0;
     let nozzleTempPercentage = 1;
     // Bed Target Temp
@@ -90,9 +80,7 @@ async function updateUI(telemetryObject) {
     }
 
     if (nozzleTempPercentage > 100) {
-      log(
-        "Nozzle percentage over 100, adjusting..." + nozzleTempPercentage
-      );
+      log("Nozzle percentage over 100, adjusting..." + nozzleTempPercentage);
       nozzleTempPercentage = 100;
     }
 
@@ -108,7 +96,7 @@ async function updateUI(telemetryObject) {
     $("#nozzleCurrentTempF").text(nozzleCurrentTemp);
     $("#nozzleCurrentTempC").text(telemetryObject.nozzle_temper);
 
-    log("nozzleCurrentTemp = " + nozzleCurrentTemp); 
+    log("nozzleCurrentTemp = " + nozzleCurrentTemp);
 
     let progressNozzleParentWidth = $("#nozzleProgressBarParent").width();
     log("progressNozzleParentWidth = " + progressNozzleParentWidth);
@@ -123,8 +111,7 @@ async function updateUI(telemetryObject) {
       $("#nozzleTargetTempSymbolsF").hide();
       $("#nozzleTargetTempSymbolsC").hide();
     } else {
-      if (tempSetting === "Fahrenheit")
-      {
+      if (tempSetting === "Fahrenheit") {
         $("#nozzleTargetTempSymbolsF").show();
         $("#nozzleCurrentTempSymbolsF").show();
         $("#nozzleTargetTempF").show();
@@ -134,9 +121,7 @@ async function updateUI(telemetryObject) {
         $("#nozzleTargetTempSymbolsC").hide();
         $("#nozzleCurrentTempSymbolsC").hide();
         $("#nozzleTargetTempC").hide();
-      }
-      else if (tempSetting === "Celsius")
-      {
+      } else if (tempSetting === "Celsius") {
         $("#nozzleTargetTempSymbolsF").hide();
         $("#nozzleCurrentTempSymbolsF").hide();
         $("#nozzleTargetTempF").hide();
@@ -146,9 +131,7 @@ async function updateUI(telemetryObject) {
         $("#nozzleTargetTempSymbolsC").show();
         $("#nozzleCurrentTempSymbolsC").show();
         $("#nozzleTargetTempC").show();
-      }
-      else if (tempSetting === "Both")
-      {
+      } else if (tempSetting === "Both") {
         $("#nozzleTargetTempSymbolsF").show();
         $("#nozzleCurrentTempSymbolsF").show();
         $("#nozzleTargetTempF").show();
