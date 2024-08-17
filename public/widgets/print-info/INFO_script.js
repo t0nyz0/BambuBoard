@@ -1,18 +1,11 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight, or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
 // BambuBoard
 // TZ | 11/20/23
+
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let printModelName = "";
@@ -21,12 +14,11 @@ let telemetryObjectMain;
 let lastFetchTime = 0; // Timestamp of the last fetch
 let lastNoteTime = 0; // Timestamp of the last note save
 const fetchInterval = 240000; // 4 minutes interval in milliseconds
-const noteInterval = 600000; // 10 minutes interval for note saving
+const noteInterval = 900000; // 10 minutes interval for note saving
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function retrieveData() {
-  const response = await fetch(
-    "http://" + serverURL + ":" + serverPort + "/data.json"
-  );
+  const response = await fetch(fullServerURL + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -140,7 +132,7 @@ function log(logText) {
 
 async function saveNote(data) {
   try {
-    const response = await fetch('http://' + serverURL + ':' + serverPort + '/note', {
+    const response = await fetch(fullServerURL + '/note', {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
@@ -228,8 +220,7 @@ function convertMinutesToReadableTime(totalMinutes) {
 // Send credentials to your own server
 async function loginAndFetchImage() {
   try {
-    const response = await fetch(
-      "http://" + serverURL + ':' + serverPort + "/login-and-fetch-image",
+    const response = await fetch(fullServerURL + "/login-and-fetch-image",
       {
         method: "GET",
         headers: { "Content-Type": "application/json" },

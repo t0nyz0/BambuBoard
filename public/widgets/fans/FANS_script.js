@@ -1,33 +1,24 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
 // BambuBoard
 // TZ | 11/20/23
+
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 // Preferences
 let displayFanPercentages = true; // Use percentages instead of icons for the fans
 let displayFanIcons = true; // Use percentages instead of icons for the fans
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
-  );
+  const response = await fetch(fullServerURL + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -55,13 +46,13 @@ async function retrieveData() {
 async function loadPreferences() {
   try {
       const serverURL = window.location.hostname;
-      const response = await fetch('http://' + serverURL + ':' + serverPort +'/preference-fan-icons');
+      const response = await fetch(fullServerURL +'/preference-fan-icons');
       if (response.ok) {
           const data = await response.json();
           displayFanIcons = data;
       } 
 
-      const response2 = await fetch('http://' + serverURL + ':' + serverPort + '/preference-fan-percentages');
+      const response2 = await fetch(fullServerURL + '/preference-fan-percentages');
       if (response.ok) {
 
           const data = await response2.json();
@@ -74,9 +65,6 @@ async function loadPreferences() {
   }
 }
 
-
-
-// Some issues were found lumping all the DOM updates into the updateUI() function, split fans into their own function.
 async function updateFans(telemetryObject) {
   try {
     /// Update preferences 

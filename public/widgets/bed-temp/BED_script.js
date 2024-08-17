@@ -1,29 +1,23 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
 // BambuBoard
 // TZ | 11/20/23
 
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
+
 let currentState = "OFF";
 let modelImage = "";
-let tempSetting = "Fahrenheit"; // Celsius or Both
+let tempSetting = "Fahrenheit"; 
 const consoleLogging = false;
 let telemetryObjectMain;
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function loadSettings() {
   try {
       const serverURL = window.location.hostname;
-      const response = await fetch('http://' + serverURL + ':' + serverPort + '/settings');
+      const response = await fetch(fullServerURL+ '/settings');
       if (response.ok) {
           const data = await response.json();
           tempSetting = data;
@@ -36,10 +30,8 @@ async function loadSettings() {
 loadSettings();
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(
-    "http://" + serverURL + ":" + window.location.port + "/data.json"
-  );
+  const response = await fetch(fullServerURL + "/data.json");
+
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 

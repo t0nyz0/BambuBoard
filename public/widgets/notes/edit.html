@@ -16,11 +16,16 @@
     </form>
 
     <script>
-       const serverPort = window.location.port;
+        const protocol = window.location.protocol; // 'http:' or 'https:'
+        const serverURL = window.location.hostname; // IP of the computer running this dashboard
+        const serverPort = window.location.port;
+
+        const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
+
        async function loadNote() {
             try {
                 const serverURL = window.location.hostname;
-                const response = await fetch('http://' + serverURL + ':' + serverPort + '/note');
+                const response = await fetch(fullServerURL + '/note');
                 if (response.ok) {
                     const data = await response.json();
                     document.getElementById('noteContent').innerText = data.content;
@@ -38,7 +43,7 @@
             const content = document.getElementById('noteContent').value;
             const serverURL = window.location.hostname;
             try {
-                const response = await fetch('http://' + serverURL + ':' + serverPort + '/note', {
+                const response = await fetch(fullServerURL + '/note', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
