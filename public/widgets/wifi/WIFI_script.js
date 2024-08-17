@@ -1,30 +1,20 @@
-//-------------------------------------------------------------------------------------------------------------
-/// Configure your settings here:
-
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-
-// Note: If set to 127.0.0.1 you will not be able to view your plate image, weight or total prints.
-//       Those features will only work if viewing the dashboard locally.
-
-//-------------------------------------------------------------------------------------------------------------
-
-// -- Dont touch below
-
-
-
 // BambuBoard
 // TZ | 11/20/23
 
+//-------------------------------------------------------------------------------------------------------------
+const protocol = window.location.protocol; // 'http:' or 'https:'
+const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const serverPort = window.location.port;
+//-------------------------------------------------------------------------------------------------------------
 
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch("http://" + serverURL + ":" + serverPort + "/data.json");
+  const response = await fetch(fullServerURL + "/data.json");
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -44,8 +34,6 @@ async function retrieveData() {
 
   return telemetryObject;
 }
-
-
 
 async function updateWifi(telemetryObject) {
   /// Wifi
@@ -75,14 +63,9 @@ async function updateWifi(telemetryObject) {
   $("#wifiValue").text(signalPercentage);
 }
 
-
-
   function disableUI(){
     $("#wifiProgressBar").css("background-color", "grey");
   }
-
-
-
 
   function log(logText)
   {
@@ -94,9 +77,6 @@ async function updateWifi(telemetryObject) {
   
   const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
 
-
-
-  
 // Pulled from GPT, my printer is VERY close to my router, so to make this more interesting,
 // I have updated the maxSignal from -50 dBm to -40 dBm making it more difficult to reach max.
 
