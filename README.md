@@ -9,11 +9,65 @@ Screenshot (Updated version: 1/14/24):
 ![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/33ebcaa1-a80b-4372-b218-1b22901b0695)
 
 
+# Installation Option 1 (Docker)
 
-# BambuBoard Setup Guide
+## Step 1: Install Docker
 
-Welcome to the BambuBoard Setup Guide. This document will walk you through the process of cloning the BambuBoard repository and setting up Node.js on a Raspberry Pi to run the BambuBoard dashboard.
+Before running the BambuBoard in Docker, ensure that Docker is installed on your system.
 
+### Instructions:
+
+- **Windows and macOS:**
+  1. Download and install Docker Desktop from [Docker's official website](https://www.docker.com/products/docker-desktop).
+  2. Follow the installation instructions provided on the website.
+
+- **Linux:**
+  1. Open a terminal and run the following commands to install Docker:
+     ```bash
+     sudo apt-get update
+     sudo apt-get install docker-ce docker-ce-cli containerd.io
+     ```
+  2. Start the Docker service:
+     ```bash
+     sudo systemctl start docker
+     sudo systemctl enable docker
+     ```
+
+For detailed instructions, visit the [Docker installation documentation](https://docs.docker.com/get-docker/).
+
+## Step 2: Pull the Docker Image
+
+Once Docker is installed, pull the BambuBoard Docker image from GitHub Packages:
+
+```bash
+docker pull ghcr.io/t0nyz0/bambuboard:latest
+```
+
+## Step 3: Run the Docker Container
+
+Run the Docker container using the following command:
+> *Be sure to update these values with your settings*
+
+```ccp
+docker run -d \
+-p 8080:8080 \
+-e BAMBUBOARD_HTTP_PORT=8080 \
+-e BAMBUBOARD_PRINTER_URL=10.0.0.1 \
+-e BAMBUBOARD_PRINTER_PORT=8883 \
+-e BAMBUBOARD_PRINTER_SN=bambu_serialnumber \
+-e BAMBUBOARD_PRINTER_ACCESS_CODE=bambu_accesscode \
+-e BAMBUBOARD_BAMBU_USERNAME=bambu_email_address \
+-e BAMBUBOARD_BAMBU_PASSWORD=bambu_password \
+-e BAMBUBOARD_TEMP_SETTING=both \
+-e BAMBUBOARD_FAN_PERCENTAGES=false \
+-e BAMBUBOARD_FAN_ICONS=true \
+-e BAMBUBOARD_LOGGING=false \
+--name bambuboard-instance \
+ghcr.io/t0nyz0/bambuboard:latest
+```
+
+
+# Installation Option 2 (Manual install)
 
 ## Step 1: Install Node.js
 
@@ -41,7 +95,6 @@ Node.js is required to run the BambuBoard application. Here's how to install it 
    node -v
    npm -v
    ```
-
 ## Step 2: Clone the BambuBoard Repository
 
 To get the BambuBoard code, you need to clone its repository from GitHub:
