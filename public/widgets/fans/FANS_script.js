@@ -68,7 +68,7 @@ async function loadPreferences() {
 async function updateFans(telemetryObject) {
   try {
     /// Update preferences 
-    if (displayFanIcons == true)
+    if (displayFanIcons == true || displayFanIcons == "true")
       {
         $("#fan1").show();
         $("#fan2").show();
@@ -82,7 +82,7 @@ async function updateFans(telemetryObject) {
         $("#fan3").hide();
         $("#fan4").hide();
       }
-    if (displayFanPercentages == true)
+    if (displayFanPercentages == true || displayFanPercentages == "true")
     {
       $("#fan1-percent").show();
       $("#fan2-percent").show();
