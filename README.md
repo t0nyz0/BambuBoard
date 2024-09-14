@@ -151,6 +151,7 @@ If you encounter any issues, consider the following:
 
 - Check that you have the correct permissions to clone the repository and install Node.js packages.
 - Verify that the firewall settings are not blocking the BambuBoard application.
+- Important: Bambu Account 2-factor authentication currently does not allow this program to communicate with Bambu API, right now 2FA is not supported. If you have 2FA on the program might fail to load, or freeze.
 
 
 
