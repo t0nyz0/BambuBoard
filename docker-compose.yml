@@ -1,0 +1,19 @@
+version: '3'
+services:
+  bambuboard:
+    build: .
+    image: ghcr.io/t0nyz0/bambuboard:latest
+    ports:
+      - 8080:8080
+    environment:
+      - BAMBUBOARD_HTTP_PORT=8080
+      - BAMBUBOARD_PRINTER_URL=10.0.0.1
+      - BAMBUBOARD_PRINTER_PORT=8883
+      - BAMBUBOARD_PRINTER_SN=bambu_serialnumber
+      - BAMBUBOARD_PRINTER_ACCESS_CODE=bambu_accesscode
+      - BAMBUBOARD_BAMBU_USERNAME=bambu_email_address
+      - BAMBUBOARD_BAMBU_PASSWORD=bambu_password
+      - BAMBUBOARD_TEMP_SETTING=both
+      - BAMBUBOARD_FAN_PERCENTAGES=true
+      - BAMBUBOARD_FAN_ICONS=true
+      - BAMBUBOARD_LOGGING=false
