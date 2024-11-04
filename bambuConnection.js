@@ -38,7 +38,7 @@ process.env.UV_THREADPOOL_SIZE = 128;
 function extractToken(cookies) {
   return cookies.split('; ').find(row => row.startsWith('token=')).split('=')[1];
 }
-
+const tokenFilePath = path.join(__dirname, 'accessToken.json');
 const protocol = "mqtts";
 let SequenceID = 20000;
 let topic = "device/" + printerSN + "/report";
@@ -74,82 +74,170 @@ async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
   });
 }
 
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    // Perform login request
+    const authResponse = await fetchWithTimeout('https://bambulab.com/api/sign-in/form', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: username, password, apiError: '' }),
+    }, 7000);
+
+    const authData = await authResponse.json();
+
+    if (authData.success) {
+      // Successful login, save access token
+      const token = authData.accessToken;
+      await fs.writeFile(tokenFilePath, JSON.stringify({ accessToken: token }), 'utf-8');
+      res.status(200).send('Login successful');
+    } else if (authData.loginType === 'verifyCode') {
+      // Login requires verification code
+      // Send email with verification code
+      const sendCodeResponse = await fetch('https://api.bambulab.com/v1/user-service/user/sendemail/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: username, type: 'codeLogin' })
+      });
+
+      if (sendCodeResponse.ok) {
+        res.status(401).send('Verification code required');
+      } else {
+        throw new Error('Failed to send verification code');
+      }
+    } else {
+      throw new Error('Authentication failed');
+    }
+  } catch (error) {
+    console.error('Error during login:', error);
+    res.status(401).send('Login failed');
+  }
+});
+
+
+app.post('/verify', async (req, res) => {
+  const { username, code } = req.body;
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  try {
+    // Perform verification request
+    const verifyPayload = {
+      account: username,
+      code: code,
+    };
+
+    const verifyResponse = await fetch('https://api.bambulab.com/v1/user-service/user/login', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(verifyPayload)
+    });
+
+    if (!verifyResponse.ok) {
+      throw new Error('Verification failed');
+    }
+
+    const verifyData = await verifyResponse.json();
+    const token = verifyData.accessToken;
+    const refreshToken = verifyData.refreshToken;
+    const expiresIn = verifyData.expiresIn; // Expiry in seconds
+    const currentTime = Date.now();
+
+    // Save access token, refresh token, and expiration info
+    const tokenInfo = {
+      accessToken: token,
+      refreshToken: refreshToken,
+      tokenExpiration: currentTime + expiresIn * 1000, // Calculate expiration time in ms
+    };
+
+    log(`Attempting to write token to: ${tokenFilePath}`);
+    try {
+      await fsp.writeFile(tokenFilePath, JSON.stringify(tokenInfo));
+      log('Token file successfully written.');
+      res.status(200).send('Verification successful');
+    } catch (writeError) {
+      console.error('Failed to write token file:', writeError);
+      return res.status(500).send('Internal server error during token save');
+    }
+  } catch (error) {
+    console.error('Error during verification:', error);
+    res.status(401).send('Verification failed');
+  }
+});
+
+
 
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
-    const currentTime = new Date().getTime();
+    const currentTime = Date.now();
+    let token = null;
 
-    // Check if cached data is valid and return it if valid
-    if (currentTime - cache.lastRequestTime < cacheDuration && cache.data) {
-      return res.json(cache.data);
+    // Check if access token file exists and read the token
+    try {
+      log(`Checking if token file exists: ${tokenFilePath}`);
+      await fsp.access(tokenFilePath); 
+
+      log(`Reading token file: ${tokenFilePath}`);
+      const tokenFileData = await fsp.readFile(tokenFilePath, 'utf-8');
+      log(`Token file data: ${tokenFileData}`);
+
+      const tokenData = JSON.parse(tokenFileData);
+      log(`Parsed token data: ${JSON.stringify(tokenData)}`);
+
+      if (tokenData && tokenData.accessToken && currentTime < tokenData.tokenExpiration) {
+        token = tokenData.accessToken; 
+        log(`Valid token found: ${token}`);
+      } else {
+        throw new Error('Token expired or invalid');
+      }
+    } catch (err) {
+      log(`No valid token file found, or token expired: ${err.message}`);
+      return res.status(401).send('No valid token. Please login first.');
     }
 
-    if (bambuUsername != '') {
-        const authResponse = await fetchWithTimeout('https://bambulab.com/api/sign-in/form', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account: bambuUsername, password: bambuPassword, apiError: '' })
-        }, 7000);
+    // Use the token to perform the API request
+    log('Attempting to use token for API request...');
+    const apiResponse = await fetch('https://api.bambulab.com/v1/user-service/my/tasks', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
 
-        if (!authResponse.ok) {
-            throw new Error('Authentication failed');
-        }
-
-        const cookies = authResponse.headers.raw()['set-cookie'][1];
-        const token = extractToken(cookies);
-
-        const apiResponse = await fetchWithTimeout('https://api.bambulab.com/v1/user-service/my/tasks', {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
-        }, 7000);
-
-        if (!apiResponse.ok) {
-            throw new Error('API request failed');
-        }
-
-        const data = await apiResponse.json();
-        const responseObject = {
-          imageUrl: data.hits[0].cover,
-          modelTitle: data.hits[0].title,
-          modelWeight: data.hits[0].weight,
-          modelCostTime: data.hits[0].costTime,
-          totalPrints: data.total,
-          deviceName: data.hits[0].deviceName,
-          deviceModel: data.hits[0].deviceModel,
-          bedType: data.hits[0].bedType
-        };
-
-        // Update cache
-        cache = {
-          lastRequestTime: new Date().getTime(),
-          data: responseObject
-        };
-
-        res.json(responseObject);
-    } else {
-        const responseObject = {
-          imageUrl: 'NOTENROLLED',
-          modelTitle: '',
-          modelWeight: '',
-          modelCostTime: '',
-          totalPrints: '',
-          deviceName: '',
-          deviceModel: '',
-          bedType: ''
-        };
-
-        // Update cache with default response
-        cache = {
-          lastRequestTime: new Date().getTime(),
-          data: responseObject
-        };
-      
-        res.json(responseObject);
+    if (!apiResponse.ok) {
+      console.error('API request failed with status:', apiResponse.status);
+      throw new Error('API request failed');
     }
+
+    const data = await apiResponse.json();
+    log(`API response data: ${JSON.stringify(data)}`);
+
+    const responseObject = {
+      imageUrl: data.hits[0]?.cover,
+      modelTitle: data.hits[0]?.title,
+      modelWeight: data.hits[0]?.weight,
+      modelCostTime: data.hits[0]?.costTime,
+      totalPrints: data.total,
+      deviceName: data.hits[0]?.deviceName,
+      deviceModel: data.hits[0]?.deviceModel,
+      bedType: data.hits[0]?.bedType
+    };
+
+    // Update cache
+    cache = {
+      lastRequestTime: currentTime,
+      data: responseObject
+    };
+
+    res.json(responseObject);
   } catch (error) {
-      console.error('Error:', error);
+    console.error('Error:', error);
+    res.status(500).send('An error occurred');
   }
 });
+
+
 
 app.get('/settings', async (req, res) => {
   try {
