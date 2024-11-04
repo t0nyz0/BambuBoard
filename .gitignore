@@ -6,3 +6,4 @@ package-lock.json
 .DS_Store
 config.json
 note.json
+accessToken.json
