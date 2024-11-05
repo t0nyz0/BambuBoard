@@ -146,7 +146,6 @@ Once the application is running, you can access the BambuBoard dashboard. Open y
    ```
 Replace `8080` with the actual port number if BambuBoard runs on a different port. (Configured in bambuConnection.js)
 
-Note: If this doesnt work, try IP address of Raspberry Pi.
 
 ## Troubleshooting
 
@@ -156,6 +155,8 @@ If you encounter any issues, consider the following:
 - Verify that the firewall settings are not blocking the BambuBoard application.
 - Important: Bambu Account 2-factor authentication currently does not allow this program to communicate with Bambu API, right now 2FA is not supported. If you have 2FA on the program might fail to load, or freeze.
 
+> [!WARNING]  
+> As of 11/4/2024 Bambu updated the API to require verification code. This breaks getting the print image and various other things on the dashboard. To get around this, I added a new web page on version 1.1.4. This website 'http://(bambu-board-ip)/login.html' is where you can login, send yourself a verification code and verify the code. The code will then be stored in cache so that you dont have to type it in again, it should work for up to a year according to the expiration date on the token. This is a temporary work around until I can implement a better more streamline solution. 
 
 
 ## OBS mode
