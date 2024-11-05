@@ -158,6 +158,8 @@ If you encounter any issues, consider the following:
 > [!WARNING]  
 > As of 11/4/2024 Bambu updated the API to require verification code. This breaks getting the print image and various other things on the dashboard. To get around this, I added a new web page on version 1.1.4. This website 'http://(bambu-board-ip)/login.html' is where you can login, send yourself a verification code and verify the code. The code will then be stored in cache so that you dont have to type it in again, it should work for up to a year according to the expiration date on the token. This is a temporary work around until I can implement a better more streamline solution. 
 
+![image](https://github.com/user-attachments/assets/374abb12-608d-4c1c-a871-948175bfc9f5)
+
 
 ## OBS mode
 
