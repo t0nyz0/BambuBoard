@@ -1179,22 +1179,57 @@ function convertMinutesToReadableTime(totalMinutes) {
   }
 }
 
-  // Send credentials to your own server
   async function loginAndFetchImage() {
     try {
-        const response =  await fetch(fullServerURL + '/login-and-fetch-image', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
+      // First, check if the access token is still valid
+      const statusResponse = await fetch(fullServerURL + '/auth/status', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
   
-        const data = await response.json();
-
-        // Display the image using the extracted URL
-        displayAPIData(data);
-
+      if (statusResponse.status === 200) {
+        // Token is valid
+        const { accessToken } = await statusResponse.json();
+        console.log('Token is valid:', accessToken);
+        
+        // Now fetch the image
+        await fetchImage();
+      } else {
+        // No valid token or token expired
+        console.log('Token is invalid or expired, redirecting to login page...');
+        
+        // Open the login page for the user to manually log in
+        window.location.href = '/login.html';
+      }
     } catch (error) {
-        console.error('Error fetching model image:', error);
+      console.error('Error checking token status:', error);
+      // In case of an error, redirect to the login page
+      window.location.href = '/login.html';
     }
+  }
+
+
+  
+  // Function to fetch the image if the token is valid
+  async function fetchImage() {
+    try {
+      const response = await fetch(fullServerURL + '/login-and-fetch-image', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to fetch image data');
+      }
+  
+      const data = await response.json();
+      // Display the image using the extracted URL
+      displayAPIData(data);
+    } catch (error) {
+      console.error('Error fetching model image:', error);
+    }
+  }
+  
   
     async function loadSettings() {
       try {
@@ -1233,4 +1268,4 @@ function convertMinutesToReadableTime(totalMinutes) {
       }
     }
   
- }
+ 

@@ -3,66 +3,66 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login to BambuLab</title>
+  <title>Direct Login to BambuLab</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      max-width: 400px;
+      margin: auto;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      text-align: center;
+    }
+    button {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin-top: 20px;
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
 </head>
 <body>
-  <h1>Login to BambuLab</h1>
-  <form id="login-form">
-    <label for="username">Username:</label>
-    <input type="text" id="username" name="username" required><br><br>
-    <label for="password">Password:</label>
-    <input type="password" id="password" name="password" required><br><br>
-    <button type="submit">Login</button>
-  </form>
-
-  <form id="verification-form" style="display:none;">
-    <label for="verification-code">Enter Verification Code:</label>
-    <input type="text" id="verification-code" name="verification-code" required><br><br>
-    <button type="submit">Submit Verification Code</button>
-  </form>
+  <div class="container">
+    <h1>Direct Login to BambuLab</h1>
+    <!-- Login Form -->
+    <form id="login-form">
+      <button type="submit">Login</button>
+    </form>
+  </div>
 
   <script>
+    // Handle login form submission
     document.getElementById('login-form').addEventListener('submit', async (event) => {
       event.preventDefault();
 
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
+      try {
+        const response = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
 
-      const response = await fetch('/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-
-      if (response.status === 200) {
-        alert('Login successful! Access token saved.');
-      } else if (response.status === 401) {
-        alert('Verification code required. Please check your email.');
-
-        // Show verification form
-        document.getElementById('login-form').style.display = 'none';
-        document.getElementById('verification-form').style.display = 'block';
-      } else {
-        alert('Login failed. Please try again.');
-      }
-    });
-
-    document.getElementById('verification-form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-
-      const verificationCode = document.getElementById('verification-code').value;
-      const username = document.getElementById('username').value;
-
-      const response = await fetch('/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, code: verificationCode })
-      });
-
-      if (response.ok) {
-        alert('Verification successful! Access token saved.');
-      } else {
-        alert('Verification failed. Please try again.');
+        if (response.ok) {
+          alert('Login successful! Access token saved.');
+        } else {
+          alert('Login failed. Please try again.');
+        }
+      } catch (error) {
+        console.error('Login request failed:', error);
+        alert('Login failed due to an error. Please try again.');
       }
     });
   </script>

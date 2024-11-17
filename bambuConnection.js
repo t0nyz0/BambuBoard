@@ -27,11 +27,12 @@ const path = require("path");
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
+const puppeteer = require('puppeteer');
 
 const app = express();
 
 app.use(express.json());
-app.use(cors({ origin: '*' })); // CORS setup
+app.use(cors({ origin: '*' })); 
 
 process.env.UV_THREADPOOL_SIZE = 128;
 
@@ -74,100 +75,58 @@ async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
   });
 }
 
+// Use the stealth plugin to make Puppeteer harder to detect
+
 app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-
   try {
-    // Perform login request
-    const authResponse = await fetchWithTimeout('https://bambulab.com/api/sign-in/form', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: username, password, apiError: '' }),
-    }, 7000);
+    const browser = await puppeteer.launch({
+      headless: false,
+      args: [
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-infobars',
+      ],
+    });
+    const page = await browser.newPage();
 
-    const authData = await authResponse.json();
+    const loginUrl = 'https://bambulab.com/en/sign-in';
+    await page.goto(loginUrl, { waitUntil: 'networkidle2' });
 
-    if (authData.success) {
-      // Successful login, save access token
-      const token = authData.accessToken;
-      await fs.writeFile(tokenFilePath, JSON.stringify({ accessToken: token }), 'utf-8');
+    // Fill login form
+    await page.type('[name="account"]', bambuUsername); // Use the attribute 'name' to select the username field
+    await page.type('[name="password"]', bambuPassword); // Use the attribute 'name' to select the password field
+    await page.click('button[type="submit"]'); // Adjust this selector if necessary
+    
+
+    await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+    const cookies = await page.cookies();
+    console.log('Cookies:', cookies);
+
+    const tokenCookie = cookies.find(cookie => cookie.name === 'token'); 
+    const expireTime = cookies.find(cookie => cookie.name === 'expiresIn'); 
+    if (tokenCookie) {
+      console.log('Access token retrieved:', tokenCookie.value);
+
+      // Save token to file
+      const tokenData = {
+        accessToken: tokenCookie.value,
+        tokenExpiration: expireTime.value,
+      };
+      await fsp.writeFile(tokenFilePath, JSON.stringify(tokenData, null, 2));
+
       res.status(200).send('Login successful');
-    } else if (authData.loginType === 'verifyCode') {
-      // Login requires verification code
-      // Send email with verification code
-      const sendCodeResponse = await fetch('https://api.bambulab.com/v1/user-service/user/sendemail/code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: username, type: 'codeLogin' })
-      });
-
-      if (sendCodeResponse.ok) {
-        res.status(401).send('Verification code required');
-      } else {
-        throw new Error('Failed to send verification code');
-      }
     } else {
-      throw new Error('Authentication failed');
+      throw new Error('Token not found in cookies');
     }
+
+    await browser.close();
   } catch (error) {
     console.error('Error during login:', error);
     res.status(401).send('Login failed');
   }
 });
-
-
-app.post('/verify', async (req, res) => {
-  const { username, code } = req.body;
-
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  try {
-    // Perform verification request
-    const verifyPayload = {
-      account: username,
-      code: code,
-    };
-
-    const verifyResponse = await fetch('https://api.bambulab.com/v1/user-service/user/login', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(verifyPayload)
-    });
-
-    if (!verifyResponse.ok) {
-      throw new Error('Verification failed');
-    }
-
-    const verifyData = await verifyResponse.json();
-    const token = verifyData.accessToken;
-    const refreshToken = verifyData.refreshToken;
-    const expiresIn = verifyData.expiresIn; // Expiry in seconds
-    const currentTime = Date.now();
-
-    // Save access token, refresh token, and expiration info
-    const tokenInfo = {
-      accessToken: token,
-      refreshToken: refreshToken,
-      tokenExpiration: currentTime + expiresIn * 1000, // Calculate expiration time in ms
-    };
-
-    log(`Attempting to write token to: ${tokenFilePath}`);
-    try {
-      await fsp.writeFile(tokenFilePath, JSON.stringify(tokenInfo));
-      log('Token file successfully written.');
-      res.status(200).send('Verification successful');
-    } catch (writeError) {
-      console.error('Failed to write token file:', writeError);
-      return res.status(500).send('Internal server error during token save');
-    }
-  } catch (error) {
-    console.error('Error during verification:', error);
-    res.status(401).send('Verification failed');
-  }
-});
-
 
 
 app.get('/login-and-fetch-image', async (req, res) => {
@@ -187,7 +146,7 @@ app.get('/login-and-fetch-image', async (req, res) => {
       const tokenData = JSON.parse(tokenFileData);
       log(`Parsed token data: ${JSON.stringify(tokenData)}`);
 
-      if (tokenData && tokenData.accessToken && currentTime < tokenData.tokenExpiration) {
+      if (tokenData && tokenData.accessToken) {
         token = tokenData.accessToken; 
         log(`Valid token found: ${token}`);
       } else {
@@ -236,8 +195,6 @@ app.get('/login-and-fetch-image', async (req, res) => {
     res.status(500).send('An error occurred');
   }
 });
-
-
 
 app.get('/settings', async (req, res) => {
   try {
@@ -311,6 +268,28 @@ app.get('/note', async (req, res) => {
     }
   }
 });
+
+// Endpoint to check token status
+app.get('/auth/status', async (req, res) => {
+  try {
+    // Read the token file to check the current token status
+    const tokenFileData = await fsp.readFile(tokenFilePath, 'utf-8');
+    const tokenData = JSON.parse(tokenFileData);
+    const currentTime = Date.now();
+
+    if (tokenData && tokenData.accessToken) {
+      console.log('Token available:', tokenData.accessToken);
+      res.status(200).json({ accessToken: tokenData.accessToken });
+    } else {
+      console.log('No valid token available.');
+      res.status(204).send(); // No content
+    }
+  } catch (error) {
+    console.error('Error reading token file:', error);
+    res.status(204).send(); // No content
+  }
+});
+  
 
 // Fallback route to serve index.html for any route not handled by the above routes
 app.get('*', (req, res) => {
