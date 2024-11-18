@@ -74,47 +74,28 @@ async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
   });
 }
 
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
+
+app.post('/sendVerificationCode', async (req, res) => {
+  const { username } = req.body;
 
   try {
-    // Perform login request
-    const authResponse = await fetchWithTimeout('https://bambulab.com/api/sign-in/form', {
+    // Send the verification code request
+    const sendCodeResponse = await fetch('https://api.bambulab.com/v1/user-service/user/sendemail/code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: username, password, apiError: '' }),
-    }, 7000);
+      body: JSON.stringify({ email: username, type: 'codeLogin' })
+    });
 
-    const authData = await authResponse.json();
-
-    if (authData.success) {
-      // Successful login, save access token
-      const token = authData.accessToken;
-      await fs.writeFile(tokenFilePath, JSON.stringify({ accessToken: token }), 'utf-8');
-      res.status(200).send('Login successful');
-    } else if (authData.loginType === 'verifyCode') {
-      // Login requires verification code
-      // Send email with verification code
-      const sendCodeResponse = await fetch('https://api.bambulab.com/v1/user-service/user/sendemail/code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: username, type: 'codeLogin' })
-      });
-
-      if (sendCodeResponse.ok) {
-        res.status(401).send('Verification code required');
-      } else {
-        throw new Error('Failed to send verification code');
-      }
+    if (sendCodeResponse.ok) {
+      res.status(200).send('Verification code sent successfully. Please check your email.');
     } else {
-      throw new Error('Authentication failed');
+      throw new Error('Failed to send verification code');
     }
   } catch (error) {
-    console.error('Error during login:', error);
-    res.status(401).send('Login failed');
+    console.error('Error during sending verification code:', error);
+    res.status(500).send('Failed to send verification code');
   }
 });
-
 
 app.post('/verify', async (req, res) => {
   const { username, code } = req.body;
@@ -143,7 +124,7 @@ app.post('/verify', async (req, res) => {
     const verifyData = await verifyResponse.json();
     const token = verifyData.accessToken;
     const refreshToken = verifyData.refreshToken;
-    const expiresIn = verifyData.expiresIn; // Expiry in seconds
+    const expiresIn = verifyData.expiresIn; 
     const currentTime = Date.now();
 
     // Save access token, refresh token, and expiration info
@@ -153,21 +134,13 @@ app.post('/verify', async (req, res) => {
       tokenExpiration: currentTime + expiresIn * 1000, // Calculate expiration time in ms
     };
 
-    log(`Attempting to write token to: ${tokenFilePath}`);
-    try {
-      await fsp.writeFile(tokenFilePath, JSON.stringify(tokenInfo));
-      log('Token file successfully written.');
-      res.status(200).send('Verification successful');
-    } catch (writeError) {
-      console.error('Failed to write token file:', writeError);
-      return res.status(500).send('Internal server error during token save');
-    }
+    await fsp.writeFile(tokenFilePath, JSON.stringify(tokenInfo));
+    res.status(200).send('Verification successful');
   } catch (error) {
     console.error('Error during verification:', error);
     res.status(401).send('Verification failed');
   }
 });
-
 
 
 app.get('/login-and-fetch-image', async (req, res) => {
@@ -187,7 +160,7 @@ app.get('/login-and-fetch-image', async (req, res) => {
       const tokenData = JSON.parse(tokenFileData);
       log(`Parsed token data: ${JSON.stringify(tokenData)}`);
 
-      if (tokenData && tokenData.accessToken && currentTime < tokenData.tokenExpiration) {
+      if (tokenData && tokenData.accessToken) {
         token = tokenData.accessToken; 
         log(`Valid token found: ${token}`);
       } else {
@@ -237,6 +210,96 @@ app.get('/login-and-fetch-image', async (req, res) => {
   }
 });
 
+let storedTfaKey = null;
+
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const authResponse = await fetchWithTimeout('https://api.bambulab.com/v1/user-service/user/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: username, password, apiError: '' }),
+    }, 7000);
+
+    const authData = await authResponse.json();
+
+    if (authData.success) {
+      const token = authData.accessToken;
+      await fs.writeFile(tokenFilePath, JSON.stringify({ accessToken: token }), 'utf-8');
+      res.status(200).send('Login successful');
+    } else if (authData.loginType === 'verifyCode') {
+      const sendCodeResponse = await fetch('https://api.bambulab.com/v1/user-service/user/sendemail/code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: username, type: 'codeLogin' })
+      });
+
+      if (sendCodeResponse.ok) {
+        res.status(401).send('Verification code required');
+      } else {
+        throw new Error('Failed to send verification code');
+      }
+    } else if (authData.loginType === 'tfa') {
+      storedTfaKey = authData.tfaKey; // Store the tfaKey for later use
+      res.status(401).send('MFA code required');
+    } else {
+      throw new Error('Authentication failed');
+    }
+  } catch (error) {
+    console.error('Error during login:', error);
+    res.status(401).send('Login failed');
+  }
+});
+
+app.post('/mfa', async (req, res) => {
+  const { code } = req.body;
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  try {
+    // Perform MFA verification request
+    const verifyPayload = {
+      tfaKey: storedTfaKey, // Use the stored tfaKey from the login step
+      tfaCode: code,
+    };
+
+    const tfaResponse = await fetch('https://bambulab.com/api/sign-in/tfa', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(verifyPayload),
+    });
+
+    if (!tfaResponse.ok) {
+      throw new Error('MFA verification failed');
+    }
+
+    const setCookies = tfaResponse.headers.get('set-cookie');
+
+    if (!setCookies) {
+      throw new Error('No cookies found in response');
+    }
+
+    const cookiesArray = setCookies.split(',');
+    const tokenCookie = cookiesArray.find(cookie => cookie.trim().startsWith('token='));
+    if (!tokenCookie) {
+      throw new Error('Token cookie not found');
+    }
+
+    const token = tokenCookie.split('=')[1].split(';')[0];
+
+    if (!token) {
+      throw new Error('Token extraction failed');
+    }
+        await fsp.writeFile(tokenFilePath, JSON.stringify({ accessToken: token,  }), 'utf-8');
+        res.status(200).send('MFA verification successful');
+      } catch (error) {
+        console.error('Error during MFA verification:', error);
+        res.status(401).send('MFA verification failed');
+      }
+    });
 
 
 app.get('/settings', async (req, res) => {
