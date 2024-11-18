@@ -7,7 +7,7 @@ Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 > As of 11/4/2024 Bambu updated the API to require verification code. I attempted a few fix versions for this but they keep switching up the login methods. For now, to get authorized into Bambu you need to manually generate a access token. Here are the steps. 
 > 1. Goto: https://bambulab.com/en/sign-in and login
 > 2. Open Developer tools and go to the Application tab.
-> 3. Click on Cookies > https://makerworld.com in the left panel. As seen here:
+> 3. Click on Cookies > https://makerworld.com or https://bambulab.com in the left panel. As seen here:
 > ![image](https://github.com/user-attachments/assets/5ad8c729-eef3-4584-a333-b8dd11cb71a1)
 > 4. Take the "token" value and copy it to the /BambuBoard/accessToken.json in the field value called accessToken.
 > ![image](https://github.com/user-attachments/assets/11bee70a-5869-46de-9a55-817e0d5ae5e5)
