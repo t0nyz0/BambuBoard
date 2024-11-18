@@ -4,8 +4,14 @@ Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 ### For more detailed project information visit: https://t0nyz.com/projects/bambuboard
 
 > [!WARNING]  
-> As of 11/4/2024 Bambu updated the API to require verification code. This breaks getting the print image and various other things on the dashboard. To get around this, I added a new web page on version 1.1.4. This website 'http://(bambu-board-ip)/login.html' is where you can login, send yourself a verification code and verify the code. The code will then be stored in cache so that you dont have to type it in again, it should work for up to a year according to the expiration date on the token. This is a temporary work around until I can implement a better more streamline solution. 
-
+> As of 11/4/2024 Bambu updated the API to require verification code. I attempted a few fix versions for this but they keep switching up the login methods. For now, to get authorized into Bambu you need to manually generate a access token. Here are the steps. 
+> 1. Goto: https://bambulab.com/en/sign-in and login
+> 2. Open Developer tools and go to the Application tab.
+> 3. Click on Cookies > https://makerworld.com or https://bambulab.com in the left panel. As seen here:
+> ![image](https://github.com/user-attachments/assets/5ad8c729-eef3-4584-a333-b8dd11cb71a1)
+> 4. Take the "token" value and copy it to the /BambuBoard/accessToken.json in the field value called accessToken. Expire time doesnt matter.
+> ![image](https://github.com/user-attachments/assets/11bee70a-5869-46de-9a55-817e0d5ae5e5)
+> 5. Done, test. Hopefully this process will get easier in the future.
 
 # Screenshots:
 Screenshot (Updated version: 1/14/24):
@@ -154,11 +160,6 @@ If you encounter any issues, consider the following:
 - Check that you have the correct permissions to clone the repository and install Node.js packages.
 - Verify that the firewall settings are not blocking the BambuBoard application.
 - Important: Bambu Account 2-factor authentication currently does not allow this program to communicate with Bambu API, right now 2FA is not supported. If you have 2FA on the program might fail to load, or freeze.
-
-> [!WARNING]  
-> As of 11/4/2024 Bambu updated the API to require verification code. This breaks getting the print image and various other things on the dashboard. To get around this, I added a new web page on version 1.1.4. This website 'http://(bambu-board-ip)/login.html' is where you can login, send yourself a verification code and verify the code. The code will then be stored in cache so that you dont have to type it in again, it should work for up to a year according to the expiration date on the token. This is a temporary work around until I can implement a better more streamline solution. 
-
-![image](https://github.com/user-attachments/assets/374abb12-608d-4c1c-a871-948175bfc9f5)
 
 
 ## OBS mode
