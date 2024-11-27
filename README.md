@@ -3,7 +3,7 @@ Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. 
 
 ### For more detailed project information visit: https://t0nyz.com/projects/bambuboard
 > [!WARNING]  
-> Update to version 1.1.6: As of 11/4/2024 Bambu updated the API to require verification code. Once you have the application setup, go to `http://(bambuboard-ip)/login.html` to login to Bambu and which will cache your login token for one year.
+> Update to version 1.1.6: As of 11/4/2024 Bambu updated the API to require verification code. Once you have the application setup, go to `http://(bambuboard-ip):8080/login.html` to login to Bambu and which will cache your login token for one year.
 > 
 # Screenshots:
 
