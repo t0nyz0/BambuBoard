@@ -49,8 +49,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let cache = {
   lastRequestTime: 0,
-  data: null,
-  data2: null
+  data: null
+};
+
+let cache2 = {
+  lastRequestTime: 0,
+  data: null
 };
 const cacheDuration = 60000; // Cache duration set to 60 seconds
 // Why do we cache? So that we don't slam Bambu's API, ever.
@@ -201,8 +205,7 @@ app.get('/login-and-fetch-image', async (req, res) => {
     // Update cache
     cache = {
       lastRequestTime: currentTime,
-      data: responseObject,
-      data2: responseObject2
+      data: responseObject
     };
 
     res.json(responseObject);
@@ -299,7 +302,7 @@ app.get('/profile-info', async (req, res) => {
     };
 
     // Update cache
-    cache = {
+    cache2 = {
       lastRequestTime: currentTime,
       data: responseObject2
     };
