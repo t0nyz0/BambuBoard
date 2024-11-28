@@ -1,6 +1,6 @@
 {
     "DesktopAudioDevice1": {
-        "prev_ver": 503316482,
+        "prev_ver": 503447555,
         "name": "Desktop Audio",
         "uuid": "f9d378de-701b-4e66-8e00-dac1d70fc5b6",
         "id": "coreaudio_output_capture",
@@ -21,9 +21,9 @@
         "push-to-talk-delay": 0,
         "hotkeys": {
             "libobs.mute": [],
-            "libobs.unmute": [],
             "libobs.push-to-mute": [],
-            "libobs.push-to-talk": []
+            "libobs.push-to-talk": [],
+            "libobs.unmute": []
         },
         "deinterlace_mode": 0,
         "deinterlace_field_order": 0,
@@ -31,7 +31,7 @@
         "private_settings": {}
     },
     "AuxAudioDevice1": {
-        "prev_ver": 503316482,
+        "prev_ver": 503447555,
         "name": "Mic/Aux",
         "uuid": "0f0c6f0e-c921-4a5b-a702-e3abd92b3a9f",
         "id": "coreaudio_input_capture",
@@ -52,9 +52,9 @@
         "push-to-talk-delay": 0,
         "hotkeys": {
             "libobs.mute": [],
-            "libobs.unmute": [],
             "libobs.push-to-mute": [],
-            "libobs.push-to-talk": []
+            "libobs.push-to-talk": [],
+            "libobs.unmute": []
         },
         "deinterlace_mode": 0,
         "deinterlace_field_order": 0,
@@ -68,7 +68,7 @@
             "name": "Scene"
         }
     ],
-    "name": "BambuBoard 1.0.3",
+    "name": "BambuBoard 1.1.9",
     "groups": [],
     "quick_transitions": [
         {
@@ -106,10 +106,22 @@
         "type2": 3
     },
     "modules": {
-        "scripts-tool": [],
+        "auto-scene-switcher": {
+            "interval": 300,
+            "non_matching_scene": "",
+            "switch_if_not_matching": false,
+            "active": false,
+            "switches": []
+        },
+        "captions": {
+            "source": "",
+            "enabled": false,
+            "lang_id": 1033,
+            "provider": "mssapi"
+        },
         "output-timer": {
-            "streamTimerHours": 0,
-            "streamTimerMinutes": 0,
+            "streamTimerHours": 15,
+            "streamTimerMinutes": 58,
             "streamTimerSeconds": 30,
             "recordTimerHours": 0,
             "recordTimerMinutes": 0,
@@ -118,23 +130,56 @@
             "autoStartRecordTimer": false,
             "pauseRecordTimer": true
         },
-        "auto-scene-switcher": {
-            "interval": 300,
-            "non_matching_scene": "",
-            "switch_if_not_matching": false,
-            "active": false,
-            "switches": []
-        }
+        "scripts-tool": []
+    },
+    "resolution": {
+        "x": 1920,
+        "y": 1080
     },
     "sources": [
         {
-            "prev_ver": 503316482,
-            "name": "AMS",
+            "prev_ver": 503447555,
+            "name": "AMS Temp",
+            "uuid": "49de2983-0656-495a-b9a1-0d53184ad1aa",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://11.0.1.58:8080/widgets/ams-temp/index.html",
+                "width": 700,
+                "height": 220,
+                "css": "body {margin: 0px auto; overflow: hidden; }"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "AMS Trays",
             "uuid": "77793f3c-9919-4a61-bad4-0633de7f2422",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/ams/index.html",
+                "url": "http://11.0.1.58:8080/widgets/ams/index.html",
                 "width": 700,
                 "height": 600,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -163,13 +208,13 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Bed Temperature",
             "uuid": "8b7ee737-3252-497f-b667-6cd386d38832",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/bed-temp/index.html",
+                "url": "http://11.0.1.58:8080/widgets/bed-temp/index.html",
                 "width": 700,
                 "height": 140,
                 "css": "body {margin: 0px auto; overflow: hidden; }"
@@ -198,15 +243,15 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Chamber Temp",
             "uuid": "6ee08c69-fdd7-4e05-8164-5b9be694b39f",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/chamber-temp/index.html",
+                "url": "http://11.0.1.58:8080/widgets/chamber-temp/index.html",
                 "width": 700,
-                "height": 140,
+                "height": 120,
                 "css": "body {margin: 0px auto; overflow: hidden; }"
             },
             "mixers": 255,
@@ -233,7 +278,7 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Color Source",
             "uuid": "436888f4-1314-4529-8554-8a7c981a2f51",
             "id": "color_source",
@@ -259,13 +304,13 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
-            "name": "FANS",
+            "prev_ver": 503447555,
+            "name": "Fans",
             "uuid": "b280e632-e88b-435c-bd5e-80f36d38d29f",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/fans/index.html",
+                "url": "http://11.0.1.58:8080/widgets/fans/index.html",
                 "width": 700,
                 "height": 210,
                 "fps": 60,
@@ -296,15 +341,15 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Media Source",
             "uuid": "760615a6-e350-4e02-8bdc-95c9c8bfdb62",
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
                 "ffmpeg_options": "protocol_whitelist=file,udp,rtp",
-                "hw_decode": false,
-                "local_file": "C:/Users/tony/AppData/Roaming/BambuStudio/cameratools/ffmpeg.sdp"
+                "hw_decode": true,
+                "local_file": "C:/Users/windows-server/AppData/Roaming/BambuStudio/cameratools/ffmpeg.sdp"
             },
             "mixers": 255,
             "sync": 0,
@@ -333,13 +378,13 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Model Image",
             "uuid": "67d89b49-2e86-48df-8c36-c875d19a5155",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/model-image/index.html",
+                "url": "http://11.0.1.58:8080/widgets/model-image/index.html",
                 "width": 512,
                 "height": 512,
                 "css": "body {background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; }"
@@ -368,15 +413,16 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Notes",
             "uuid": "39da10c4-8d67-4dc3-8778-6dba80a4d9f0",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/notes/index.html",
+                "url": "http://11.0.1.58:8080/widgets/notes/index.html",
                 "width": 1500,
                 "height": 60,
+                "fps_custom": true,
                 "css": "body { border-radius:15px; background: rgb(0 0 0 / 95%); margin: 0px auto; overflow: hidden; font-size: 28px; }"
             },
             "mixers": 255,
@@ -403,15 +449,15 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
-            "name": "Nozzle Temp",
+            "prev_ver": 503447555,
+            "name": "Nozzle Temperature",
             "uuid": "77a4cf3d-d0cb-4523-bf9b-3205094f3739",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/nozzle-temp/index.html",
+                "url": "http://11.0.1.58:8080/widgets/nozzle-temp/index.html",
                 "width": 700,
-                "height": 140,
+                "height": 130,
                 "css": "body {  margin: 0px auto; overflow: hidden; }"
             },
             "mixers": 255,
@@ -438,49 +484,14 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
-            "name": "Nozzle-Info",
-            "uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
-            "id": "browser_source",
-            "versioned_id": "browser_source",
-            "settings": {
-                "undo_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
-                "url": "http://10.0.0.69:8080/widgets/printer-info/index.html",
-                "width": 355,
-                "height": 265,
-                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }\n\n.bedcontainer {\n    margin-top: 5px;\n}\n\n.bed-title {\n    padding: 10px 15px;\n}"
-            },
-            "mixers": 255,
-            "sync": 0,
-            "flags": 0,
-            "volume": 1.0,
-            "balance": 0.5,
-            "enabled": true,
-            "muted": false,
-            "push-to-mute": false,
-            "push-to-mute-delay": 0,
-            "push-to-talk": false,
-            "push-to-talk-delay": 0,
-            "hotkeys": {
-                "libobs.mute": [],
-                "libobs.unmute": [],
-                "libobs.push-to-mute": [],
-                "libobs.push-to-talk": [],
-                "ObsBrowser.Refresh": []
-            },
-            "deinterlace_mode": 0,
-            "deinterlace_field_order": 0,
-            "monitoring_type": 0,
-            "private_settings": {}
-        },
-        {
-            "prev_ver": 503316482,
-            "name": "Progress",
+            "prev_ver": 503447555,
+            "name": "Print Progress",
             "uuid": "89eca8d9-252b-4190-bdfa-8ffcc497759f",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/print-info/index.html",
+                "undo_uuid": "89eca8d9-252b-4190-bdfa-8ffcc497759f",
+                "url": "http://11.0.1.58:8080/widgets/print-info/index.html",
                 "width": 700,
                 "height": 310,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -509,14 +520,85 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
+            "name": "Printer Info",
+            "uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "undo_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
+                "url": "http://11.0.1.58:8080/widgets/printer-info/index.html",
+                "width": 355,
+                "height": 260,
+                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }\n\n.bedcontainer {\n    margin-top: 5px;\n}\n\n.bed-title {\n    padding: 10px 15px;\n}"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "Profile",
+            "uuid": "1b2f1cee-e09d-46a6-8375-fd4db486da4f",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://11.0.1.58:8080/widgets/profile-info/index.html",
+                "width": 380,
+                "height": 315,
+                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
             "name": "progress bar",
             "uuid": "4afaa6aa-09d3-40f2-a3a8-41a96d3db274",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
                 "undo_uuid": "4afaa6aa-09d3-40f2-a3a8-41a96d3db274",
-                "url": "http://10.0.0.69:8080/widgets/progress-info/index.html",
+                "url": "http://11.0.1.58:8080/widgets/progress-info/index.html",
                 "width": 1920,
                 "height": 100,
                 "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -545,14 +627,14 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
+            "prev_ver": 503447555,
             "name": "Scene",
             "uuid": "c0e8c553-0cd4-4ccf-912b-51823a185252",
             "id": "scene",
             "versioned_id": "scene",
             "settings": {
                 "custom_size": false,
-                "id_counter": 23,
+                "id_counter": 28,
                 "items": [
                     {
                         "name": "Color Source",
@@ -571,6 +653,7 @@
                         "align": 5,
                         "bounds_type": 0,
                         "bounds_align": 0,
+                        "bounds_crop": false,
                         "bounds": {
                             "x": 0.0,
                             "y": 0.0
@@ -580,234 +663,6 @@
                         "crop_right": 0,
                         "crop_bottom": 0,
                         "id": 14,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "progress bar",
-                        "source_uuid": "4afaa6aa-09d3-40f2-a3a8-41a96d3db274",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "scale": {
-                            "x": 1.0,
-                            "y": 1.0
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 13,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "Bed Temperature",
-                        "source_uuid": "8b7ee737-3252-497f-b667-6cd386d38832",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 426.0
-                        },
-                        "scale": {
-                            "x": 0.60000002384185791,
-                            "y": 0.60000002384185791
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 5,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "Nozzle Temp",
-                        "source_uuid": "77a4cf3d-d0cb-4523-bf9b-3205094f3739",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 345.0
-                        },
-                        "scale": {
-                            "x": 0.60000002384185791,
-                            "y": 0.60000002384185791
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 7,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "FANS",
-                        "source_uuid": "b280e632-e88b-435c-bd5e-80f36d38d29f",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 868.0
-                        },
-                        "scale": {
-                            "x": 0.60000002384185791,
-                            "y": 0.60000002384185791
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 11,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "Progress",
-                        "source_uuid": "89eca8d9-252b-4190-bdfa-8ffcc497759f",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 90.0
-                        },
-                        "scale": {
-                            "x": 1.0,
-                            "y": 1.0
-                        },
-                        "align": 5,
-                        "bounds_type": 1,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 420.0,
-                            "y": 196.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 12,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "Chamber Temp",
-                        "source_uuid": "6ee08c69-fdd7-4e05-8164-5b9be694b39f",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 0.0,
-                            "y": 264.0
-                        },
-                        "scale": {
-                            "x": 0.60000002384185791,
-                            "y": 0.60000002384185791
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 8,
                         "group_item_backup": false,
                         "scale_filter": "disable",
                         "blend_method": "default",
@@ -837,6 +692,7 @@
                         "align": 5,
                         "bounds_type": 0,
                         "bounds_align": 0,
+                        "bounds_crop": false,
                         "bounds": {
                             "x": 0.0,
                             "y": 0.0
@@ -859,22 +715,218 @@
                         "private_settings": {}
                     },
                     {
-                        "name": "AMS",
+                        "name": "Profile",
+                        "source_uuid": "1b2f1cee-e09d-46a6-8375-fd4db486da4f",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 407.0,
+                            "y": 91.0
+                        },
+                        "scale": {
+                            "x": 0.71842104196548462,
+                            "y": 0.71749997138977051
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 28,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Printer Info",
+                        "source_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 416.00003051757812,
+                            "y": 835.0
+                        },
+                        "scale": {
+                            "x": 0.71267604827880859,
+                            "y": 0.71320754289627075
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 10,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "progress bar",
+                        "source_uuid": "4afaa6aa-09d3-40f2-a3a8-41a96d3db274",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 13,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Print Progress",
+                        "source_uuid": "89eca8d9-252b-4190-bdfa-8ffcc497759f",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 89.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "align": 5,
+                        "bounds_type": 1,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 420.0,
+                            "y": 196.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 12,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Fans",
+                        "source_uuid": "b280e632-e88b-435c-bd5e-80f36d38d29f",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 962.0
+                        },
+                        "scale": {
+                            "x": 0.60000002384185791,
+                            "y": 0.60000002384185791
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 11,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "AMS Trays",
                         "source_uuid": "77793f3c-9919-4a61-bad4-0633de7f2422",
                         "visible": true,
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
                             "x": 0.0,
-                            "y": 508.0
+                            "y": 606.0
                         },
                         "scale": {
-                            "x": 0.59714287519454956,
-                            "y": 0.59677422046661377
+                            "x": 0.6014285683631897,
+                            "y": 0.60166668891906738
                         },
                         "align": 5,
                         "bounds_type": 0,
                         "bounds_align": 0,
+                        "bounds_crop": false,
                         "bounds": {
                             "x": 0.0,
                             "y": 0.0
@@ -897,22 +949,23 @@
                         "private_settings": {}
                     },
                     {
-                        "name": "Version",
-                        "source_uuid": "1b2f1cee-e09d-46a6-8375-fd4db486da4f",
+                        "name": "AMS Temp",
+                        "source_uuid": "49de2983-0656-495a-b9a1-0d53184ad1aa",
                         "visible": true,
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 1721.6363525390625,
-                            "y": 979.0
+                            "x": 0.0,
+                            "y": 477.0
                         },
                         "scale": {
-                            "x": 0.70454543828964233,
-                            "y": 0.69999998807907104
+                            "x": 0.6014285683631897,
+                            "y": 0.60000002384185791
                         },
                         "align": 5,
                         "bounds_type": 0,
                         "bounds_align": 0,
+                        "bounds_crop": false,
                         "bounds": {
                             "x": 0.0,
                             "y": 0.0
@@ -921,7 +974,124 @@
                         "crop_top": 0,
                         "crop_right": 0,
                         "crop_bottom": 0,
-                        "id": 23,
+                        "id": 24,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Bed Temperature",
+                        "source_uuid": "8b7ee737-3252-497f-b667-6cd386d38832",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 406.0
+                        },
+                        "scale": {
+                            "x": 0.60000002384185791,
+                            "y": 0.60000002384185791
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 5,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Nozzle Temperature",
+                        "source_uuid": "77a4cf3d-d0cb-4523-bf9b-3205094f3739",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 328.0
+                        },
+                        "scale": {
+                            "x": 0.60000002384185791,
+                            "y": 0.60000002384185791
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 7,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Chamber Temp",
+                        "source_uuid": "6ee08c69-fdd7-4e05-8164-5b9be694b39f",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 266.0
+                        },
+                        "scale": {
+                            "x": 0.60000002384185791,
+                            "y": 0.60000002384185791
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 8,
                         "group_item_backup": false,
                         "scale_filter": "disable",
                         "blend_method": "default",
@@ -951,6 +1121,7 @@
                         "align": 5,
                         "bounds_type": 1,
                         "bounds_align": 0,
+                        "bounds_crop": false,
                         "bounds": {
                             "x": 1500.0,
                             "y": 57.0
@@ -973,82 +1144,6 @@
                         "private_settings": {}
                     },
                     {
-                        "name": "WIFI",
-                        "source_uuid": "1fa0a8a5-25db-4e9a-9a7c-bbcbc1d2898c",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": -3.0517578125e-5,
-                            "y": 996.0
-                        },
-                        "scale": {
-                            "x": 0.60000002384185791,
-                            "y": 0.60000002384185791
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 9,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
-                        "name": "Nozzle-Info",
-                        "source_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
-                        "visible": true,
-                        "locked": false,
-                        "rot": 0.0,
-                        "pos": {
-                            "x": 420.0,
-                            "y": 99.0
-                        },
-                        "scale": {
-                            "x": 0.83661973476409912,
-                            "y": 0.83773583173751831
-                        },
-                        "align": 5,
-                        "bounds_type": 0,
-                        "bounds_align": 0,
-                        "bounds": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 10,
-                        "group_item_backup": false,
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
                         "name": "Model Image",
                         "source_uuid": "67d89b49-2e86-48df-8c36-c875d19a5155",
                         "visible": true,
@@ -1056,7 +1151,7 @@
                         "rot": 0.0,
                         "pos": {
                             "x": 1698.0,
-                            "y": 99.0
+                            "y": 100.0
                         },
                         "scale": {
                             "x": 0.43359375,
@@ -1065,6 +1160,7 @@
                         "align": 5,
                         "bounds_type": 0,
                         "bounds_align": 0,
+                        "bounds_crop": false,
                         "bounds": {
                             "x": 0.0,
                             "y": 0.0
@@ -1078,6 +1174,84 @@
                         "scale_filter": "disable",
                         "blend_method": "default",
                         "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Youtube Count",
+                        "source_uuid": "be82a469-f061-4806-8e1a-2a08a195467b",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 1770.0,
+                            "y": 944.0
+                        },
+                        "scale": {
+                            "x": 1.0549999475479126,
+                            "y": 1.0549999475479126
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 25,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Text (GDI+)",
+                        "source_uuid": "d38c701b-f35b-4c8d-933a-4a0a81afd20e",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 1739.2353515625,
+                            "y": 902.0
+                        },
+                        "scale": {
+                            "x": 2.220588207244873,
+                            "y": 2.25
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 26,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "lighten",
                         "show_transition": {
                             "duration": 0
                         },
@@ -1105,30 +1279,34 @@
                 "libobs.hide_scene_item.14": [],
                 "libobs.show_scene_item.13": [],
                 "libobs.hide_scene_item.13": [],
+                "libobs.show_scene_item.12": [],
+                "libobs.hide_scene_item.12": [],
+                "libobs.show_scene_item.20": [],
+                "libobs.hide_scene_item.20": [],
+                "libobs.show_scene_item.11": [],
+                "libobs.hide_scene_item.11": [],
+                "libobs.show_scene_item.4": [],
+                "libobs.hide_scene_item.4": [],
+                "libobs.show_scene_item.24": [],
+                "libobs.hide_scene_item.24": [],
                 "libobs.show_scene_item.5": [],
                 "libobs.hide_scene_item.5": [],
                 "libobs.show_scene_item.7": [],
                 "libobs.hide_scene_item.7": [],
-                "libobs.show_scene_item.4": [],
-                "libobs.hide_scene_item.4": [],
-                "libobs.show_scene_item.11": [],
-                "libobs.hide_scene_item.11": [],
-                "libobs.show_scene_item.12": [],
-                "libobs.hide_scene_item.12": [],
                 "libobs.show_scene_item.8": [],
                 "libobs.hide_scene_item.8": [],
-                "libobs.show_scene_item.20": [],
-                "libobs.hide_scene_item.20": [],
-                "libobs.show_scene_item.23": [],
-                "libobs.hide_scene_item.23": [],
                 "libobs.show_scene_item.16": [],
                 "libobs.hide_scene_item.16": [],
-                "libobs.show_scene_item.9": [],
-                "libobs.hide_scene_item.9": [],
                 "libobs.show_scene_item.10": [],
                 "libobs.hide_scene_item.10": [],
                 "libobs.show_scene_item.6": [],
-                "libobs.hide_scene_item.6": []
+                "libobs.hide_scene_item.6": [],
+                "libobs.show_scene_item.25": [],
+                "libobs.hide_scene_item.25": [],
+                "libobs.show_scene_item.26": [],
+                "libobs.hide_scene_item.26": [],
+                "libobs.show_scene_item.28": [],
+                "libobs.hide_scene_item.28": []
             },
             "deinterlace_mode": 0,
             "deinterlace_field_order": 0,
@@ -1136,18 +1314,21 @@
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
-            "name": "Version",
-            "uuid": "1b2f1cee-e09d-46a6-8375-fd4db486da4f",
-            "id": "browser_source",
-            "versioned_id": "browser_source",
+            "prev_ver": 503447555,
+            "name": "Text (GDI+)",
+            "uuid": "d38c701b-f35b-4c8d-933a-4a0a81afd20e",
+            "id": "text_gdiplus",
+            "versioned_id": "text_gdiplus_v3",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/version/index.html",
-                "width": 290,
-                "height": 70,
-                "css": "body {background: rgb(0 0 0 / 0%); margin: 0px auto; overflow: hidden; }"
+                "text": "Watching now",
+                "font": {
+                    "face": "Nirmala UI",
+                    "flags": 0,
+                    "size": 16,
+                    "style": "Regular"
+                }
             },
-            "mixers": 255,
+            "mixers": 0,
             "sync": 0,
             "flags": 0,
             "volume": 1.0,
@@ -1158,29 +1339,22 @@
             "push-to-mute-delay": 0,
             "push-to-talk": false,
             "push-to-talk-delay": 0,
-            "hotkeys": {
-                "libobs.mute": [],
-                "libobs.unmute": [],
-                "libobs.push-to-mute": [],
-                "libobs.push-to-talk": [],
-                "ObsBrowser.Refresh": []
-            },
+            "hotkeys": {},
             "deinterlace_mode": 0,
             "deinterlace_field_order": 0,
             "monitoring_type": 0,
             "private_settings": {}
         },
         {
-            "prev_ver": 503316482,
-            "name": "WIFI",
-            "uuid": "1fa0a8a5-25db-4e9a-9a7c-bbcbc1d2898c",
+            "prev_ver": 503447555,
+            "name": "Youtube Count",
+            "uuid": "be82a469-f061-4806-8e1a-2a08a195467b",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "http://10.0.0.69:8080/widgets/wifi/index.html",
-                "width": 700,
-                "height": 140,
-                "css": "body { margin: 0px auto; overflow: hidden; }"
+                "url": "https://streamlabs.com/",
+                "width": 200,
+                "height": 200
             },
             "mixers": 255,
             "sync": 0,
