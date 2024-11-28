@@ -49,7 +49,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let cache = {
   lastRequestTime: 0,
-  data: null
+  data: null,
+  data2: null
 };
 const cacheDuration = 60000; // Cache duration set to 60 seconds
 // Why do we cache? So that we don't slam Bambu's API, ever.
@@ -200,10 +201,110 @@ app.get('/login-and-fetch-image', async (req, res) => {
     // Update cache
     cache = {
       lastRequestTime: currentTime,
-      data: responseObject
+      data: responseObject,
+      data2: responseObject2
     };
 
     res.json(responseObject);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('An error occurred');
+  }
+});
+
+app.get('/profile-info', async (req, res) => {
+  try {
+    const currentTime = Date.now();
+    let token = null;
+
+    // Check if access token file exists and read the token
+    try {
+      log(`Checking if token file exists: ${tokenFilePath}`);
+      await fsp.access(tokenFilePath); 
+
+      log(`Reading token file: ${tokenFilePath}`);
+      const tokenFileData = await fsp.readFile(tokenFilePath, 'utf-8');
+      log(`Token file data: ${tokenFileData}`);
+
+      const tokenData = JSON.parse(tokenFileData);
+      log(`Parsed token data: ${JSON.stringify(tokenData)}`);
+
+      if (tokenData && tokenData.accessToken) {
+        token = tokenData.accessToken; 
+        log(`Valid token found: ${token}`);
+      } else {
+        throw new Error('Token expired or invalid');
+      }
+    } catch (err) {
+      log(`No valid token file found, or token expired: ${err.message}`);
+      return res.status(401).send('No valid token. Please login first.');
+    }
+
+    // Use the token to perform the API request
+    log('Attempting to use token for API request...');
+    const apiResponse = await fetch('https://api.bambulab.com/v1/design-user-service/my/preference', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!apiResponse.ok) {
+      console.error('API request failed with status:', apiResponse.status);
+      throw new Error('API request failed');
+    }
+
+    const data = await apiResponse.json();
+    log(`API response data: ${JSON.stringify(data)}`);
+
+    const responseObject = {
+      uid: data.uid
+    };
+        // Use the token to perform the API request
+        log('Attempting to use token for API request...');
+        const apiResponse2 = await fetch('https://api.bambulab.com/v1/design-user-service/user/profile/' + responseObject.uid, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+    
+        if (!apiResponse2.ok) {
+          console.error('API request failed with status:', apiResponse2.status);
+          throw new Error('API request failed');
+        }
+    
+        const data2 = await apiResponse2.json();
+        log(`API response data: ${JSON.stringify(data)}`);
+
+
+        //"uid":4244313862
+        //"name":"t0nyz"
+        //"handle":"t0nyz"
+        //"avatar":"https://public-cdn.bblmw.com/avatar/4244313862/2024-06-22_563e3d7dca03e.jpg",
+        //"fanCount":109
+        //"followCount":5
+        //"isFollowed":false
+        //"likeCount":931
+        //"collectionCount":1686
+        //"downloadCount":4199
+        //"boostGained":189
+        
+
+    const responseObject2 = {
+      handle: data2.handle,
+      avatar: data2.avatar,
+      fanCount: data2.fanCount,
+      followCount: data2.followCount,
+      likeCount: data2.likeCount,
+      collectionCount: data2.collectionCount,
+      downloadCount: data2.downloadCount,
+      boostGained: data2.boostGained
+    };
+
+    // Update cache
+    cache = {
+      lastRequestTime: currentTime,
+      data: responseObject2
+    };
+
+    res.json(responseObject2);
   } catch (error) {
     console.error('Error:', error);
     res.status(500).send('An error occurred');
