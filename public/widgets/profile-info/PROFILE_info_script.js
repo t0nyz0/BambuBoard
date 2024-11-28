@@ -19,37 +19,31 @@ async function retrieveData() {
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
+  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
-  }
-  else if (telemetryObject.print)
-  {
+  } else if (telemetryObject.print) {
     telemetryObject = "Incomplete";
-  } 
-  else
-  {
+  } else {
     telemetryObject = null;
   }
 
   return telemetryObject;
 }
 
-  function convertUtc(timestampUtcMs) {
-    var localTime = new Date(timestampUtcMs);
+function convertUtc(timestampUtcMs) {
+  var localTime = new Date(timestampUtcMs);
 
-    // Formatting the date to a readable string in local time
-    return localTime.toLocaleString();
-  } 
-  function log(logText)
-  {
-    if (consoleLogging)
-    {
-      console.log(logText);
-    }
+  // Formatting the date to a readable string in local time
+  return localTime.toLocaleString();
+}
+function log(logText) {
+  if (consoleLogging) {
+    console.log(logText);
   }
-  
-  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
+}
+
+const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
 // Call the updateLog function to fetch and parse the data
 setInterval(async () => {
@@ -58,24 +52,26 @@ setInterval(async () => {
     telemetryObjectMain = telemetryObject;
   } catch (error) {
     //console.error(error);
-    await sleep(1000);
+    await sleep(5000);
   }
 }, 1000);
 
 async function executeTask() {
   try {
-      var telemetryObject = telemetryObjectMain;
-      if (telemetryObject != null && telemetryObject != "Incomplete") {
-          if (telemetryObject.layer_num == 0 && currentState == "RUNNING" || modelImage == "") {
-              await get_profile_info();
-          }
-      } 
-      else if (telemetryObject == null){
+    var telemetryObject = telemetryObjectMain;
+    if (telemetryObject != null && telemetryObject != "Incomplete") {
+      if (
+        (telemetryObject.layer_num == 0 && currentState == "RUNNING") ||
+        modelImage == ""
+      ) {
         await get_profile_info();
       }
+    } else if (telemetryObject == null) {
+      await get_profile_info();
+    }
   } catch (error) {
-      //console.error(error);
-      await sleep(12000);
+    //console.error(error);
+    await sleep(12000);
   }
 }
 
@@ -85,42 +81,37 @@ executeTask();
 // Then set it to run at intervals
 (function scheduleTask() {
   setTimeout(() => {
-      executeTask();
-      scheduleTask(); // Reschedule the next run
-  }, 5000);
+    executeTask();
+    scheduleTask(); // Reschedule the next run
+  }, 200000);
 })();
 
-  // Send credentials to your own server
-  async function get_profile_info() {
-    try {
-        const response =  await fetch(fullServerURL + '/profile-info', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-  
-        const data = await response.json();
+// Send credentials to your own server
+async function get_profile_info() {
+  try {
+    const response = await fetch(fullServerURL + "/profile-info", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
 
-        
-        // Display the image using the extracted URL
-        displayAPIData(data);
+    const data = await response.json();
 
-    } catch (error) {
-        console.error('Error:', error);
-    }
-  
-  
-  function displayAPIData(data) {
-
-      const imageElement = $('#profileAvatar').attr('src', data.avatar);
-      $('#modelImage').show();
-
-
-      $("#profileHandle").text(data.handle);
-      $("#profileFanCount").text(data.fanCount);
-      $("#profileFollowCount").text(data.followCount);
-      $("#profileLikeCount").text(data.likeCount);
-      $("#profileCollectionCount").text(data.collectionCount);
-      $("#profileDownloadCount").text(data.downloadCount);
-      $("#profileBoostGained").text(data.boostGained);
+    // Display the image using the extracted URL
+    displayAPIData(data);
+  } catch (error) {
+    console.error("Error:", error);
   }
- }
+
+  function displayAPIData(data) {
+    const imageElement = $("#profileAvatar").attr("src", data.avatar);
+    $("#modelImage").show();
+
+    $("#profileHandle").text(data.handle);
+    $("#profileFanCount").text(data.fanCount);
+    $("#profileFollowCount").text(data.followCount);
+    $("#profileLikeCount").text(data.likeCount);
+    $("#profileCollectionCount").text(data.collectionCount);
+    $("#profileDownloadCount").text(data.downloadCount);
+    $("#profileBoostGained").text(data.boostGained);
+  }
+}
