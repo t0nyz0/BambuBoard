@@ -634,7 +634,7 @@
             "versioned_id": "scene",
             "settings": {
                 "custom_size": false,
-                "id_counter": 28,
+                "id_counter": 29,
                 "items": [
                     {
                         "name": "Color Source",
@@ -686,8 +686,8 @@
                             "y": 99.0
                         },
                         "scale": {
-                            "x": 0.89431816339492798,
-                            "y": 0.89444446563720703
+                            "x": 0.86874997615814209,
+                            "y": 0.86851853132247925
                         },
                         "align": 5,
                         "bounds_type": 0,
@@ -858,6 +858,45 @@
                         "crop_right": 0,
                         "crop_bottom": 0,
                         "id": 12,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Version",
+                        "source_uuid": "d12ac5db-b6bf-4ff0-a2e4-36f38b5bdda4",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 1693.0,
+                            "y": 982.0
+                        },
+                        "scale": {
+                            "x": 0.85172414779663086,
+                            "y": 0.85000002384185791
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 29,
                         "group_item_backup": false,
                         "scale_filter": "disable",
                         "blend_method": "default",
@@ -1189,7 +1228,7 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 1770.0,
+                            "x": 1757.0,
                             "y": 944.0
                         },
                         "scale": {
@@ -1228,7 +1267,7 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 1739.2353515625,
+                            "x": 1729.2353515625,
                             "y": 902.0
                         },
                         "scale": {
@@ -1306,7 +1345,9 @@
                 "libobs.show_scene_item.26": [],
                 "libobs.hide_scene_item.26": [],
                 "libobs.show_scene_item.28": [],
-                "libobs.hide_scene_item.28": []
+                "libobs.hide_scene_item.28": [],
+                "libobs.show_scene_item.29": [],
+                "libobs.hide_scene_item.29": []
             },
             "deinterlace_mode": 0,
             "deinterlace_field_order": 0,
@@ -1347,12 +1388,47 @@
         },
         {
             "prev_ver": 503447555,
+            "name": "Version",
+            "uuid": "d12ac5db-b6bf-4ff0-a2e4-36f38b5bdda4",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "url": "http://11.0.1.58:8080/widgets/version/index.html",
+                "width": 290,
+                "height": 50,
+                "css": "body {background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden;}\n\n.version {\nmargin:0px;\npadding:0px:\n  text-align: left;\n  color: #b3b1b1;\n}"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
             "name": "Youtube Count",
             "uuid": "be82a469-f061-4806-8e1a-2a08a195467b",
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "https://streamlabs.com/",
+                "url": "https://streamlabs.com/widgets/viewer-count?token=855B3C431527362DB3988F9D1F191C44687F47F34B48CAFBF3B938497AC35A4782A4426CAF8A00C7D676EBB08AF37B5F941B8217E63F3A97BB0BF70F3A6C81AABB92CBD19072C552E5572A02685B58BA5C95AA51C9D37F518627E34A89C2A472BBEEE1AFCECDCE937FB6A3656F4590A827C836A9D742EBDE606009FDC2",
                 "width": 200,
                 "height": 200
             },
