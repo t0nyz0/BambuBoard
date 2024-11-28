@@ -386,8 +386,9 @@
             "settings": {
                 "url": "http://11.0.1.58:8080/widgets/model-image/index.html",
                 "width": 512,
-                "height": 512,
-                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; }"
+                "height": 550,
+                "css": "body {background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; }",
+                "undo_uuid": "67d89b49-2e86-48df-8c36-c875d19a5155"
             },
             "mixers": 255,
             "sync": 0,
@@ -529,7 +530,7 @@
                 "undo_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
                 "url": "http://11.0.1.58:8080/widgets/printer-info/index.html",
                 "width": 355,
-                "height": 260,
+                "height": 280,
                 "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }\n\n.bedcontainer {\n    margin-top: 5px;\n}\n\n.bed-title {\n    padding: 10px 15px;\n}"
             },
             "mixers": 255,
