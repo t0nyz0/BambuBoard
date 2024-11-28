@@ -563,7 +563,7 @@
             "versioned_id": "browser_source",
             "settings": {
                 "url": "http://11.0.1.58:8080/widgets/profile-info/index.html",
-                "width": 380,
+                "width": 390,
                 "height": 315,
                 "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }"
             },
@@ -721,7 +721,7 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 407.0,
+                            "x": 404.0,
                             "y": 91.0
                         },
                         "scale": {
@@ -760,7 +760,7 @@
                         "locked": false,
                         "rot": 0.0,
                         "pos": {
-                            "x": 416.00003051757812,
+                            "x": 413.00003051757812,
                             "y": 835.0
                         },
                         "scale": {
