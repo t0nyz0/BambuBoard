@@ -83,7 +83,7 @@ executeTask();
   setTimeout(() => {
     executeTask();
     scheduleTask(); // Reschedule the next run
-  }, 200000);
+  }, 600000);
 })();
 
 // Send credentials to your own server
