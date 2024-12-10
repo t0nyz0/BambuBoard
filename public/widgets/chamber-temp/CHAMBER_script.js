@@ -83,7 +83,7 @@ async function updateUI(telemetryObject) {
       (chamberTempPercentage * progressChamberParentWidth) / 100
     );
 
-    if (settings.tempSetting === "Fahrenheit")
+    if (settings.BambuBoard_tempSetting === "Fahrenheit")
       {
         $("#chamberTargetTempSymbolsF").show();
         $("#chamberCurrentTempSymbolsF").show();
@@ -95,7 +95,7 @@ async function updateUI(telemetryObject) {
         $("#chamberCurrentTempSymbolsC").hide();
         $("#chamberTargetTempC").hide();
       }
-      else if (settings.tempSetting === "Celsius")
+      else if (settings.BambuBoard_tempSetting === "Celsius")
       {
         $("#chamberTargetTempSymbolsF").hide();
         $("#chamberCurrentTempSymbolsF").hide();
@@ -107,7 +107,7 @@ async function updateUI(telemetryObject) {
         $("#chamberCurrentTempSymbolsC").show();
         $("#chamberTargetTempC").show();
       }
-      else if (settings.tempSetting === "Both")
+      else if (settings.BambuBoard_tempSetting === "Both")
       {
         $("#chamberTargetTempSymbolsF").show();
         $("#chamberCurrentTempSymbolsF").show();

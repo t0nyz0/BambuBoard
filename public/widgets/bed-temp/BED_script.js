@@ -131,7 +131,7 @@ async function updateUI(telemetryObject) {
       $("#bedTargetTempSymbolsF").hide();
       $("#bedTargetTempSymbolsC").hide();
     } else {
-      if (settings.tempSetting === "Fahrenheit")
+      if (settings.BambuBoard_tempSetting === "Fahrenheit")
       {
         $("#bedTargetTempSymbolsF").show();
         $("#bedCurrentTempSymbolsF").show();
@@ -143,7 +143,7 @@ async function updateUI(telemetryObject) {
         $("#bedCurrentTempSymbolsC").hide();
         $("#bedTargetTempC").hide();
       }
-      else if (settings.tempSetting === "Celsius")
+      else if (settings.BambuBoard_tempSetting === "Celsius")
       {
         $("#bedTargetTempSymbolsF").hide();
         $("#bedCurrentTempSymbolsF").hide();
@@ -155,7 +155,7 @@ async function updateUI(telemetryObject) {
         $("#bedCurrentTempSymbolsC").show();
         $("#bedTargetTempC").show();
       }
-      else if (settings.tempSetting === "Both")
+      else if (settings.BambuBoard_tempSetting === "Both")
       {
         $("#bedTargetTempSymbolsF").show();
         $("#bedCurrentTempSymbolsF").show();

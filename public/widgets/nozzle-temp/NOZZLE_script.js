@@ -111,7 +111,7 @@ async function updateUI(telemetryObject) {
       $("#nozzleTargetTempSymbolsF").hide();
       $("#nozzleTargetTempSymbolsC").hide();
     } else {
-      if (settings.tempSetting === "Fahrenheit") {
+      if (settings.BambuBoard_tempSetting === "Fahrenheit") {
         $("#nozzleTargetTempSymbolsF").show();
         $("#nozzleCurrentTempSymbolsF").show();
         $("#nozzleTargetTempF").show();
@@ -121,7 +121,7 @@ async function updateUI(telemetryObject) {
         $("#nozzleTargetTempSymbolsC").hide();
         $("#nozzleCurrentTempSymbolsC").hide();
         $("#nozzleTargetTempC").hide();
-      } else if (settings.tempSetting === "Celsius") {
+      } else if (settings.BambuBoard_tempSetting === "Celsius") {
         $("#nozzleTargetTempSymbolsF").hide();
         $("#nozzleCurrentTempSymbolsF").hide();
         $("#nozzleTargetTempF").hide();
@@ -131,7 +131,7 @@ async function updateUI(telemetryObject) {
         $("#nozzleTargetTempSymbolsC").show();
         $("#nozzleCurrentTempSymbolsC").show();
         $("#nozzleTargetTempC").show();
-      } else if (settings.tempSetting === "Both") {
+      } else if (settings.BambuBoard_tempSetting === "Both") {
         $("#nozzleTargetTempSymbolsF").show();
         $("#nozzleCurrentTempSymbolsF").show();
         $("#nozzleTargetTempF").show();
