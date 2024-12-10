@@ -98,9 +98,17 @@ executeTask();
             headers: { 'Content-Type': 'application/json' }
         });
   
-        const data = await response.json();
+        let data; 
 
-        
+        if (response.status == 401)
+        {
+          window.location.href = 'login.html';
+        }
+        else
+        {
+          data = await response.json();
+        }
+
         // Display the image using the extracted URL
         displayAPIData(data);
 

@@ -1,22 +1,20 @@
 //-------------------------------------------------------------------------------------------------------------
 /// Configure your settings here:
-const config = require('./config.json');
+let config = require('./config.json');
 
-const httpPort = process.env.BAMBUBOARD_HTTP_PORT || config.BambuBoard_httpPort || 8080;
-const printerURL = process.env.BAMBUBOARD_PRINTER_URL || config.BambuBoard_printerURL;
-const printerPort = process.env.BAMBUBOARD_PRINTER_PORT || config.BambuBoard_printerPort;
-const printerSN = process.env.BAMBUBOARD_PRINTER_SN || config.BambuBoard_printerSN;
-const printerAccessCode = process.env.BAMBUBOARD_PRINTER_ACCESS_CODE || config.BambuBoard_printerAccessCode;
-const bambuUsername = process.env.BAMBUBOARD_BAMBU_USERNAME || config.BambuBoard_bambuUsername;
-const bambuPassword = process.env.BAMBUBOARD_BAMBU_PASSWORD || config.BambuBoard_bambuPassword;
-const tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting;
+let httpPort = process.env.BAMBUBOARD_HTTP_PORT || config.BambuBoard_httpPort || 8080;
+let printerURL = process.env.BAMBUBOARD_PRINTER_URL || config.BambuBoard_printerURL;
+let printerPort = process.env.BAMBUBOARD_PRINTER_PORT || config.BambuBoard_printerPort;
+let printerSN = process.env.BAMBUBOARD_PRINTER_SN || config.BambuBoard_printerSN;
+let printerAccessCode = process.env.BAMBUBOARD_PRINTER_ACCESS_CODE || config.BambuBoard_printerAccessCode;
+let tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting;
 
 //-------------------------------------------------------------------------------------------------------------
 /// Preferences:
 
-const displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
-const displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons; // Use percentages instead of icons for the fans
-const consoleLogging = process.env.BAMBUBOARD_LOGGING || config.BambuBoard_logging || false; // Enable if you want to
+let displayFanPercentages = process.env.BAMBUBOARD_FAN_PERCENTAGES || config.BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
+let displayFanIcons = process.env.BAMBUBOARD_FAN_ICONS || config.BambuBoard_displayFanIcons; // Use percentages instead of icons for the fans
+let consoleLogging = process.env.BAMBUBOARD_LOGGING || config.BambuBoard_logging || false; // Enable if you want to
 
 //-------------------------------------------------------------------------------------------------------------
 
@@ -39,6 +37,7 @@ function extractToken(cookies) {
   return cookies.split('; ').find(row => row.startsWith('token=')).split('=')[1];
 }
 const tokenFilePath = path.join(__dirname, 'accessToken.json');
+const configPath = path.join(__dirname, 'config.json');
 const protocol = "mqtts";
 let SequenceID = 20000;
 let topic = "device/" + printerSN + "/report";
@@ -79,7 +78,6 @@ async function fetchWithTimeout(resource, options = {}, timeout = 7000) {
   });
 }
 
-
 app.post('/sendVerificationCode', async (req, res) => {
   const { username } = req.body;
 
@@ -101,6 +99,22 @@ app.post('/sendVerificationCode', async (req, res) => {
     res.status(500).send('Failed to send verification code');
   }
 });
+
+app.get('/token-status', async (req, res) => {
+  try {
+    const data = await fsp.readFile(path.join(__dirname, 'accessToken.json'), 'utf-8');
+    const tokenData = JSON.parse(data);
+    if (tokenData && tokenData.accessToken) {
+      return res.json({ loggedIn: true });
+    } else {
+      return res.json({ loggedIn: false });
+    }
+  } catch (error) {
+    // If file doesn't exist or is invalid
+    return res.json({ loggedIn: false });
+  }
+});
+
 
 app.post('/verify', async (req, res) => {
   const { username, code } = req.body;
@@ -146,7 +160,6 @@ app.post('/verify', async (req, res) => {
     res.status(401).send('Verification failed');
   }
 });
-
 
 app.get('/login-and-fetch-image', async (req, res) => {
   try {
@@ -405,19 +418,76 @@ app.post('/mfa', async (req, res) => {
       }
     });
 
-
 app.get('/settings', async (req, res) => {
   try {
+    // Re-read config to get the latest values
+    const currentConfig = JSON.parse(await fsp.readFile(configPath, 'utf8'));
+
     res.json({
-      tempSetting,
-      displayFanIcons,
-      displayFanPercentages
+      BambuBoard_httpPort: currentConfig.BambuBoard_httpPort,
+      BambuBoard_printerURL: currentConfig.BambuBoard_printerURL,
+      BambuBoard_printerPort: currentConfig.BambuBoard_printerPort,
+      BambuBoard_printerSN: currentConfig.BambuBoard_printerSN,
+      BambuBoard_printerAccessCode: currentConfig.BambuBoard_printerAccessCode,
+      BambuBoard_tempSetting: currentConfig.BambuBoard_tempSetting,
+      BambuBoard_displayFanPercentages: currentConfig.BambuBoard_displayFanPercentages,
+      BambuBoard_displayFanIcons: currentConfig.BambuBoard_displayFanIcons
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error');
+    res.status(500).send('Error reading settings');
   }
 });
+
+app.post('/settings/update', async (req, res) => {
+  const {
+    BambuBoard_httpPort,
+    BambuBoard_printerURL,
+    BambuBoard_printerPort,
+    BambuBoard_printerSN,
+    BambuBoard_printerAccessCode,
+    BambuBoard_tempSetting,
+    BambuBoard_displayFanPercentages,
+    BambuBoard_displayFanIcons
+  } = req.body;
+
+  try {
+    let currentConfig = JSON.parse(await fsp.readFile(configPath, 'utf8'));
+
+    // Update only if values are provided
+    if (BambuBoard_httpPort !== undefined) currentConfig.BambuBoard_httpPort = BambuBoard_httpPort;
+    if (BambuBoard_printerURL !== undefined) currentConfig.BambuBoard_printerURL = BambuBoard_printerURL;
+    if (BambuBoard_printerPort !== undefined) currentConfig.BambuBoard_printerPort = BambuBoard_printerPort;
+    if (BambuBoard_printerSN !== undefined) currentConfig.BambuBoard_printerSN = BambuBoard_printerSN;
+    if (BambuBoard_printerAccessCode !== undefined) currentConfig.BambuBoard_printerAccessCode = BambuBoard_printerAccessCode;
+    if (BambuBoard_tempSetting !== undefined) currentConfig.BambuBoard_tempSetting = BambuBoard_tempSetting;
+    if (BambuBoard_displayFanPercentages !== undefined) currentConfig.BambuBoard_displayFanPercentages = BambuBoard_displayFanPercentages;
+    if (BambuBoard_displayFanIcons !== undefined) currentConfig.BambuBoard_displayFanIcons = BambuBoard_displayFanIcons;
+
+
+    httpPort = BambuBoard_httpPort;
+    printerURL = BambuBoard_printerURL;
+    printerPort = BambuBoard_printerPort;
+    printerSN = BambuBoard_printerSN;
+    printerAccessCode = BambuBoard_printerAccessCode;
+    tempSetting = BambuBoard_tempSetting;
+    displayFanPercentages = BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
+    displayFanIcons = BambuBoard_displayFanPercentages // Use percentages instead of icons for the fans
+    
+    await fsp.writeFile(configPath, JSON.stringify(currentConfig, null, 2), 'utf8');
+    // Reload configuration in memory
+    delete require.cache[require.resolve('./config.json')];
+    currentConfig = require('./config.json');
+    config = require('./config.json');
+
+    
+    res.status(200).send('Settings updated successfully');
+  } catch (error) {
+    console.error('Error updating settings:', error);
+    res.status(500).send('Failed to update settings');
+  }
+});
+    
 
 app.put('/note', async (req, res) => {
   let dataToWrite = JSON.stringify(req.body);
@@ -479,6 +549,7 @@ app.get('/note', async (req, res) => {
   }
 });
 
+
 // Fallback route to serve index.html for any route not handled by the above routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -508,7 +579,7 @@ function connectClient() {
   client = new mqtt.connect(connectUrl, {
     clientId,
     clean: true,
-    connectTimeout: 3000,
+    connectTimeout: 5000,
     username: "bblp",
     password: printerAccessCode,
     reconnectPeriod: 0,
