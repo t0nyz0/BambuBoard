@@ -10,7 +10,7 @@ const serverPort = window.location.port;
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
-let tempSetting = "Fahrenheit";
+let settings = "";
 let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
@@ -20,7 +20,7 @@ async function loadSettings() {
       const response = await fetch(fullServerURL + '/settings');
       if (response.ok) {
           const data = await response.json();
-          tempSetting = data;
+          settings = data;
       } 
   } catch (error) {
       console.error('Error loading settings:', error);
@@ -83,7 +83,7 @@ async function updateUI(telemetryObject) {
       (chamberTempPercentage * progressChamberParentWidth) / 100
     );
 
-    if (tempSetting === "Fahrenheit")
+    if (settings.tempSetting === "Fahrenheit")
       {
         $("#chamberTargetTempSymbolsF").show();
         $("#chamberCurrentTempSymbolsF").show();
@@ -95,7 +95,7 @@ async function updateUI(telemetryObject) {
         $("#chamberCurrentTempSymbolsC").hide();
         $("#chamberTargetTempC").hide();
       }
-      else if (tempSetting === "Celsius")
+      else if (settings.tempSetting === "Celsius")
       {
         $("#chamberTargetTempSymbolsF").hide();
         $("#chamberCurrentTempSymbolsF").hide();
@@ -107,7 +107,7 @@ async function updateUI(telemetryObject) {
         $("#chamberCurrentTempSymbolsC").show();
         $("#chamberTargetTempC").show();
       }
-      else if (tempSetting === "Both")
+      else if (settings.tempSetting === "Both")
       {
         $("#chamberTargetTempSymbolsF").show();
         $("#chamberCurrentTempSymbolsF").show();
