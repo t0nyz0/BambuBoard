@@ -106,6 +106,10 @@ async function updateUI(telemetryObject) {
 
     if (nozzleTargetTemp === "OFF") {
       $("#nozzleProgressBar").css("background-color", "grey");
+
+      $("#nozzleTargetTempC").hide();
+      $("#nozzleTargetTempSymbolsF").hide();
+      $("#nozzleTargetTempSymbolsC").hide();
     } else {
       if (settings.tempSetting === "Fahrenheit") {
         $("#nozzleTargetTempSymbolsF").show();
