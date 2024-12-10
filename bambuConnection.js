@@ -472,7 +472,7 @@ app.post('/settings/update', async (req, res) => {
     printerAccessCode = BambuBoard_printerAccessCode;
     tempSetting = BambuBoard_tempSetting;
     displayFanPercentages = BambuBoard_displayFanPercentages; // Use percentages instead of icons for the fans
-    displayFanIcons = BambuBoard_displayFanPercentages // Use percentages instead of icons for the fans
+    displayFanIcons = BambuBoard_displayFanIcons; // Use percentages instead of icons for the fans
     
     await fsp.writeFile(configPath, JSON.stringify(currentConfig, null, 2), 'utf8');
     // Reload configuration in memory
