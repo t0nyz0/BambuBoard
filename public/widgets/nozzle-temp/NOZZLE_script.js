@@ -10,7 +10,7 @@ const serverPort = window.location.port;
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
-let tempSetting = "Fahrenheit";
+let settings = "";
 let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
@@ -20,7 +20,7 @@ async function loadSettings() {
     const response = await fetch(fullServerURL + "/settings");
     if (response.ok) {
       const data = await response.json();
-      tempSetting = data;
+      settings = data;
     }
   } catch (error) {
     console.error("Error loading settings:", error);
@@ -106,12 +106,8 @@ async function updateUI(telemetryObject) {
 
     if (nozzleTargetTemp === "OFF") {
       $("#nozzleProgressBar").css("background-color", "grey");
-
-      $("#nozzleTargetTempC").hide();
-      $("#nozzleTargetTempSymbolsF").hide();
-      $("#nozzleTargetTempSymbolsC").hide();
     } else {
-      if (tempSetting === "Fahrenheit") {
+      if (settings.tempSetting === "Fahrenheit") {
         $("#nozzleTargetTempSymbolsF").show();
         $("#nozzleCurrentTempSymbolsF").show();
         $("#nozzleTargetTempF").show();
@@ -121,7 +117,7 @@ async function updateUI(telemetryObject) {
         $("#nozzleTargetTempSymbolsC").hide();
         $("#nozzleCurrentTempSymbolsC").hide();
         $("#nozzleTargetTempC").hide();
-      } else if (tempSetting === "Celsius") {
+      } else if (settings.tempSetting === "Celsius") {
         $("#nozzleTargetTempSymbolsF").hide();
         $("#nozzleCurrentTempSymbolsF").hide();
         $("#nozzleTargetTempF").hide();
@@ -131,7 +127,7 @@ async function updateUI(telemetryObject) {
         $("#nozzleTargetTempSymbolsC").show();
         $("#nozzleCurrentTempSymbolsC").show();
         $("#nozzleTargetTempC").show();
-      } else if (tempSetting === "Both") {
+      } else if (settings.tempSetting === "Both") {
         $("#nozzleTargetTempSymbolsF").show();
         $("#nozzleCurrentTempSymbolsF").show();
         $("#nozzleTargetTempF").show();

@@ -9,7 +9,7 @@ const serverPort = window.location.port;
 
 let currentState = "OFF";
 let modelImage = "";
-let tempSetting = "Fahrenheit"; 
+let settings = ""; 
 const consoleLogging = false;
 let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
@@ -20,7 +20,7 @@ async function loadSettings() {
       const response = await fetch(fullServerURL+ '/settings');
       if (response.ok) {
           const data = await response.json();
-          tempSetting = data;
+          settings = data;
       } 
   } catch (error) {
       console.error('Error loading settings:', error);
@@ -126,13 +126,8 @@ async function updateUI(telemetryObject) {
 
     if (bedTargetTemp === "OFF") {
       $("#bedProgressBar").css("background-color", "grey");
-
-
-      $("#bedTargetTempC").hide();
-      $("#bedTargetTempSymbolsF").hide();
-      $("#bedTargetTempSymbolsC").hide();
     } else {
-      if (tempSetting === "Fahrenheit")
+      if (settings.tempSetting === "Fahrenheit")
       {
         $("#bedTargetTempSymbolsF").show();
         $("#bedCurrentTempSymbolsF").show();
@@ -144,7 +139,7 @@ async function updateUI(telemetryObject) {
         $("#bedCurrentTempSymbolsC").hide();
         $("#bedTargetTempC").hide();
       }
-      else if (tempSetting === "Celsius")
+      else if (settings.tempSetting === "Celsius")
       {
         $("#bedTargetTempSymbolsF").hide();
         $("#bedCurrentTempSymbolsF").hide();
@@ -156,7 +151,7 @@ async function updateUI(telemetryObject) {
         $("#bedCurrentTempSymbolsC").show();
         $("#bedTargetTempC").show();
       }
-      else if (tempSetting === "Both")
+      else if (settings.tempSetting === "Both")
       {
         $("#bedTargetTempSymbolsF").show();
         $("#bedCurrentTempSymbolsF").show();

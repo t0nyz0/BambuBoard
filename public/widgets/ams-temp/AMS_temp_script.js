@@ -10,7 +10,7 @@ const serverPort = window.location.port;
 let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
-let tempSetting = "Fahrenheit"; 
+let settings = ""; 
 let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
@@ -19,7 +19,7 @@ async function loadSettings() {
       const response = await fetch(fullServerURL + '/settings');
       if (response.ok) {
           const data = await response.json();
-          tempSetting = data;
+          settings = data;
       } 
   } catch (error) {
       console.error('Error loading settings:', error);
@@ -187,7 +187,7 @@ if (amsTargetTemp === "OFF") {
   $("#amsTargetTempSymbolsF").hide();
   $("#amsTargetTempSymbolsC").hide();
 } else {
-  if (tempSetting === "Fahrenheit")
+  if (settings.tempSetting === "Fahrenheit")
   {
     $("#amsTargetTempSymbolsF").show();
     $("#amsCurrentTempSymbolsF").show();
@@ -199,7 +199,7 @@ if (amsTargetTemp === "OFF") {
     $("#amsCurrentTempSymbolsC").hide();
     $("#amsTargetTempC").hide();
   }
-  else if (tempSetting === "Celsius")
+  else if (settings.tempSetting === "Celsius")
   {
     $("#amsTargetTempSymbolsF").hide();
     $("#amsCurrentTempSymbolsF").hide();
@@ -211,7 +211,7 @@ if (amsTargetTemp === "OFF") {
     $("#amsCurrentTempSymbolsC").show();
     $("#amsTargetTempC").show();
   }
-  else if (tempSetting === "Both")
+  else if (settings.tempSetting === "Both")
   {
     $("#amsTargetTempSymbolsF").show();
     $("#amsCurrentTempSymbolsF").show();
