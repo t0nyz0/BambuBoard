@@ -1,44 +1,115 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Login to BambuLab</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
 </head>
 <body class="container my-5">
-  <h1 class="mb-4">Login to BambuLab</h1>
-  
-  <!-- Login Form -->
-  <form id="login-form" class="mb-3">
-    <div class="mb-3">
-      <label for="username" class="form-label">Username:</label>
-      <input type="text" id="username" class="form-control" name="username" required>
-    </div>
-    <div class="mb-3">
-      <label for="password" class="form-label">Password:</label>
-      <input type="password" id="password" class="form-control" name="password" required>
-    </div>
-    <button type="submit" class="btn btn-primary w-100">Login</button>
-  </form>
+  <h1 class="mb-4 text-center">BambuBoard Dashboard</h1>
 
-  <!-- Verification Form -->
-  <form id="verification-form" class="mb-3" style="display:none;">
-    <div class="mb-3">
-      <label for="verification-code" class="form-label">Enter Verification Code:</label>
-      <input type="text" id="verification-code" class="form-control" name="verification-code" required>
-    </div>
-    <button type="submit" class="btn btn-primary w-100">Submit Verification Code</button>
-  </form>
+  <!-- Alerts -->
+  <div id="loggedInMessage" class="alert alert-success text-center d-none">
+    You are already logged in. <a href="/" class="alert-link">Go to Dashboard</a>
+  </div>
+  <div id="notLoggedInMessage" class="alert alert-warning text-center d-none">
+    Please login.
+  </div>
 
-  <!-- MFA Form -->
-  <form id="mfa-form" class="mb-3" style="display:none;">
-    <div class="mb-3">
-      <label for="mfa-code" class="form-label">Enter MFA Code:</label>
-      <input type="text" id="mfa-code" class="form-control" name="mfa-code" required>
+  <div class="row g-4">
+    <!-- Left Column: Login Section -->
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">
+          <h3 class="mb-0">Login to BambuLab</h3>
+        </div>
+        <div class="card-body">
+          <!-- Login Form -->
+          <form id="login-form" class="mb-4">
+            <div class="mb-3">
+              <label for="username" class="form-label">Username:</label>
+              <input type="text" id="username" class="form-control" name="username" required />
+            </div>
+            <div class="mb-3">
+              <label for="password" class="form-label">Password:</label>
+              <input type="password" id="password" class="form-control" name="password" required />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Login</button>
+          </form>
+
+          <!-- Verification Form -->
+          <form id="verification-form" class="mb-4" style="display:none;">
+            <div class="mb-3">
+              <label for="verification-code" class="form-label">Enter Verification Code:</label>
+              <input type="text" id="verification-code" class="form-control" name="verification-code" required />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Submit Verification Code</button>
+          </form>
+
+          <!-- MFA Form -->
+          <form id="mfa-form" class="mb-3" style="display:none;">
+            <div class="mb-3">
+              <label for="mfa-code" class="form-label">Enter MFA Code:</label>
+              <input type="text" id="mfa-code" class="form-control" name="mfa-code" required />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Submit MFA Code</button>
+          </form>
+        </div>
+      </div>
     </div>
-    <button type="submit" class="btn btn-primary w-100">Submit MFA Code</button>
-  </form>
+
+    <!-- Right Column: Configuration Settings -->
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">
+          <h3 class="mb-0">Configuration Settings</h3>
+        </div>
+        <div class="card-body">
+          <form id="config-form">
+            <div class="mb-3">
+              <label for="httpPort" class="form-label">HTTP Port:</label>
+              <input type="text" id="httpPort" class="form-control" name="httpPort">
+            </div>
+            <div class="mb-3">
+              <label for="printerURL" class="form-label">Printer URL:</label>
+              <input type="text" id="printerURL" class="form-control" name="printerURL">
+            </div>
+            <div class="mb-3">
+              <label for="printerPort" class="form-label">Printer Port:</label>
+              <input type="text" id="printerPort" class="form-control" name="printerPort">
+            </div>
+            <div class="mb-3">
+              <label for="printerSN" class="form-label">Printer SN (Required):</label>
+              <input type="text" id="printerSN" class="form-control" name="printerSN" required>
+            </div>
+            <div class="mb-3">
+              <label for="printerAccessCode" class="form-label">Printer Access Code (Required):</label>
+              <input type="text" id="printerAccessCode" class="form-control" name="printerAccessCode" required>
+            </div>
+            <div class="mb-3">
+              <label for="tempSetting" class="form-label">Temp Setting:</label>
+              <input type="text" id="tempSetting" class="form-control" name="tempSetting">
+            </div>
+            <div class="mb-3 form-check">
+              <input type="checkbox" id="displayFanPercentages" class="form-check-input" name="displayFanPercentages">
+              <label class="form-check-label" for="displayFanPercentages">Display Fan Percentages</label>
+            </div>
+            <div class="mb-3 form-check">
+              <input type="checkbox" id="displayFanIcons" class="form-check-input" name="displayFanIcons">
+              <label class="form-check-label" for="displayFanIcons">Display Fan Icons</label>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Save Settings</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Link to Dashboard -->
+  <div class="text-center mt-4">
+    <a href="/" class="btn btn-secondary">Go to Dashboard</a>
+  </div>
 
   <!-- Modal for status messages -->
   <div class="modal fade" id="statusModal" tabindex="-1" aria-labelledby="statusModalLabel" aria-hidden="true">
@@ -48,8 +119,7 @@
           <h5 class="modal-title" id="statusModalLabel">Status</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-        <div class="modal-body" id="statusMessage">
-        </div>
+        <div class="modal-body" id="statusMessage"></div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
         </div>
@@ -62,11 +132,8 @@
     const showModal = (message, redirect = false) => {
       document.getElementById('statusMessage').innerText = message;
       const modal = new bootstrap.Modal(document.getElementById('statusModal'));
-      
-      // Show modal
       modal.show();
 
-      // Listen for the modal close event to perform redirect
       if (redirect) {
         document.getElementById('statusModal').addEventListener('hidden.bs.modal', () => {
           window.location.href = '/';
@@ -74,7 +141,90 @@
       }
     };
 
-    // Login Form Submission
+    window.addEventListener('DOMContentLoaded', async () => {
+      await checkTokenStatus();
+      await loadSettings();
+    });
+
+    async function checkTokenStatus() {
+      const response = await fetch('/token-status'); 
+      if (response.ok) {
+        const data = await response.json();
+        const loggedInMessage = document.getElementById('loggedInMessage');
+        const notLoggedInMessage = document.getElementById('notLoggedInMessage');
+        if (data.loggedIn) {
+          // User already has an access token
+          loggedInMessage.classList.remove('d-none');
+        } else {
+          // No token present
+          notLoggedInMessage.classList.remove('d-none');
+        }
+      } else {
+        // If token status can't be fetched, assume not logged in
+        document.getElementById('notLoggedInMessage').classList.remove('d-none');
+      }
+    }
+
+    // Load settings from the server
+    async function loadSettings() {
+      const response = await fetch('/settings');
+      if (response.ok) {
+        const settings = await response.json();
+        document.getElementById('httpPort').value = settings.BambuBoard_httpPort || '';
+        document.getElementById('printerURL').value = settings.BambuBoard_printerURL || '';
+        document.getElementById('printerPort').value = settings.BambuBoard_printerPort || '';
+        document.getElementById('printerSN').value = settings.BambuBoard_printerSN || '';
+        document.getElementById('printerAccessCode').value = settings.BambuBoard_printerAccessCode || '';
+        document.getElementById('tempSetting').value = settings.BambuBoard_tempSetting || '';
+        document.getElementById('displayFanPercentages').checked = !!settings.BambuBoard_displayFanPercentages;
+        document.getElementById('displayFanIcons').checked = !!settings.BambuBoard_displayFanIcons;
+      } else {
+        showModal('Failed to load settings. They might require login or the endpoint may be inaccessible.');
+      }
+    }
+
+    // Config Form Submission
+    document.getElementById('config-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const BambuBoard_httpPort = document.getElementById('httpPort').value;
+      const BambuBoard_printerURL = document.getElementById('printerURL').value;
+      const BambuBoard_printerPort = document.getElementById('printerPort').value;
+      const BambuBoard_printerSN = document.getElementById('printerSN').value.trim();
+      const BambuBoard_printerAccessCode = document.getElementById('printerAccessCode').value.trim();
+      const BambuBoard_tempSetting = document.getElementById('tempSetting').value;
+      const BambuBoard_displayFanPercentages = document.getElementById('displayFanPercentages').checked;
+      const BambuBoard_displayFanIcons = document.getElementById('displayFanIcons').checked;
+
+      if (!BambuBoard_printerSN || !BambuBoard_printerAccessCode) {
+        showModal('Printer SN and Printer Access Code are required fields.');
+        return;
+      }
+
+      const response = await fetch('/settings/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          BambuBoard_httpPort,
+          BambuBoard_printerURL,
+          BambuBoard_printerPort,
+          BambuBoard_printerSN,
+          BambuBoard_printerAccessCode,
+          BambuBoard_tempSetting,
+          BambuBoard_displayFanPercentages,
+          BambuBoard_displayFanIcons
+        })
+      });
+
+      if (response.ok) {
+        showModal('Settings updated successfully! Opening dashboard.');
+        window.location.href = '/';
+      } else {
+        showModal('Failed to update settings. Please try again.');
+      }
+    });
+
+    // Login and MFA forms remain unchanged
     document.getElementById('login-form').addEventListener('submit', async (event) => {
       event.preventDefault();
 
@@ -88,7 +238,7 @@
       });
 
       if (response.status === 200) {
-        showModal('Login successful! Access token saved.', true);
+        showModal('Login successful! Access token saved.');
       } else if (response.status === 401) {
         const responseData = await response.text();
         if (responseData.includes('Verification code required')) {
@@ -107,7 +257,6 @@
       }
     });
 
-    // Verification Form Submission
     document.getElementById('verification-form').addEventListener('submit', async (event) => {
       event.preventDefault();
 
@@ -121,13 +270,12 @@
       });
 
       if (response.ok) {
-        showModal('Verification successful! Access token saved.', true);
+        showModal('Verification successful! Access token saved.');
       } else {
         showModal('Verification failed. Please try again.');
       }
     });
 
-    // MFA Form Submission
     document.getElementById('mfa-form').addEventListener('submit', async (event) => {
       event.preventDefault();
 
@@ -141,7 +289,7 @@
       });
 
       if (response.ok) {
-        showModal('MFA verification successful! Access token saved.', true);
+        showModal('MFA verification successful! Access token saved.');
       } else {
         showModal('MFA verification failed. Please try again.');
       }

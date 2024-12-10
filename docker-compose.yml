@@ -11,8 +11,6 @@ services:
       - BAMBUBOARD_PRINTER_PORT=8883
       - BAMBUBOARD_PRINTER_SN=bambu_serialnumber
       - BAMBUBOARD_PRINTER_ACCESS_CODE=bambu_accesscode
-      - BAMBUBOARD_BAMBU_USERNAME=bambu_email_address
-      - BAMBUBOARD_BAMBU_PASSWORD=bambu_password
       - BAMBUBOARD_TEMP_SETTING=both
       - BAMBUBOARD_FAN_PERCENTAGES=true
       - BAMBUBOARD_FAN_ICONS=true
