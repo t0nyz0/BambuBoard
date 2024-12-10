@@ -9,7 +9,7 @@ Also make sure to check out a live stream here: https://www.youtube.com/channel/
 # Screenshots:
 
 OBS Mode (Using widgets)
-![image](https://github.com/user-attachments/assets/c6b52a26-46bb-474b-9888-1132f2fa6467)
+<img width="1506" alt="image" src="https://github.com/user-attachments/assets/ed0432a5-e6fb-47f3-a8a5-8285d4289a0d">
 
 Standard Mode
 ![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/33ebcaa1-a80b-4372-b218-1b22901b0695)
@@ -43,14 +43,6 @@ For detailed instructions, visit the [Docker installation documentation](https:/
 
 
 ## Step 2: Run the Docker Container
-> [!IMPORTANT]
-> Be sure to update these values. The minimum settings you should update:
->
-> - *BAMBUBOARD_PRINTER_URL* **(Printer IP)**
-> - *BAMBUBOARD_BAMBU_USERNAME* **(Your BambuLabs email address)**
-> - *BAMBUBOARD_BAMBU_PASSWORD* **(Your BambuLabs password)**
-> - *BAMBUBOARD_PRINTER_ACCESS_CODE* **(Located on printer)**
-> - *BAMBUBOARD_PRINTER_SN* **(Located on printer)**
 
 ### Run the Docker container using the following command:
 
@@ -62,8 +54,6 @@ docker run -d \
 -e BAMBUBOARD_PRINTER_PORT=8883 \
 -e BAMBUBOARD_PRINTER_SN=bambu_serialnumber \
 -e BAMBUBOARD_PRINTER_ACCESS_CODE=bambu_accesscode \
--e BAMBUBOARD_BAMBU_USERNAME=bambu_email_address \
--e BAMBUBOARD_BAMBU_PASSWORD=bambu_password \
 -e BAMBUBOARD_TEMP_SETTING=both \
 -e BAMBUBOARD_FAN_PERCENTAGES=false \
 -e BAMBUBOARD_FAN_ICONS=true \
@@ -71,6 +61,12 @@ docker run -d \
 --name bambuboard-instance \
 ghcr.io/t0nyz0/bambuboard:latest
 ```
+
+## Step 3: Login and setup configuration 
+### Goto: (http://(bambuboard-ip):8080/login.html) and login to your BambuLab account. 
+- Setup your printer IP, Access Code and Serial Number if you have not done so already.
+
+  <img width="1094" alt="image" src="https://github.com/user-attachments/assets/1146c413-3920-4a16-8ac4-c18216a62018">
 
 
 # Installation Option 2 (Manual install)
@@ -117,12 +113,6 @@ To get the BambuBoard code, you need to clone its repository from GitHub:
    ```ccp
    cd BambuBoard
    ```
-4. Update the config.json with your settings! This is important.
-   ```ccp
-   sudo nano config.json
-   ```
-   Note: CTRL+X to exit nano, make sure to hit Y to confirm saving changes.
-5. Once you have the application setup, go to /login.html to login to Bambu and which will cache your login token for one year.
 
 ## Step 3: Install Dependencies
 
@@ -150,6 +140,7 @@ Once the application is running, you can access the BambuBoard dashboard. Open y
    ```
 Replace `8080` with the actual port number if BambuBoard runs on a different port. (Configured in bambuConnection.js)
 
+Once you have the application setup, go to /login.html to login to Bambu and which will cache your login token for one year.
 
 ## Troubleshooting
 
