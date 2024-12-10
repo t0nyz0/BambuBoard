@@ -505,7 +505,7 @@ function connectClient() {
   const clientId = `mqtt_${Math.random().toString(16)}`;
   const connectUrl = `${protocol}://${printerURL}:${printerPort}`;
   
-  client = mqtt.connect(connectUrl, {
+  client = new mqtt.connect(connectUrl, {
     clientId,
     clean: true,
     connectTimeout: 3000,

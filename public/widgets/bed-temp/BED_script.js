@@ -126,6 +126,10 @@ async function updateUI(telemetryObject) {
 
     if (bedTargetTemp === "OFF") {
       $("#bedProgressBar").css("background-color", "grey");
+
+      $("#bedTargetTempC").hide();
+      $("#bedTargetTempSymbolsF").hide();
+      $("#bedTargetTempSymbolsC").hide();
     } else {
       if (settings.tempSetting === "Fahrenheit")
       {
