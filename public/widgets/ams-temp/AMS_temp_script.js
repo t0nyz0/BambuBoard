@@ -187,7 +187,7 @@ if (amsTargetTemp === "OFF") {
   $("#amsTargetTempSymbolsF").hide();
   $("#amsTargetTempSymbolsC").hide();
 } else {
-  if (settings.tempSetting === "Fahrenheit")
+  if (settings.BambuBoard_tempSetting === "Fahrenheit")
   {
     $("#amsTargetTempSymbolsF").show();
     $("#amsCurrentTempSymbolsF").show();
@@ -199,7 +199,7 @@ if (amsTargetTemp === "OFF") {
     $("#amsCurrentTempSymbolsC").hide();
     $("#amsTargetTempC").hide();
   }
-  else if (settings.tempSetting === "Celsius")
+  else if (settings.BambuBoard_tempSetting === "Celsius")
   {
     $("#amsTargetTempSymbolsF").hide();
     $("#amsCurrentTempSymbolsF").hide();
@@ -211,7 +211,7 @@ if (amsTargetTemp === "OFF") {
     $("#amsCurrentTempSymbolsC").show();
     $("#amsTargetTempC").show();
   }
-  else if (settings.tempSetting === "Both")
+  else if (settings.BambuBoard_tempSetting === "Both")
   {
     $("#amsTargetTempSymbolsF").show();
     $("#amsCurrentTempSymbolsF").show();
