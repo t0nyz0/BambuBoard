@@ -1,6 +1,6 @@
 {
   "name": "bambuboard",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "bambu x1 printer dashboard",
   "main": "bambuConnection.js",
   "keywords": [],
@@ -8,7 +8,7 @@
   "license": "MIT",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.18.2",
+    "express": "^4.21.2",
     "mqtt": "^5.10.3",
     "node-fetch": "^2.7.0"
   }

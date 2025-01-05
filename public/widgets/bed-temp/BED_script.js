@@ -112,11 +112,13 @@ async function updateUI(telemetryObject) {
     $("#bedTargetTempC").text(telemetryObject.bed_target_temper);
 
     // Set current temp in UI
-    var bedCurrentTemp = (telemetryObject.bed_temper * 9) / 5 + 32;
-    $("#bedCurrentTempF").text(bedCurrentTemp);
-    $("#bedCurrentTempC").text(telemetryObject.bed_temper);
+    var bedCurrentTempF = Math.round((telemetryObject.bed_temper * 9) / 5 + 32);
+    $("#bedCurrentTempF").text(bedCurrentTempF);
 
-    log("bedCurrentTemp = " + bedCurrentTemp);
+    var bedCurrentTempC = Math.round(telemetryObject.bed_temper);
+    $("#bedCurrentTempC").text(bedCurrentTempC);
+
+    log("bedCurrentTemp = " + bedCurrentTempF);
     let progressBedParentWidth = $("#bedProgressBarParent").width();
 
     log("progressBedParentWidth = " + progressBedParentWidth);
