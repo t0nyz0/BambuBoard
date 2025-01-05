@@ -89,12 +89,14 @@ async function updateUI(telemetryObject) {
 
     // Set target temp in UI
     $("#nozzleTargetTempF").text(nozzleTargetTemp);
-    $("#nozzleTargetTempC").text(telemetryObject.nozzle_target_temper);
+    $("#nozzleTargetTempC").text(telemetryObject.nozzle_target_temper);    
 
     // Set current temp in UI
-    var nozzleCurrentTemp = (telemetryObject.nozzle_temper * 9) / 5 + 32;
+    var nozzleCurrentTemp = Math.round((telemetryObject.nozzle_temper * 9) / 5 + 32);
     $("#nozzleCurrentTempF").text(nozzleCurrentTemp);
-    $("#nozzleCurrentTempC").text(telemetryObject.nozzle_temper);
+    
+    var nozzleCurrentTempC = Math.round(telemetryObject.nozzle_temper);
+    $("#nozzleCurrentTempC").text(nozzleCurrentTempC);
 
     log("nozzleCurrentTemp = " + nozzleCurrentTemp);
 
