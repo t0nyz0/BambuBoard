@@ -604,8 +604,6 @@ function connectClient() {
 
     client.publish(topicRequest, JSON.stringify(returnMsg));
   });
-  
-  const fs = require("fs");
 
   // Track the last execution time of the pushall command
   let lastPushallTime = 0;
