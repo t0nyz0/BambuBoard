@@ -7,5 +7,6 @@
   "BambuBoard_tempSetting": "Both",
   "BambuBoard_displayFanPercentages": false,
   "BambuBoard_displayFanIcons": true,
+  "BambuBoard_printerType": "X1",
   "BambuBoard_logging": false
 }
