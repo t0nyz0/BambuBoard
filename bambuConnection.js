@@ -8,6 +8,7 @@ let printerPort = process.env.BAMBUBOARD_PRINTER_PORT || config.BambuBoard_print
 let printerSN = process.env.BAMBUBOARD_PRINTER_SN || config.BambuBoard_printerSN;
 let printerAccessCode = process.env.BAMBUBOARD_PRINTER_ACCESS_CODE || config.BambuBoard_printerAccessCode;
 let tempSetting = process.env.BAMBUBOARD_TEMP_SETTING || config.BambuBoard_tempSetting;
+let printerType = process.env.BAMBUBOARD_PRINTER_TYPE || config.BambuBoard_printerType || "X1"; // X1, P1, A1
 
 //-------------------------------------------------------------------------------------------------------------
 /// Preferences:
@@ -464,7 +465,6 @@ app.post('/settings/update', async (req, res) => {
     if (BambuBoard_displayFanPercentages !== undefined) currentConfig.BambuBoard_displayFanPercentages = BambuBoard_displayFanPercentages;
     if (BambuBoard_displayFanIcons !== undefined) currentConfig.BambuBoard_displayFanIcons = BambuBoard_displayFanIcons;
 
-
     httpPort = BambuBoard_httpPort;
     printerURL = BambuBoard_printerURL;
     printerPort = BambuBoard_printerPort;
@@ -604,31 +604,51 @@ function connectClient() {
 
     client.publish(topicRequest, JSON.stringify(returnMsg));
   });
+
+  // Track the last execution time of the pushall command
+  let lastPushallTime = 0;
+  const PUSHALL_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
   
   client.on("message", (topic, message) => {
     log(`Received message from topic: ${topic}`);
     try {
       const jsonData = JSON.parse(message.toString());
       const dataToWrite = JSON.stringify(jsonData);
-      let lastUpdate = convertUtc(jsonData.t_utc);
-
+      const lastUpdate = convertUtc(jsonData.t_utc);
+  
       if (jsonData.print) {
+        // Write data to file
         fs.writeFile("./public/data.json", dataToWrite, (err) => {
           if (err) {
             log("Error writing file:" + err);
           } else {
-            log('Data written to file');
+            log("Data written to file");
           }
         });
       } else {
-        const returnMsg = {
-          pushing: {
-            sequence_id: SequenceID,
-            command: "pushall",
-          },
-          user_id: "123456789",
-        };
-        client.publish(topicRequest, JSON.stringify(returnMsg));
+        // Determine if we should send the pushall command
+        const printerModel = printerType || "X1"; // Default to X1
+        const currentTime = Date.now();
+  
+        if (
+          printerModel === "X1" || // For X1, always execute the command
+          (["P1P", "A1", "P1"].includes(printerModel) &&
+            currentTime - lastPushallTime >= PUSHALL_INTERVAL) // For P1 and A1, ensure interval has passed
+        ) {
+          const returnMsg = {
+            pushing: {
+              sequence_id: SequenceID,
+              command: "pushall",
+            },
+            user_id: "123456789",
+          };
+          client.publish(topicRequest, JSON.stringify(returnMsg));
+          lastPushallTime = currentTime; // Update the last execution time
+        } else if (["P1", "A1", "P1P"].includes(printerModel)) {
+          log(
+            `Skipping pushall command for ${printerModel}, waiting for the interval to pass.`
+          );
+        }
       }
     } catch (err) {
       log("Error parsing JSON:" + err);
