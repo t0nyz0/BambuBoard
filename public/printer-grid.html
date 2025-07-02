@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Printer Grid Dashboard</title>
+    <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+    <style>
+        body { background: #181818; color: #fff; margin: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+        .dashboard-container { max-width: 1400px; margin: 40px auto; padding: 0 16px; }
+        h1 { margin-bottom: 32px; }
+        .printer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 32px; }
+        .printer-card {
+            background: #232323;
+            border-radius: 14px;
+            box-shadow: 0 2px 12px #0005;
+            padding: 28px 24px 20px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            min-height: 220px;
+            transition: box-shadow 0.2s;
+        }
+        .printer-card:hover { box-shadow: 0 6px 24px #0007; }
+        .printer-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 10px; }
+        .status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+        .status-label { font-size: 1.1rem; font-weight: 500; letter-spacing: 1px; }
+        .percent-label { font-size: 1.1rem; font-weight: 600; color: #4caf50; }
+        .progress { width: 100%; height: 18px; background: #333; border-radius: 9px; overflow: hidden; margin-bottom: 16px; }
+        .progress-bar { background: linear-gradient(90deg, #4caf50, #8bc34a); height: 100%; transition: width 0.5s; font-weight: 600; color: #fff; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 1rem; }
+        .info-row { margin-bottom: 6px; }
+        .label { color: #aaa; font-size: 0.98rem; }
+        .value { font-size: 1.08rem; font-weight: 500; }
+        @media (max-width: 700px) {
+            .dashboard-container { padding: 4px; }
+            .printer-card { padding: 16px 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <h1>All Printers - Live Grid</h1>
+        <div class="printer-grid" id="printerGrid"></div>
+    </div>
+    <script>
+        async function fetchAllPrintersData() {
+            try {
+                const res = await fetch('/all-printers-data');
+                if (!res.ok) throw new Error('Failed to fetch printer data');
+                return await res.json();
+            } catch (e) {
+                console.error(e);
+                return null;
+            }
+        }
+
+        function renderPrinterGrid(printersData) {
+            const grid = document.getElementById('printerGrid');
+            grid.innerHTML = '';
+            if (!printersData || Object.keys(printersData).length === 0) {
+                grid.innerHTML = '<div>No printer data available.</div>';
+                return;
+            }
+            Object.entries(printersData).forEach(([printerId, data]) => {
+                let name = data?.print?.printer_name || data?.name || printerId;
+                let status = data?.print?.print_status || 'UNKNOWN';
+                let percent = data?.print?.percent !== undefined ? parseInt(data.print.percent) : 0;
+                let eta = data?.print?.eta || '...';
+                let model = data?.print?.mc_filename || '...';
+                // Card HTML
+                grid.innerHTML += `
+                    <div class="printer-card">
+                        <div class="printer-title">${name}</div>
+                        <div class="status-row">
+                            <span class="status-label">${status}</span>
+                            <span class="percent-label">${percent}%</span>
+                        </div>
+                        <div class="progress"><div class="progress-bar" style="width: ${percent}%;">&nbsp;</div></div>
+                        <div class="info-row"><span class="label">ETA:</span> <span class="value">${eta}</span></div>
+                        <div class="info-row"><span class="label">Model:</span> <span class="value">${model}</span></div>
+                    </div>
+                `;
+            });
+        }
+
+        async function updateGrid() {
+            const data = await fetchAllPrintersData();
+            renderPrinterGrid(data);
+        }
+        updateGrid();
+        setInterval(updateGrid, 5000);
+    </script>
+</body>
+</html> 

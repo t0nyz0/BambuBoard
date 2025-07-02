@@ -1,15 +1,30 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@100;400&family=Open+Sans:wght@400;600&family=Oxygen&family=Red+Hat+Display:wght@300;400&display=swap');
+@import url('assets/css/google-fonts.css');
+
+html, body {
+  height: auto !important;
+  min-height: 100vh;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;  /* IE and Edge */
+  padding-top: 20px;
+}
+html::-webkit-scrollbar, body::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
 
 body {
+  position: static !important;
   font-family: 'Open Sans', sans-serif;
   font-size: 1rem;
   color: #404040;
   background: #2a2a2a;
   font-weight:400;
-  overflow: hidden;
 }
 
 .container {
+  overflow: visible !important;
+  height: auto !important;
   margin: 10px;
   padding-top: 10px;
 }
@@ -513,4 +528,551 @@ p {
   100% {
     transform: scale(0.8);
   }
+}
+
+/* Multi-Printer Interface Styles */
+.printer-tabs {
+  background: #1a1a1a;
+  border-bottom: 2px solid #333;
+  margin-bottom: 20px;
+}
+
+.tab-header {
+  padding: 20px;
+}
+
+.tab-header h1 {
+  color: #fff;
+  margin: 0 0 20px 0;
+  font-size: 2.5em;
+  font-weight: 300;
+}
+
+.tab-container {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  background: #333;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid transparent;
+}
+
+.tab:hover {
+  background: #444;
+  transform: translateY(-2px);
+}
+
+.tab.active {
+  background: #51a34f;
+  border-color: #fff;
+  box-shadow: 0 4px 12px rgba(81, 163, 79, 0.3);
+}
+
+.printer-name {
+  font-weight: 500;
+}
+
+.status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-online {
+  background: #51a34f;
+  box-shadow: 0 0 8px rgba(81, 163, 79, 0.6);
+}
+
+.status-offline {
+  background: #666;
+}
+
+.status-error {
+  background: #e74c3c;
+  box-shadow: 0 0 8px rgba(231, 76, 60, 0.6);
+}
+
+.status-unknown {
+  background: #f39c12;
+}
+
+/* Printer Overview */
+.printer-overview {
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: center;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  padding: 0 20px;
+  max-width: 1200px;
+  width: 100%;
+}
+
+.printer-card {
+  background: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.printer-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+.printer-card.status-online {
+  border-color: #51a34f;
+  box-shadow: 0 0 15px rgba(81, 163, 79, 0.2);
+}
+
+.printer-card.status-offline {
+  border-color: #666;
+}
+
+.printer-card.status-error {
+  border-color: #e74c3c;
+  box-shadow: 0 0 15px rgba(231, 76, 60, 0.2);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.card-header h3 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.4em;
+  font-weight: 500;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8em;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.status-badge.status-online {
+  background: #51a34f;
+  color: #fff;
+}
+
+.status-badge.status-offline {
+  background: #666;
+  color: #fff;
+}
+
+.status-badge.status-error {
+  background: #e74c3c;
+  color: #fff;
+}
+
+.card-body {
+  margin-bottom: 15px;
+}
+
+.card-body p {
+  color: #ccc;
+  margin: 8px 0;
+  font-size: 0.9em;
+}
+
+.card-footer {
+  text-align: center;
+}
+
+.view-dashboard-btn {
+  background: #51a34f;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.view-dashboard-btn:hover {
+  background: #45a049;
+  transform: translateY(-2px);
+}
+
+/* Printer Dashboards */
+.printer-dashboards {
+  padding: 0 20px;
+}
+
+.printer-dashboard {
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #333;
+}
+
+.dashboard-header h2 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.8em;
+  font-weight: 400;
+}
+
+.printer-info {
+  display: flex;
+  gap: 20px;
+}
+
+.printer-info span {
+  color: #ccc;
+  font-size: 0.9em;
+}
+
+.error-message {
+  color: #e74c3c;
+  text-align: center;
+  padding: 40px;
+  font-size: 1.2em;
+}
+
+/* Video Feed Styles */
+.video-section {
+  background: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.video-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #333;
+}
+
+.video-header h3 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.4em;
+  font-weight: 500;
+}
+
+.video-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.video-btn {
+  background: #333;
+  color: #fff;
+  border: 1px solid #555;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.video-btn:hover {
+  background: #444;
+  border-color: #666;
+  transform: translateY(-1px);
+}
+
+.video-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.video-container {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 400px;
+}
+
+.video-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: #666;
+  text-align: center;
+}
+
+.video-placeholder .material-symbols-outlined {
+  font-size: 48px;
+  margin-bottom: 15px;
+  color: #444;
+}
+
+.video-placeholder p {
+  margin: 5px 0;
+  font-size: 1.1em;
+}
+
+.video-placeholder .video-url {
+  font-size: 0.9em;
+  color: #888;
+  font-family: 'IBM Plex Mono', monospace;
+  background: #222;
+  padding: 5px 10px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.video-container iframe {
+  width: 100%;
+  height: 400px;
+  border: none;
+  background: #000;
+}
+
+/* Responsive Design for Video */
+@media (max-width: 768px) {
+  .video-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+  
+  .video-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  
+  .video-container {
+    min-height: 300px;
+  }
+  
+  .video-container iframe {
+    height: 300px;
+  }
+  
+  .video-placeholder {
+    height: 300px;
+  }
+}
+
+/* Remove any overflow: hidden from main wrappers */
+#app, .main, .printer-dashboards, .printer-dashboard {
+  overflow: visible !important;
+  height: auto !important;
+}
+
+/* Main Printer Grid Styles */
+.main-printer-grid {
+  margin: 0 auto;
+  max-width: 1400px;
+  padding: 0 16px;
+  padding-top: 80px;
+  display: block;
+  margin-bottom: 40px;
+}
+
+.main-printer-grid .printer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 32px;
+  width: 100%;
+}
+
+.main-printer-grid .printer-card {
+  background: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  position: relative;
+  transition: all 0.3s ease;
+  overflow: visible;
+}
+
+.main-printer-grid .printer-card::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  right: -10px;
+  bottom: -10px;
+  border-radius: 20px;
+  background: conic-gradient(from 0deg, #ff8c00 0deg, #ff8c00 calc(var(--progress, 0) * 3.6deg), transparent calc(var(--progress, 0) * 3.6deg), transparent 360deg);
+  z-index: -1;
+  border: 4px solid #1a1a1a;
+}
+
+.main-printer-grid .printer-title { font-size: 1.3rem; font-weight: 600; margin-bottom: 10px; }
+.main-printer-grid .status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.main-printer-grid .status-label { font-size: 1.1rem; font-weight: 500; letter-spacing: 1px; }
+.main-printer-grid .percent-label { font-size: 1.1rem; font-weight: 600; color: #4caf50; }
+.main-printer-grid .progress { width: 100%; height: 18px; background: #333; border-radius: 9px; overflow: hidden; margin-bottom: 16px; }
+.main-printer-grid .progress-bar { background: linear-gradient(90deg, #ff8c00, #ffa500); height: 100%; transition: width 0.5s; font-weight: 600; color: #fff; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 1rem; }
+.main-printer-grid .info-row { margin-bottom: 6px; }
+.main-printer-grid .label { color: #aaa; font-size: 0.98rem; }
+.main-printer-grid .value { 
+  color: #ffffff; 
+  font-weight: 500; 
+  font-size: 0.95rem; 
+}
+@media (max-width: 700px) {
+  .main-printer-grid { padding: 4px; }
+  .main-printer-grid .printer-card { padding: 16px 8px; }
+}
+
+.printer-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 2px 8px #000, 0 0 4px #ff0;
+  letter-spacing: 0.04em;
+  margin-bottom: 16px;
+}
+
+.main-printer-grid .printer-card, .printer-card {
+  min-height: 340px;
+  padding: 40px 32px 32px 32px;
+  box-shadow: 0 6px 32px #000a;
+  border: none;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
+  border-radius: 14px;
+  background: #232323;
+}
+
+.main-printer-grid .printer-card::before, .printer-card::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border-radius: 20px;
+  background: conic-gradient(from 0deg, #ff8c00 0deg, #ff8c00 calc(var(--progress, 0) * 3.6deg), #333 calc(var(--progress, 0) * 3.6deg), #333 360deg);
+  z-index: -1;
+}
+
+.main-printer-grid .printer-card::after, .printer-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 14px;
+  background: #232323;
+  z-index: -1;
+}
+
+.main-printer-grid .printer-title, .printer-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 2px 8px #000, 0 0 4px #ff0;
+  letter-spacing: 0.04em;
+  margin-bottom: 16px;
+  text-align: center;
+  width: 100%;
+}
+
+.main-printer-grid .status-row, .status-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.main-printer-grid .info-row, .info-row {
+  margin-bottom: 6px;
+  text-align: center;
+  width: 100%;
+}
+
+.main-printer-grid {
+  max-width: 1800px;
+  margin-top: 60px;
+}
+
+/* Progress bar green at 100% (was yellow) */
+.progress-bar.yellow {
+  background: linear-gradient(90deg, #51a34f, #8bc34a);
+  color: #fff;
+  text-shadow: 0 1px 2px #0008;
+}
+
+/* Update circular progress for green at 100% (was yellow) */
+.main-printer-grid .printer-card.yellow::before, .printer-card.yellow::before {
+  background: conic-gradient(from 0deg, #51a34f 0deg, #51a34f calc(var(--progress, 0) * 3.6deg), transparent calc(var(--progress, 0) * 3.6deg), transparent 360deg);
+}
+
+/* Hide printer tabs/sidebar */
+.printer-tabs {
+  display: none !important;
+}
+
+/* Dashboard Selector Buttons - REMOVED */
+/* The progress bar tiles now serve as the dashboard selector */
+
+/* Clickable progress bar tiles */
+.dashboard-tile {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dashboard-tile:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+  border-color: #ff8c00;
+}
+
+.dashboard-tile:active {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* Remove the fixed positioning from the main content since we removed the header */
+body {
+  padding-top: 20px;
 }

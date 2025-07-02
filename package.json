@@ -9,7 +9,9 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "express-ws": "^5.0.2",
     "mqtt": "^5.10.3",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "rtsp-relay": "^1.9.0"
   }
 }
