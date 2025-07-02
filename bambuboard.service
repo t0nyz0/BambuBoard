@@ -1,0 +1,22 @@
+[Unit]
+Description=BambuBoard 3D Printer Dashboard
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=safesky
+Group=safesky
+WorkingDirectory=/home/safesky/BambuBoard
+ExecStart=/usr/bin/node bambuConnection.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bambuboard
+
+# Environment variables if needed
+# Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target 
