@@ -1,12 +1,27 @@
 {
   "BambuBoard_httpPort": 8080,
-  "BambuBoard_printerURL": "10.0.0.1",
-  "BambuBoard_printerPort": "8883",
-  "BambuBoard_printerSN": "FILL_THIS_OUT",
-  "BambuBoard_printerAccessCode": "FILL_THIS_OUT",
-  "BambuBoard_bambuUsername": "FILL_THIS_OUT",
-  "BambuBoard_bambuPassword": "FILL_THIS_OUT",
   "BambuBoard_tempSetting": "Both",
   "BambuBoard_displayFanPercentages": false,
-  "BambuBoard_displayFanIcons": true
+  "BambuBoard_displayFanIcons": true,
+  "BambuBoard_logging": false,
+  "printers": [
+    {
+      "id": "printer1",
+      "name": "X1 Carbon",
+      "url": "10.0.0.1",
+      "port": "8883",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
+      "type": "X1"
+    },
+    {
+      "id": "printer2", 
+      "name": "P1P",
+      "url": "10.0.0.2",
+      "port": "8883",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
+      "type": "P1P"
+    }
+  ]
 }

@@ -13,11 +13,740 @@ let tempSetting = "Fahrenheit"; // Celsius or Both
 const consoleLogging = false;
 let telemetryObjectMain;
 
-// Preferences // Keep in mind these default values overwrote in the next few steps
+// Preferences // Keep in mind these sdefault values overwrote in the next few steps
 let displayFanPercentages = false; // Use percentages instead of icons for the fans
 let displayFanIcons = true; // Use percentages instead of icons for the fans
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
+// Multi-Printer BambuBoard JavaScript
+let printers = [];
+let currentPrinterId = null;
+let updateInterval;
+
+// Initialize the multi-printer dashboard
+$(document).ready(function() {
+    loadPrinters();
+    setInterval(loadPrinters, 5000); // Refresh printer list every 5 seconds
+});
+
+// Load printers and their status
+async function loadPrinters() {
+    try {
+        const response = await fetch('/printers');
+        if (response.ok) {
+            printers = await response.json();
+            updatePrinterTabs();
+            updatePrinterOverview();
+            
+            // Load data for all printers
+            await loadAllPrinterData();
+        }
+    } catch (error) {
+        console.error('Error loading printers:', error);
+    }
+}
+
+// Update printer tabs
+function updatePrinterTabs() {
+    const tabContainer = $('#printerTabs');
+    tabContainer.empty();
+    
+    printers.forEach((printer, index) => {
+        const tabClass = index === 0 ? 'tab active' : 'tab';
+        const statusClass = getStatusClass(printer.status);
+        
+        const tab = $(`
+            <div class="${tabClass}" data-printer-id="${printer.id}">
+                <span class="printer-name">${printer.name}</span>
+                <span class="status-indicator ${statusClass}"></span>
+            </div>
+        `);
+        
+        tab.click(function() {
+            switchPrinter(printer.id);
+        });
+        
+        tabContainer.append(tab);
+    });
+    
+    // Set first printer as active if none selected
+    if (printers.length > 0 && !currentPrinterId) {
+        currentPrinterId = printers[0].id;
+    }
+}
+
+// Update printer overview cards
+function updatePrinterOverview() {
+    const overviewContainer = $('#printerOverview');
+    overviewContainer.empty();
+    
+    // Remove the dashboard selector buttons section entirely
+    // The progress bar tiles will now serve as the dashboard selector
+}
+
+// Load data for all printers
+async function loadAllPrinterData() {
+    try {
+        const response = await fetch('/all-printers-data');
+        if (response.ok) {
+            const allData = await response.json();
+            
+            // Update each printer's dashboard
+            Object.keys(allData).forEach(printerId => {
+                updatePrinterDashboard(printerId, allData[printerId]);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading all printer data:', error);
+    }
+}
+
+// Switch to a specific printer
+function switchPrinter(printerId) {
+    currentPrinterId = printerId;
+    
+    // Update tab selection
+    $('.tab').removeClass('active');
+    $(`.tab[data-printer-id="${printerId}"]`).addClass('active');
+    
+    // Show/hide dashboards
+    $('.printer-dashboard').hide();
+    $(`#dashboard-${printerId}`).show();
+    
+    // Load specific printer data
+    loadPrinterData(printerId);
+    
+    // Initialize video feed for the selected printer
+    initializeVideoFeed(printerId);
+}
+
+// Load data for a specific printer
+async function loadPrinterData(printerId) {
+    try {
+        const response = await fetch(`/printer/${printerId}/data`);
+        if (response.ok) {
+            const data = await response.json();
+            updatePrinterDashboard(printerId, data);
+        }
+    } catch (error) {
+        console.error(`Error loading data for printer ${printerId}:`, error);
+    }
+}
+
+// Update a specific printer's dashboard
+function updatePrinterDashboard(printerId, data) {
+    const dashboard = $(`#dashboard-${printerId}`);
+    
+    if (!dashboard.length) {
+        // Create dashboard if it doesn't exist
+        createPrinterDashboard(printerId);
+    }
+    
+    if (data.error) {
+        dashboard.html(`<div class="error-message">${data.error}</div>`);
+        return;
+    }
+
+    // --- BEGIN: Transform data to expected structure ---
+    if (data.print) {
+        data.temperatures = {
+            bed: {
+                temper: data.print.bed_temper,
+                target: data.print.bed_target_temper
+            },
+            nozzle: {
+                temper: data.print.nozzle_temper,
+                target: data.print.nozzle_target_temper
+            },
+            chamber: {
+                temper: data.print.chamber_temper,
+                target: data.print.chamber_target_temper || 0
+            }
+        };
+        data.fans = {
+            fan1: parseInt(data.print.big_fan1_speed) || 0,
+            fan2: parseInt(data.print.big_fan2_speed) || 0,
+            cooling: parseInt(data.print.cooling_fan_speed) || 0,
+            heatbreak: parseInt(data.print.heatbreak_fan_speed) || 0
+        };
+        // wifi_signal is usually a string like "-18dBm"; extract the number and convert to a percentage (rough estimate)
+        let wifiSignal = 100;
+        if (data.print.wifi_signal) {
+            const match = data.print.wifi_signal.match(/-?\d+/);
+            if (match) {
+                const dBm = parseInt(match[0]);
+                wifiSignal = Math.max(0, Math.min(100, Math.round((dBm + 90) * 100 / 60)));
+            }
+        } else if (data.wifi_signal) {
+            const match = data.wifi_signal.match(/-?\d+/);
+            if (match) {
+                const dBm = parseInt(match[0]);
+                wifiSignal = Math.max(0, Math.min(100, Math.round((dBm + 90) * 100 / 60)));
+            }
+        }
+        data.wifi = {
+            signal: wifiSignal
+        };
+        // --- AMS transformation ---
+        if (data.print.ams && data.print.ams.ams && Array.isArray(data.print.ams.ams)) {
+            // Flatten all trays from all AMS units (if multiple)
+            let trays = [];
+            let amsEnv = { humidity: null, temp: null };
+            data.print.ams.ams.forEach(amsUnit => {
+                if (amsUnit.tray && Array.isArray(amsUnit.tray)) {
+                    trays = trays.concat(amsUnit.tray.map(tray => ({
+                        id: tray.id,
+                        remaining: tray.remain,
+                        info: {
+                            name: tray.tray_id_name || tray.tray_type || 'Unknown',
+                            type: tray.tray_type || 'Unknown',
+                            color: tray.tray_color ? ('#' + tray.tray_color.substring(0,6)) : '#808080'
+                        },
+                        is_active: false // You can enhance this if you have active tray info
+                    })));
+                }
+                // AMS environment
+                if (amsUnit.humidity !== undefined) amsEnv.humidity = amsUnit.humidity;
+                if (amsUnit.temp !== undefined) amsEnv.temp = amsUnit.temp;
+            });
+            data.ams = {
+                trays: trays,
+                humidity: amsEnv.humidity,
+                temp: amsEnv.temp
+            };
+        }
+        // --- END AMS transformation ---
+        // --- Video URL ---
+        if (data.print.ipcam && data.print.ipcam.rtsp_url) {
+            data.videoUrl = data.print.ipcam.rtsp_url;
+        }
+        // --- END Video URL ---
+        // --- Lights ---
+        if (Array.isArray(data.print.lights_report)) {
+            data.lights = data.print.lights_report.map(l => ({ node: l.node, mode: l.mode }));
+        }
+        // --- Errors/Warnings ---
+        if (Array.isArray(data.print.hms)) {
+            data.hardwareMessages = data.print.hms;
+        }
+    }
+    // --- END: Transform data to expected structure ---
+
+    // Update dashboard with printer data
+    updateDashboardContent(printerId, data);
+}
+
+// Create a new printer dashboard
+function createPrinterDashboard(printerId) {
+    const printer = printers.find(p => p.id === printerId);
+    if (!printer) return;
+    
+    const dashboard = $(`
+        <div class="printer-dashboard" id="dashboard-${printerId}" style="display: none;">
+            <div class="dashboard-header">
+                <h2>${printer.name} Dashboard</h2>
+                <div class="printer-info">
+                    <span>IP: ${printer.url}</span>
+                    <span>Type: ${printer.type}</span>
+                </div>
+            </div>
+            
+            <!-- Video Feed Section -->
+            <div class="video-section">
+                <div class="video-header">
+                    <h3>Live Video Feed</h3>
+                    <div class="video-controls">
+                        <button class="video-btn" onclick="toggleVideoFeed('${printerId}')" id="video-toggle-${printerId}">
+                            <span class="material-symbols-outlined">play_arrow</span> Start Video
+                        </button>
+                        <button class="video-btn" onclick="refreshVideoFeed('${printerId}')">
+                            <span class="material-symbols-outlined">refresh</span> Refresh
+                        </button>
+                        <button class="video-btn" onclick="openVideoFullscreen('${printerId}')">
+                            <span class="material-symbols-outlined">fullscreen</span> Fullscreen
+                        </button>
+                    </div>
+                </div>
+                <div class="video-container" id="video-container-${printerId}">
+                    <div class="video-placeholder" id="video-placeholder-${printerId}">
+                        <span class="material-symbols-outlined">videocam_off</span>
+                        <p>Video feed not started</p>
+                        <p class="video-url">URL: http://${printer.url}/video</p>
+                    </div>
+                    <iframe id="video-frame-${printerId}" 
+                            src="" 
+                            frameborder="0" 
+                            allowfullscreen 
+                            style="display: none; width: 100%; height: 400px;">
+                    </iframe>
+                </div>
+            </div>
+            
+            <div class="progressBarContainer">
+                <div class="printStatus" id="printStatus-${printerId}">
+                    Printer offline <span id="printPercentage-${printerId}"></span>
+                </div>
+                <div class="progress" id="printParentProgressBar-${printerId}">
+                    <div class="progress-bar" style="width: 5px; background-color: grey;" id="printProgressBar-${printerId}"></div>
+                </div>
+            </div>
+            
+            <div class="bedcontainer light-border">
+                <div class="bed-title">
+                    <div class="grid grid-gap-30">
+                        <div class="column grid-gap-10">
+                            <div class="printDetailsContainer">
+                                <h3><span class="fade printRemaining">Remaining:</span> <span class="printRemaining" id="printRemaining-${printerId}">unknown</span></h3>
+                                <h3><span class="fade">ETA:</span> <span id="printETA-${printerId}">...</span></h3>
+                                <h3><span class="fade">Model:</span> <span id="printModelName-${printerId}">...</span></h3>
+                                <h3><span class="fade">Layer:</span> <span id="printCurrentLayer-${printerId}">...</span></h3>
+                                <h3><span class="fade">Filament weight:</span> <span id="modelWeight-${printerId}">...</span></h3>
+                                <h3><span class="fade">Speed: <span id="printSpeed-${printerId}" style="color: #51a34f;">Normal</span></span></h3>
+                            </div>
+                        </div>
+                        <div class="column model-image grid-gap-10">
+                            <div>
+                                <img id="modelImage-${printerId}" src="plate.png"> 
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bedcontainer">
+                <div class="grid grid-gap-30">
+                    <div class="column grid-gap-10">
+                        <div class="bed-title">
+                            <h2 class="partTitle">Bed Temperature</h2>
+                            <div class="progress-wrapper">
+                                <div id="bedProgressBarParent-${printerId}" class="progress">
+                                    <div id="bedProgressBar-${printerId}" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
+                                </div>
+                            </div>
+                            <div style="display: flex;justify-content: space-between;">
+                                <h4 class="finePrint">
+                                    <b>Current: <span id="bedCurrentTempC-${printerId}">0</span></b><span id="bedCurrentTempSymbolsC-${printerId}"><b><sup>°</sup>C</b></span> 
+                                    <span style="color:grey;"><span id="bedCurrentTempF-${printerId}">0</span><span id="bedCurrentTempSymbolsF-${printerId}"><sup>°</sup>F</span></span>
+                                </h4>
+                                <h4 class="finePrint">
+                                    <b>Target: <span id="bedTargetTempC-${printerId}">0</span><span id="bedTargetTempSymbolsC-${printerId}"><sup>°</sup>C</b></span> 
+                                    <span style="color:grey;"><span id="bedTargetTempF-${printerId}">0</span><span id="bedTargetTempSymbolsF-${printerId}"><sup>°</sup>F</span></span>
+                                </h4>
+                            </div>
+                        </div>
+                        
+                        <div class="bed-title">
+                            <h2 class="partTitle">Nozzle Temperature</h2>
+                            <div class="progress-wrapper">
+                                <div id="nozzleProgressBarParent-${printerId}" class="progress">
+                                    <div id="nozzleProgressBar-${printerId}" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
+                                </div>
+                            </div>
+                            <div style="display: flex;justify-content: space-between;">
+                                <h4 class="finePrint">
+                                    <b>Current: <span id="nozzleCurrentTempC-${printerId}">0</span></b><span id="nozzleCurrentTempSymbolsC-${printerId}"><b><sup>°</sup>C</b></span> 
+                                    <span style="color:grey;"><span id="nozzleCurrentTempF-${printerId}">0</span><span id="nozzleCurrentTempSymbolsF-${printerId}"><sup>°</sup>F</span></span>
+                                </h4>
+                                <h4 class="finePrint">
+                                    <b>Target: <span id="nozzleTargetTempC-${printerId}">0</span><span id="nozzleTargetTempSymbolsC-${printerId}"><sup>°</sup>C</b></span> 
+                                    <span style="color:grey;"><span id="nozzleTargetTempF-${printerId}">0</span><span id="nozzleTargetTempSymbolsF-${printerId}"><sup>°</sup>F</span></span>
+                                </h4>
+                            </div>
+                        </div>
+                        
+                        <div class="bed-title">
+                            <h2 class="partTitle">Chamber Temperature</h2>
+                            <div class="progress-wrapper">
+                                <div id="chamberProgressBarParent-${printerId}" class="progress">
+                                    <div id="chamberProgressBar-${printerId}" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
+                                </div>
+                            </div>
+                            <div style="display: flex;justify-content: space-between;">
+                                <h4 class="finePrint">
+                                    <b>Current: <span id="chamberCurrentTempC-${printerId}">0</span></b><span id="chamberCurrentTempSymbolsC-${printerId}"><b><sup>°</sup>C</b></span> 
+                                    <span style="color:grey;"><span id="chamberCurrentTempF-${printerId}">0</span><span id="chamberCurrentTempSymbolsF-${printerId}"><sup>°</sup>F</span></span>
+                                </h4>
+                                <h4 class="finePrint">
+                                    <b>Max: <span id="chamberTargetTempC-${printerId}">0</span><span id="chamberTargetTempSymbolsC-${printerId}"><sup>°</sup>C</b></span> 
+                                    <span style="color:grey;"><span id="chamberTargetTempF-${printerId}">0</span><span id="chamberTargetTempSymbolsF-${printerId}"><sup>°</sup>F</span></span>
+                                </h4>
+                            </div>
+                        </div>
+                        
+                        <div class="bed-title fans">
+                            <h2 class="partTitle">Fans</h2>
+                            <div class="fan-container flex">
+                                <div class="fan1">
+                                    <h4 class="finePrint">Fan 1</h4>
+                                    <span id="fan1-${printerId}" class="material-symbols-outlined" style="will-change: transform;">toys_fan</span>
+                                    <span id="fan1-percent-${printerId}" class="fan-percentage"></span>
+                                </div>
+                                <div class="fan2">
+                                    <h4 class="finePrint">Fan 2</h4>
+                                    <span id="fan2-${printerId}" class="material-symbols-outlined" style="will-change: transform;">toys_fan</span>
+                                    <span id="fan2-percent-${printerId}" class="fan-percentage"></span>
+                                </div>
+                                <div class="fan3">
+                                    <h4 class="finePrint">Cooling</h4>
+                                    <span id="fan3-${printerId}" class="material-symbols-outlined" style="will-change: transform;">toys_fan</span>
+                                    <span id="fan3-percent-${printerId}" class="fan-percentage"></span>
+                                </div>
+                                <div class="fan4">
+                                    <h4 class="finePrint">Heatbreak</h4>
+                                    <span id="fan4-${printerId}" class="material-symbols-outlined" style="will-change: transform;">toys_fan</span>
+                                    <span id="fan4-percent-${printerId}" class="fan-percentage"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="column grid-gap-10">
+                        <div class="bed-title">
+                            <h2 class="partTitle">AMS</h2>
+                            <div class="ams-container" id="ams-container-${printerId}">
+                                <!-- AMS trays will be dynamically generated -->
+                            </div>
+                        </div>
+                        
+                        <div class="grid columns-2 grid-gap-30">
+                            <div class="bed-title column">
+                                <h2 class="partTitle">Nozzle</h2>
+                                <div class="ams-container">
+                                    <h4 class="finePrint">Type: <span id="nozzleType-${printerId}">Hardened Steel</span></h4>
+                                    <h4 class="finePrint">Size: <span id="nozzleSize-${printerId}">0.4</span></h4>
+                                </div>
+                            </div>
+                            
+                            <div class="bed-title">
+                                <h2 class="partTitle">Wifi</h2>
+                                <div class="progress-wrapper">
+                                    <div class="flex" style="justify-content: flex-end;">
+                                        <h4 class="finePrint"><span id="wifiValue-${printerId}">100</span>%</h4>
+                                    </div>
+                                    <div id="wifiProgressBarParent-${printerId}" class="progress">
+                                        <div id="wifiProgressBar-${printerId}" class="progress-bar" style="width: 25px; background-color: #51a34f;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+    
+    $('#printerDashboards').append(dashboard);
+}
+
+// Video feed functions
+function initializeVideoFeed(printerId) {
+    const printer = printers.find(p => p.id === printerId);
+    if (!printer) return;
+    
+    // Update video URL in placeholder
+    $(`#video-placeholder-${printerId} .video-url`).text(`URL: http://${printer.url}/video`);
+    
+    // Check video feed availability
+    checkVideoStatus(printerId);
+}
+
+function checkVideoStatus(printerId) {
+    fetch(`/printer/${printerId}/video-status`)
+        .then(response => response.json())
+        .then(data => {
+            const placeholder = $(`#video-placeholder-${printerId}`);
+            if (data.available) {
+                placeholder.find('p').first().text('Video feed available');
+                placeholder.find('.material-symbols-outlined').text('videocam');
+                placeholder.find('.material-symbols-outlined').css('color', '#51a34f');
+            } else {
+                placeholder.find('p').first().text('Video feed not available');
+                placeholder.find('.material-symbols-outlined').text('videocam_off');
+                placeholder.find('.material-symbols-outlined').css('color', '#e74c3c');
+            }
+        })
+        .catch(error => {
+            console.error('Error checking video status:', error);
+            const placeholder = $(`#video-placeholder-${printerId}`);
+            placeholder.find('p').first().text('Video feed error');
+            placeholder.find('.material-symbols-outlined').text('error');
+            placeholder.find('.material-symbols-outlined').css('color', '#e74c3c');
+        });
+}
+
+function toggleVideoFeed(printerId) {
+    const printer = printers.find(p => p.id === printerId);
+    if (!printer) return;
+    
+    const videoFrame = $(`#video-frame-${printerId}`);
+    const videoPlaceholder = $(`#video-placeholder-${printerId}`);
+    const toggleBtn = $(`#video-toggle-${printerId}`);
+    
+    if (videoFrame.is(':visible')) {
+        // Stop video
+        videoFrame.hide();
+        videoPlaceholder.show();
+        toggleBtn.html('<span class="material-symbols-outlined">play_arrow</span> Start Video');
+    } else {
+        // Start video using proxy endpoint
+        const videoUrl = `/printer/${printerId}/video`;
+        videoFrame.attr('src', videoUrl);
+        videoFrame.show();
+        videoPlaceholder.hide();
+        toggleBtn.html('<span class="material-symbols-outlined">stop</span> Stop Video');
+    }
+}
+
+function refreshVideoFeed(printerId) {
+    const videoFrame = $(`#video-frame-${printerId}`);
+    const currentSrc = videoFrame.attr('src');
+    
+    if (currentSrc) {
+        videoFrame.attr('src', '');
+        setTimeout(() => {
+            videoFrame.attr('src', currentSrc);
+        }, 100);
+    }
+    
+    // Also refresh video status
+    checkVideoStatus(printerId);
+}
+
+function openVideoFullscreen(printerId) {
+    const printer = printers.find(p => p.id === printerId);
+    if (!printer) return;
+    
+    const videoUrl = `/printer/${printerId}/video`;
+    const fullscreenWindow = window.open(videoUrl, '_blank', 'width=800,height=600,scrollbars=no,resizable=yes');
+    
+    if (fullscreenWindow) {
+        fullscreenWindow.focus();
+    }
+}
+
+// Update dashboard content with printer data
+function updateDashboardContent(printerId, data) {
+    if (!data || data.error) return;
+    
+    // Video feed
+    if (data.videoUrl) {
+        $(`#video-feed-${printerId}`).attr('src', data.videoUrl);
+    }
+
+    // Print status
+    if (data.print) {
+        const printData = data.print;
+        // Debug log to confirm which value is being used
+        console.log('Model name for printer', printerId, 'subtask_name:', printData.subtask_name, 'gcode_file:', printData.gcode_file);
+        $(`#printStatus-${printerId}`).text(`${printData.gcode_state || ''}`);
+        $(`#printProgress-${printerId}`).text(`${printData.mc_percent || 0}%`);
+        $(`#printRemainingTime-${printerId}`).text(`${printData.mc_remaining_time || 0} min`);
+        $(`#printLayer-${printerId}`).text(`${printData.layer_num || 0} / ${printData.total_layer_num || 0}`);
+        // Model field: use subtask_name if available, else gcode_file
+        $(`#printModelName-${printerId}`).text(printData.subtask_name ? printData.subtask_name : (printData.gcode_file || ''));
+    }
+
+    // Temperatures
+    if (data.temperatures) {
+        const temps = data.temperatures;
+        $(`#bedTemp-${printerId}`).text(temps.bed.temper || '');
+        $(`#bedTargetTemp-${printerId}`).text(temps.bed.target || '');
+        $(`#nozzleTemp-${printerId}`).text(temps.nozzle.temper || '');
+        $(`#nozzleTargetTemp-${printerId}`).text(temps.nozzle.target || '');
+        $(`#chamberTemp-${printerId}`).text(temps.chamber.temper || '');
+    }
+
+    // Fans
+    if (data.fans) {
+        $(`#fan1Speed-${printerId}`).text(data.fans.fan1);
+        $(`#fan2Speed-${printerId}`).text(data.fans.fan2);
+        $(`#coolingFanSpeed-${printerId}`).text(data.fans.cooling);
+        $(`#heatbreakFanSpeed-${printerId}`).text(data.fans.heatbreak);
+    }
+
+    // AMS
+    if (data.ams) {
+        $(`#amsHumidity-${printerId}`).text(data.ams.humidity || '');
+        $(`#amsTemp-${printerId}`).text(data.ams.temp || '');
+    }
+
+    // Lights
+    if (data.lights) {
+        $(`#lightsStatus-${printerId}`).text(data.lights.map(l => `${l.node}: ${l.mode}`).join(', '));
+    }
+
+    // Errors/Warnings
+    if (data.hardwareMessages) {
+        $(`#hardwareMessages-${printerId}`).text(JSON.stringify(data.hardwareMessages));
+    }
+
+    // Update print status
+    if (data.print) {
+        const printData = data.print;
+        const printStatus = printData.gcode_state;
+        const printProgress = printData.mc_percent || 0;
+        
+        $(`#printStatus-${printerId}`).text(`${printStatus} ${printProgress}%`);
+        $(`#printPercentage-${printerId}`).text(`${printProgress}%`);
+        $(`#printProgressBar-${printerId}`).css('width', `${printProgress}%`);
+        
+        // Calculate ETA if mc_remaining_time is present
+        let etaText = '...';
+        if (printData.mc_remaining_time !== undefined && printData.mc_remaining_time !== null && printData.mc_remaining_time > 0) {
+            const now = new Date();
+            const etaDate = new Date(now.getTime() + printData.mc_remaining_time * 60 * 1000);
+            const hours = etaDate.getHours();
+            const minutes = etaDate.getMinutes();
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            const formattedHours = hours % 12 === 0 ? 12 : hours % 12;
+            const formattedMinutes = minutes < 10 ? `0${minutes}` : minutes;
+            etaText = `${formattedHours}:${formattedMinutes}${ampm}`;
+        } else if (printStatus === 'FINISH') {
+            etaText = 'Done';
+        } else if (printStatus === 'FAILED') {
+            etaText = '';
+        }
+        
+        // Update print details
+        $(`#printRemaining-${printerId}`).text(printData.remaining_time || 'unknown');
+        $(`#printETA-${printerId}`).text(etaText);
+        $(`#printModelName-${printerId}`).text(printData.subtask_name ? printData.subtask_name : (printData.gcode_file || ''));
+        $(`#printCurrentLayer-${printerId}`).text(printData.layer_num || '...');
+        $(`#printSpeed-${printerId}`).text(printData.spd_lvl || 'Normal');
+    }
+    
+    // Update temperatures
+    if (data.temperatures) {
+        const temps = data.temperatures;
+        
+        // Bed temperature
+        if (temps.bed) {
+            const bedCurrent = temps.bed.temper || 0;
+            const bedTarget = temps.bed.target || 0;
+            
+            $(`#bedCurrentTempC-${printerId}`).text(bedCurrent);
+            $(`#bedCurrentTempF-${printerId}`).text(Math.round(bedCurrent * 9/5 + 32));
+            $(`#bedTargetTempC-${printerId}`).text(bedTarget);
+            $(`#bedTargetTempF-${printerId}`).text(Math.round(bedTarget * 9/5 + 32));
+            
+            // Update progress bar
+            const bedProgress = bedTarget > 0 ? (bedCurrent / bedTarget) * 100 : 0;
+            $(`#bedProgressBar-${printerId}`).css('width', `${Math.min(bedProgress, 100)}%`);
+        }
+        
+        // Nozzle temperature
+        if (temps.nozzle) {
+            const nozzleCurrent = temps.nozzle.temper || 0;
+            const nozzleTarget = temps.nozzle.target || 0;
+            
+            $(`#nozzleCurrentTempC-${printerId}`).text(nozzleCurrent);
+            $(`#nozzleCurrentTempF-${printerId}`).text(Math.round(nozzleCurrent * 9/5 + 32));
+            $(`#nozzleTargetTempC-${printerId}`).text(nozzleTarget);
+            $(`#nozzleTargetTempF-${printerId}`).text(Math.round(nozzleTarget * 9/5 + 32));
+            
+            // Update progress bar
+            const nozzleProgress = nozzleTarget > 0 ? (nozzleCurrent / nozzleTarget) * 100 : 0;
+            $(`#nozzleProgressBar-${printerId}`).css('width', `${Math.min(nozzleProgress, 100)}%`);
+        }
+        
+        // Chamber temperature
+        if (temps.chamber) {
+            const chamberCurrent = temps.chamber.temper || 0;
+            const chamberTarget = temps.chamber.target || 0;
+            
+            $(`#chamberCurrentTempC-${printerId}`).text(chamberCurrent);
+            $(`#chamberCurrentTempF-${printerId}`).text(Math.round(chamberCurrent * 9/5 + 32));
+            $(`#chamberTargetTempC-${printerId}`).text(chamberTarget);
+            $(`#chamberTargetTempF-${printerId}`).text(Math.round(chamberTarget * 9/5 + 32));
+            
+            // Update progress bar
+            const chamberProgress = chamberTarget > 0 ? (chamberCurrent / chamberTarget) * 100 : 0;
+            $(`#chamberProgressBar-${printerId}`).css('width', `${Math.min(chamberProgress, 100)}%`);
+        }
+    }
+    
+    // Update fans
+    if (data.fans) {
+        const fans = data.fans;
+        
+        // Update fan speeds and animations
+        Object.keys(fans).forEach((fanKey, index) => {
+            const fanSpeed = fans[fanKey] || 0;
+            const fanId = index + 1;
+            
+            $(`#fan${fanId}-${printerId}`).css('animation-duration', `${Math.max(0.5, 2 - fanSpeed/50)}s`);
+            $(`#fan${fanId}-percent-${printerId}`).text(`${fanSpeed}%`);
+        });
+    }
+    
+    // Update AMS
+    if (data.ams) {
+        updateAMS(printerId, data.ams);
+    }
+    
+    // Update wifi
+    if (data.wifi) {
+        const wifiSignal = data.wifi.signal || 100;
+        $(`#wifiValue-${printerId}`).text(wifiSignal);
+        $(`#wifiProgressBar-${printerId}`).css('width', `${wifiSignal}%`);
+    }
+}
+
+// Update AMS information
+function updateAMS(printerId, amsData) {
+    const amsContainer = $(`#ams-container-${printerId}`);
+    amsContainer.empty();
+    
+    if (amsData.trays) {
+        amsData.trays.forEach((tray, index) => {
+            const trayId = index + 1;
+            const isActive = tray.is_active;
+            const remaining = tray.remaining || 0;
+            const material = tray.info?.name || 'Unknown';
+            const color = tray.info?.color || '#808080';
+            
+            const trayElement = $(`
+                <div class="element">
+                    <span id="tray${trayId}Color-${printerId}" class="dot" style="background-color: ${color};"></span>
+                    <div class="dot-content">
+                        <div class="flex">
+                            <h3 id="tray${trayId}Material-${printerId}" class="material">${material}</h3>
+                            <span id="tray${trayId}Active-${printerId}" class="badge-active" style="display:${isActive ? 'inline' : 'none'}">active</span>
+                        </div>
+                        <div class="ams-type-remaining">
+                            <h4 id="tray${trayId}Type-${printerId}" class="finePrint">${material} • ${tray.info?.type || 'Unknown'}</h4>
+                            <h4 id="tray${trayId}Remaining-${printerId}" class="finePrint">${remaining}%</h4>
+                        </div>
+                        <div class="progress-wrapper">
+                            <div id="tray${trayId}ProgressBarParent-${printerId}" class="progress">
+                                <div id="tray${trayId}ProgressBar-${printerId}" class="progress-bar" style="width: ${remaining}%; background-color: #51a34f;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            
+            amsContainer.append(trayElement);
+        });
+    }
+}
+
+// Helper function to get status class
+function getStatusClass(status) {
+    switch (status) {
+        case 'online': return 'status-online';
+        case 'offline': return 'status-offline';
+        case 'error': return 'status-error';
+        default: return 'status-unknown';
+    }
+}
+
+// Start periodic updates
+setInterval(() => {
+    if (currentPrinterId) {
+        loadPrinterData(currentPrinterId);
+    }
+}, 2000); // Update every 2 seconds
 
 async function retrieveData() {
   // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
@@ -749,408 +1478,6 @@ async function updateWifi(telemetryObject) {
   $("#wifiValue").text(signalPercentage);
 }
 
-async function updateAMS(telemetryObject) {
-  /// AMS
-
-  // Tray 1
-
-  var tray1Color = telemetryObject.ams.ams[0].tray[0].tray_color;
-  var tray1Material = telemetryObject.ams.ams[0].tray[0].tray_sub_brands;
-  var tray1FilamentType = telemetryObject.ams.ams[0].tray[0].tray_type;
-  var tray1Type = "";
-  var tray1UID = telemetryObject.ams.ams[0].tray[0].tag_uid;
-  var tray1Remaining = telemetryObject.ams.ams[0].tray[0].remain;
-
-  if (!tray1Remaining) {
-    $("#tray1Remaining").text("Unknown");
-    $("#tray1ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray1FilamentType) {
-      tray1FilamentType = "Unknown";
-    }
-
-    log(tray1Color);
-    $("#tray1Color").css("background-color", "#" + tray1Color);
-    $("#tray1Material").text(tray1Material);
-
-    if (!tray1UID) {
-      tray1Type = tray1FilamentType;
-    } else if (tray1UID === "0000000000000000") {
-      tray1Type = "Unknown • " + tray1FilamentType;
-    } else {
-      tray1Type = "Bambu • " + tray1FilamentType;
-    }
-
-    $("#tray1Type").text(tray1Type);
-    $("#tray1Remaining").text(tray1Remaining + "%");
-    let tray1ProgressBarParent = $("#tray1ProgressBarParent").width();
-    if (tray1Remaining < 0) {
-      tray1Remaining = 0;
-    }
-    $("#tray1ProgressBar").width(
-      (tray1Remaining * tray1ProgressBarParent) / 100
-    );
-
-    if (tray1Remaining >= 20) {
-      $("#tray1ProgressBar").css("background-color", "#51a34f");
-    } else if (tray1Remaining > 10) {
-      $("#tray1ProgressBar").css("background-color", "yellow");
-    } else if (tray1Remaining > 2) {
-      $("#tray1ProgressBar").css("background-color", "red");
-    } else if (tray1Remaining === -1) {
-      $("#tray1Remaining").text("Unknown");
-      $("#tray1ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray1Remaining").text("LOW");
-      $("#tray1ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray1ProgressBar").css("background-color", "grey");
-    }
-  }
-  // Tray 2
-
-  var tray2Color = telemetryObject.ams.ams[0].tray[1].tray_color;
-  var tray2Material = telemetryObject.ams.ams[0].tray[1].tray_sub_brands;
-  var tray2FilamentType = telemetryObject.ams.ams[0].tray[1].tray_type;
-  var tray2Type = "";
-  var tray2UID = telemetryObject.ams.ams[0].tray[1].tag_uid;
-  var tray2Remaining = telemetryObject.ams.ams[0].tray[1].remain;
-
-  if (!tray2Remaining) {
-    $("#tray2Remaining").text("Unknown");
-    $("#tray2ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray2FilamentType) {
-      tray2FilamentType = "Unknown";
-    }
-
-    log(tray2Color);
-    $("#tray2Color").css("background-color", "#" + tray2Color);
-    $("#tray2Material").text(tray2Material);
-
-    if (!tray2UID) {
-      tray2Type = tray2FilamentType;
-    } else if (tray2UID === "0000000000000000") {
-      tray2Type = "Unknown • " + tray2FilamentType;
-    } else {
-      tray2Type = "Bambu • " + tray2FilamentType;
-    }
-
-    $("#tray2Type").text(tray2Type);
-    $("#tray2Remaining").text(tray2Remaining + "%");
-    let tray2ProgressBarParent = $("#tray2ProgressBarParent").width();
-    if (tray2Remaining < 0) {
-      tray2Remaining = 0;
-    }
-    $("#tray2ProgressBar").width(
-      (tray2Remaining * tray2ProgressBarParent) / 100
-    );
-
-    if (tray2Remaining >= 20) {
-      $("#tray2ProgressBar").css("background-color", "#51a34f");
-    } else if (tray2Remaining > 10) {
-      $("#tray2ProgressBar").css("background-color", "yellow");
-    } else if (tray2Remaining > 2) {
-      $("#tray2ProgressBar").css("background-color", "red");
-    } else if (tray2Remaining === -1) {
-      $("#tray2Remaining").text("Unknown");
-      $("#tray2ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray2Remaining").text("LOW");
-      $("#tray2ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray2ProgressBar").css("background-color", "grey");
-    }
-  }
-
-  // Tray 3
-
-  var tray3Color = telemetryObject.ams.ams[0].tray[2].tray_color;
-  var tray3Material = telemetryObject.ams.ams[0].tray[2].tray_sub_brands;
-  var tray3FilamentType = telemetryObject.ams.ams[0].tray[2].tray_type;
-  var tray3Type = "";
-  var tray3UID = telemetryObject.ams.ams[0].tray[2].tag_uid;
-  var tray3Remaining = telemetryObject.ams.ams[0].tray[2].remain;
-
-  // Does not exist
-  if (!tray3Remaining) {
-    $("#tray3Remaining").text("Unknown");
-    $("#tray3ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray3FilamentType) {
-      tray3FilamentType = "Unknown";
-    }
-
-    log(tray3Color);
-    $("#tray3Color").css("background-color", "#" + tray3Color);
-    $("#tray3Material").text(tray3Material);
-
-    if (!tray3UID) {
-      tray3Type = tray3FilamentType;
-    } else if (tray3UID === "0000000000000000") {
-      tray3Type = "Unknown • " + tray3FilamentType;
-    } else {
-      tray3Type = "Bambu • " + tray3FilamentType;
-    }
-
-    $("#tray3Type").text(tray3Type);
-    $("#tray3Remaining").text(tray3Remaining + "%");
-    let tray3ProgressBarParent = $("#tray3ProgressBarParent").width();
-    if (tray3Remaining < 0) {
-      tray3Remaining = 0;
-    }
-    $("#tray3ProgressBar").width(
-      (tray3Remaining * tray3ProgressBarParent) / 100
-    );
-
-    if (tray3Remaining >= 20) {
-      $("#tray3ProgressBar").css("background-color", "#51a34f");
-    } else if (tray3Remaining > 10) {
-      $("#tray3ProgressBar").css("background-color", "yellow");
-    } else if (tray3Remaining > 2) {
-      $("#tray3ProgressBar").css("background-color", "red");
-    } else if (tray3Remaining === -1) {
-      $("#tray3Remaining").text("Unknown");
-      $("#tray3ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray3Remaining").text("LOW");
-      $("#tray3ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray3ProgressBar").css("background-color", "grey");
-    }
-  }
-  // Tray 4
-
-  var tray4Color = telemetryObject.ams.ams[0].tray[3].tray_color;
-  var tray4Material = telemetryObject.ams.ams[0].tray[3].tray_sub_brands;
-  var tray4FilamentType = telemetryObject.ams.ams[0].tray[3].tray_type;
-  var tray4Type = "";
-  var tray4UID = telemetryObject.ams.ams[0].tray[3].tag_uid;
-  var tray4Remaining = telemetryObject.ams.ams[0].tray[3].remain;
-
-  if (!tray4Remaining) {
-    $("#tray4Remaining").text("Unknown");
-    $("#tray4ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray4FilamentType) {
-      tray4FilamentType = "Unknown";
-    }
-
-    log(tray4Color);
-    $("#tray4Color").css("background-color", "#" + tray4Color);
-    $("#tray4Material").text(tray4Material);
-
-    if (!tray4UID) {
-      tray4Type = tray4FilamentType;
-    } else if (tray4UID === "0000000000000000") {
-      tray4Type = "Unknown • " + tray4FilamentType;
-    } else {
-      tray4Type = "Bambu • " + tray4FilamentType;
-    }
-
-    $("#tray4Type").text(tray4Type);
-    $("#tray4Remaining").text(tray4Remaining + "%");
-    let tray4ProgressBarParent = $("#tray4ProgressBarParent").width();
-    if (tray4Remaining < 0) {
-      tray4Remaining = 0;
-    }
-    $("#tray4ProgressBar").width(
-      (tray4Remaining * tray4ProgressBarParent) / 100
-    );
-
-    if (tray4Remaining >= 20) {
-      $("#tray4ProgressBar").css("background-color", "#51a34f");
-    } else if (tray4Remaining > 10) {
-      $("#tray4ProgressBar").css("background-color", "yellow");
-    } else if (tray4Remaining > 2) {
-      $("#tray4ProgressBar").css("background-color", "red");
-    } else if (tray4Remaining === -1) {
-      $("#tray4Remaining").text("Unknown");
-      $("#tray4ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray4Remaining").text("LOW");
-      $("#tray4ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray4ProgressBar").css("background-color", "grey");
-    }
-  }
-
-  // AMS active
-  var amsActiveTrayValue = telemetryObject.ams.tray_now;
-  log("AMS Active tray: " + amsActiveTrayValue);
-
-  $("#tray1Active").hide();
-  $("#tray2Active").hide();
-  $("#tray3Active").hide();
-  $("#tray4Active").hide();
-
-  if (currentState !== "RUNNING") {
-    $("#tray1Active").css("background-color", "grey");
-    $("#tray2Active").css("background-color", "grey");
-    $("#tray3Active").css("background-color", "grey");
-    $("#tray4Active").css("background-color", "grey");
-  } else {
-    $("#tray1Active").css("background-color", "#51a34f");
-    $("#tray2Active").css("background-color", "#51a34f");
-    $("#tray3Active").css("background-color", "#51a34f");
-    $("#tray4Active").css("background-color", "#51a34f");
-  }
-
-  if (amsActiveTrayValue === null) {
-  } else if (amsActiveTrayValue === 255) {
-  } else if (amsActiveTrayValue === "0") {
-    $("#tray1Active").show();
-  } else if (amsActiveTrayValue === "1") {
-    $("#tray2Active").show();
-  } else if (amsActiveTrayValue === "2") {
-    $("#tray3Active").show();
-  } else if (amsActiveTrayValue === "3") {
-    $("#tray4Active").show();
-  }
-}
-
-
-
-
-
-
-
-// Pulled from GPT, my printer is VERY close to my router, so to make this more interesting,
-// I have updated the maxSignal from -50 dBm to -40 dBm making it more difficult to reach max.
-
-function dBmToPercentage(dBm) {
-  // Define the minimum and maximum dBm values for mapping
-  const minSignal = -100;
-  const maxSignal = -50;
-
-  // Ensure that dBm is within the defined range
-  if (dBm < minSignal) {
-    return 0; // Signal is weaker than -100 dBm
-  } else if (dBm > maxSignal) {
-    return 100; // Signal is stronger than -50 dBm
-  }
-
-  // Calculate the percentage based on the mapping
-  const percentage = ((dBm - minSignal) / (maxSignal - minSignal)) * 100;
-
-  return Math.round(percentage);
-}
-
-  function disableUI(){
-    $("#bedProgressBar").css("background-color", "grey");
-    $("#bedTargetTempTempSymbols").hide();
-
-    $("#nozzleProgressBar").css("background-color", "grey");
-    $("#nozzleTargetTempTempSymbols").hide();
-
-    $("#chamberProgressBar").css("background-color", "grey");
-    $("#chamberTargetTempTempSymbols").hide();
-
-    $("#printSpeed").css("color", "grey");
-
-    $("#fan1").removeClass("fan-spin-slow");
-    $("#fan1").removeClass("fan-spin-slower");
-    $("#fan1").removeClass("fan-spin-normal");
-    $("#fan1").removeClass("fan-spin-fast");
-    $("#fan1").removeClass("fan-spin-faster");
-    $("#fan1").removeClass("fan-spin-veryfast");
-
-    $("#fan2").removeClass("fan-spin-slow");
-    $("#fan2").removeClass("fan-spin-slower");
-    $("#fan2").removeClass("fan-spin-normal");
-    $("#fan2").removeClass("fan-spin-fast");
-    $("#fan2").removeClass("fan-spin-faster");
-    $("#fan2").removeClass("fan-spin-veryfast");
-
-    $("#fan3").removeClass("fan-spin-slow");
-    $("#fan3").removeClass("fan-spin-slower");
-    $("#fan3").removeClass("fan-spin-normal");
-    $("#fan3").removeClass("fan-spin-fast");
-    $("#fan3").removeClass("fan-spin-faster");
-    $("#fan3").removeClass("fan-spin-veryfast");
-
-    $("#fan4").removeClass("fan-spin-slow");
-    $("#fan4").removeClass("fan-spin-slower");
-    $("#fan4").removeClass("fan-spin-normal");
-    $("#fan4").removeClass("fan-spin-fast");
-    $("#fan4").removeClass("fan-spin-faster");
-    $("#fan4").removeClass("fan-spin-veryfast");
-    $("#wifiProgressBar").css("background-color", "grey");
-    $("#tray1ProgressBar").css("background-color", "grey");
-    $("#tray2ProgressBar").css("background-color", "grey");
-    $("#tray3ProgressBar").css("background-color", "grey");
-    $("#tray4ProgressBar").css("background-color", "grey");
-    $("#tray1Active").hide();
-    $("#tray2Active").hide();
-    $("#tray3Active").hide();
-    $("#tray4Active").hide();
-    $("#tray1Active").css("background-color", "grey");
-    $("#tray2Active").css("background-color", "grey");
-    $("#tray3Active").css("background-color", "grey");
-    $("#tray4Active").css("background-color", "grey");
-  }
-
-  function updateAnimation(selector, newValue) {
-    var currentAnimation = $(selector).css('-webkit-animation');
-    if (currentAnimation !== newValue) {
-      $(selector).css({'-webkit-animation': newValue});
-    }
-  }
-
-  function convertUtc(timestampUtcMs) {
-    var localTime = new Date(timestampUtcMs);
-
-    // Formatting the date to a readable string in local time
-    return localTime.toLocaleString();
-  } 
-
-
-  function log(logText)
-  {
-    if (consoleLogging)
-    {
-      console.log(logText);
-    }
-  }
-  
-  const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
-
-
-// Call the updateLog function to fetch and parse the data
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete"){
-        await updateUI(telemetryObject);
-        await updateFans(telemetryObject);
-        await updateWifi(telemetryObject);
-        await updateAMS(telemetryObject);
-      }
-    }
-    else if (telemetryObject != "Incomplete")
-    {
-      // Data is incomplete, but we did get something, just skip for now
-    }else
-    {
-      disableUI();
-    }
-
-  } catch (error) {
-    //console.error(error);
-    await sleep(1000);
-  }
-}, 1000);
-
 async function executeTask() {
   try {
       var telemetryObject = telemetryObjectMain;
@@ -1246,3 +1573,67 @@ function convertMinutesToReadableTime(totalMinutes) {
     }
   
  }
+
+// --- Main Printer Grid (Live) ---
+async function fetchAllPrintersData() {
+    try {
+        const res = await fetch('/all-printers-data', { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to fetch printer data');
+        return await res.json();
+    } catch (e) {
+        console.error(e);
+        return null;
+    }
+}
+
+function renderMainPrinterGrid(printersData) {
+    const gridContainer = document.getElementById('mainPrinterGrid');
+    if (!gridContainer) return;
+    let html = '<div class="printer-grid">';
+    if (!printersData || Object.keys(printersData).length === 0) {
+        html += '<div>No printer data available.</div>';
+    } else {
+        Object.entries(printersData).forEach(([printerId, data]) => {
+            // Get the actual printer name from the printers array
+            const printer = printers.find(p => p.id === printerId);
+            let name = printer?.name || data?.print?.printer_name || data?.name || printerId;
+            let status = data?.print?.gcode_state || data?.print?.print_status || 'UNKNOWN';
+            // Use mc_percent for actual progress, fallback to percent if mc_percent is not available
+            let percent = data?.print?.mc_percent !== undefined ? parseInt(data.print.mc_percent) : 
+                         (data?.print?.percent !== undefined ? parseInt(data.print.percent) : 0);
+            let eta = data?.print?.mc_remaining_time ? 
+                     convertMinutesToReadableTime(data.print.mc_remaining_time) : 
+                     (data?.print?.eta || '...');
+            let model = data?.print?.subtask_name || data?.print?.gcode_file || data?.print?.mc_filename || '...';
+            
+            // Determine progress bar color class and card class
+            let progressBarClass = percent === 100 ? 'progress-bar yellow' : 'progress-bar';
+            let cardClass = percent === 100 ? 'printer-card yellow' : 'printer-card';
+            
+            html += `
+                <div class="${cardClass} dashboard-tile" data-printer-id="${printerId}" style="--progress: ${percent}; cursor: pointer;" onclick="switchPrinter('${printerId}')">
+                    <div class="printer-title">${name}</div>
+                    <div class="status-row">
+                        <span class="status-label">${status}</span>
+                        <span class="percent-label">${percent}%</span>
+                    </div>
+                    <div class="progress"><div class="${progressBarClass}" style="width: ${percent}%;">&nbsp;</div></div>
+                    <div class="info-row"><span class="label">ETA:</span> <span class="value">${eta}</span></div>
+                    <div class="info-row"><span class="label">Model:</span> <span class="value">${model}</span></div>
+                </div>
+            `;
+        });
+    }
+    html += '</div>';
+    gridContainer.innerHTML = html;
+}
+
+async function updateMainPrinterGrid() {
+    const data = await fetchAllPrintersData();
+    renderMainPrinterGrid(data);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    updateMainPrinterGrid();
+    setInterval(updateMainPrinterGrid, 1000);
+});
