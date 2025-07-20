@@ -10,16 +10,16 @@
       "name": "Mercury",
       "url": "192.168.50.227",
       "port": "8883",
-      "serialNumber": "00M09D492400614",
-      "accessCode": "38e36c0d",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
       "type": "X1"
     },{
       "id": "saturn",
       "name": "Saturn",
       "url": "192.168.50.38",
       "port": "8883",
-      "serialNumber": "00M09D481300537",
-      "accessCode": "f22157b8",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
       "type": "X1"
     },
     {
@@ -27,8 +27,8 @@
       "name": "Pluto",
       "url": "192.168.50.141",
       "port": "8883",
-      "serialNumber": "00M09D462802428",
-      "accessCode": "a3a8fde8",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
       "type": "X1"
     }
   ]
