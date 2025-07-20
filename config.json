@@ -1,12 +1,35 @@
 {
   "BambuBoard_httpPort": 8080,
-  "BambuBoard_printerURL": "10.0.0.1",
-  "BambuBoard_printerPort": "8883",
-  "BambuBoard_printerSN": "FILL_THIS_OUT",
-  "BambuBoard_printerAccessCode": "FILL_THIS_OUT",
   "BambuBoard_tempSetting": "Both",
   "BambuBoard_displayFanPercentages": false,
   "BambuBoard_displayFanIcons": true,
-  "BambuBoard_printerType": "X1",
-  "BambuBoard_logging": false
+  "BambuBoard_logging": false,
+  "printers": [
+    {
+      "id": "mercury",
+      "name": "Mercury",
+      "url": "192.168.50.227",
+      "port": "8883",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
+      "type": "X1"
+    },{
+      "id": "saturn",
+      "name": "Saturn",
+      "url": "192.168.50.38",
+      "port": "8883",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
+      "type": "X1"
+    },
+    {
+      "id": "pluto",
+      "name": "Pluto",
+      "url": "192.168.50.141",
+      "port": "8883",
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",
+      "type": "X1"
+    }
+  ]
 }

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@100;400&family=Open+Sans:wght@400;600&family=Oxygen&family=Red+Hat+Display:wght@300;400&display=swap');
+@import url('../assets/css/google-fonts.css');
 
 body {
   font-family: 'Open Sans', sans-serif;
