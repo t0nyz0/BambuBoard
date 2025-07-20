@@ -34,8 +34,8 @@ Make sure your `config.json` includes the correct access code:
       "name": "X1 Carbon dual ams",
       "url": "192.168.178.72",
       "port": "8883",
-      "serialNumber": "00M09D490202752",
-      "accessCode": "8fb2d151",  // Your LAN Access Code
+      "serialNumber": "FILL_THIS_OUT",
+      "accessCode": "FILL_THIS_OUT",  // Your LAN Access Code
       "type": "X1"
     }
   ]
