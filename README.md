@@ -1,11 +1,17 @@
 # BambuBoard
+
+> [!WARNING] 
+> CURRENTLY WORKING ON MERGING DOCUMENTATION FOR THE NEW VERSION 2.0 - 
+> Please read this page for v2.0 setup information: https://github.com/t0nyz0/BambuBoard/blob/main/MULTI_PRINTER_SETUP.md
+
+> [!NOTE]
+> All MakerWorld OBS widgets will be moved into a stand alone project in a future update. This includes the model image preview and the makerworld profile widget. This will allow this project to run without needing a makerworld security token to be established. This project will focus on displaying all of the information that can be retrived directly from the printer itself.
+
 Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. Are you looking for the best Bambu printer OBS overlay? Scroll to the bottom. 
 Also make sure to check out a live stream here: https://www.youtube.com/channel/UChDOFv_-8TxYOfkteSlvAqA/live
 
 ### For more detailed project information visit: https://t0nyz.com/projects/bambuboard
-> [!WARNING]  
-> Update to version 1.1.6: As of 11/4/2024 Bambu updated the API to require verification code. Once you have the application setup, go to `http://(bambuboard-ip):8080/login.html` to login to Bambu and which will cache your login token for one year.
-> 
+
 # Screenshots:
 
 OBS Mode (Using widgets)
