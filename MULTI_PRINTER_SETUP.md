@@ -38,8 +38,8 @@ Edit `config.json` with your printer details:
       "name": "X1 Carbon",
       "url": "192.168.1.100",
       "port": "8883",
-      "serialNumber": "01S00A1234567890",
-      "accessCode": "12345678",
+      "serialNumber": "BAMBUSERIAL",
+      "accessCode": "BAMBUACCESSCODE",
       "type": "X1"
     },
     {
@@ -47,8 +47,8 @@ Edit `config.json` with your printer details:
       "name": "P1P",
       "url": "192.168.1.101",
       "port": "8883",
-      "serialNumber": "01S00B1234567890",
-      "accessCode": "87654321",
+      "serialNumber": "BAMBUSERIAL",
+      "accessCode": "BAMBUACCESSCODE",
       "type": "P1P"
     }
   ]
