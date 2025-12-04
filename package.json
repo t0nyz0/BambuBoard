@@ -1,6 +1,6 @@
 {
   "name": "bambuboard",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "bambu x1 printer dashboard",
   "main": "bambuConnection.js",
   "keywords": [],

@@ -565,6 +565,14 @@ function connectPrinter(printer) {
             log(`Data written to file for printer ${printer.id}`);
           }
         });
+        const dataPath2 = path.join(__dirname, 'public', `data.json`);
+        fs.writeFile(dataPath2, dataToWrite, (err) => {
+          if (err) {
+            log(`Error writing file for printer ${printer.id}: ${err}`);
+          } else {
+            log(`Data written to file for printer ${printer.id}`);
+          }
+        });
       } else {
         // Determine if we should send the pushall command
         const printerModel = printer.type || "X1";
