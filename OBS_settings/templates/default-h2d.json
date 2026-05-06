@@ -78,60 +78,14 @@
     },
     {
       "prev_ver": 536936450,
-      "name": "AMS Temp",
-      "id": "browser_source",
-      "versioned_id": "browser_source",
-      "settings": {
-        "url": "http://<HOST>/widgets/ams-temp/index.html",
-        "width": 700,
-        "height": 200,
-        "css": "body {margin: 0px auto; overflow: hidden; }"
-      },
-      "mixers": 255,
-      "sync": 0,
-      "flags": 0,
-      "volume": 1,
-      "balance": 0.5,
-      "enabled": true,
-      "muted": false,
-      "deinterlace_mode": 0,
-      "deinterlace_field_order": 0,
-      "monitoring_type": 0,
-      "private_settings": {}
-    },
-    {
-      "prev_ver": 536936450,
       "name": "AMS Trays",
       "id": "browser_source",
       "versioned_id": "browser_source",
       "settings": {
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 390,
-        "height": 540,
+        "height": 1000,
         "css": "body { margin: 0px auto; overflow: hidden; }"
-      },
-      "mixers": 255,
-      "sync": 0,
-      "flags": 0,
-      "volume": 1,
-      "balance": 0.5,
-      "enabled": true,
-      "muted": false,
-      "deinterlace_mode": 0,
-      "deinterlace_field_order": 0,
-      "monitoring_type": 0,
-      "private_settings": {}
-    },
-    {
-      "prev_ver": 536936450,
-      "name": "ams-temp-2",
-      "id": "browser_source",
-      "versioned_id": "browser_source",
-      "settings": {
-        "url": "http://<HOST>/widgets/ams-temp-2/index.html",
-        "width": 700,
-        "height": 200,
-        "css": "body {margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
       "sync": 0,
@@ -153,7 +107,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams2/index.html",
         "width": 390,
-        "height": 540,
+        "height": 1000,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -791,7 +745,7 @@
             "id": 32,
             "pos": {
               "x": 194,
-              "y": 692
+              "y": 458
             },
             "scale": {
               "x": 0.50733,
@@ -820,7 +774,7 @@
             "id": 4,
             "pos": {
               "x": -4,
-              "y": 692
+              "y": 458
             },
             "scale": {
               "x": 0.50733,
@@ -878,7 +832,7 @@
             "id": 34,
             "pos": {
               "x": -4,
-              "y": 618
+              "y": 384
             },
             "scale": {
               "x": 0.50733,
@@ -907,69 +861,11 @@
             "id": 7,
             "pos": {
               "x": 194,
-              "y": 618
+              "y": 384
             },
             "scale": {
               "x": 0.50733,
               "y": 0.50733
-            },
-            "bounds": {
-              "x": 0,
-              "y": 0
-            },
-            "scale_filter": "disable",
-            "blend_method": "default",
-            "blend_type": "normal"
-          },
-          {
-            "name": "ams-temp-2",
-            "visible": true,
-            "locked": false,
-            "rot": 0,
-            "align": 5,
-            "bounds_type": 0,
-            "bounds_align": 0,
-            "crop_left": 0,
-            "crop_top": 0,
-            "crop_right": 0,
-            "crop_bottom": 0,
-            "id": 33,
-            "pos": {
-              "x": -6,
-              "y": 501
-            },
-            "scale": {
-              "x": 0.5699999928474426,
-              "y": 0.5699999928474426
-            },
-            "bounds": {
-              "x": 0,
-              "y": 0
-            },
-            "scale_filter": "disable",
-            "blend_method": "default",
-            "blend_type": "normal"
-          },
-          {
-            "name": "AMS Temp",
-            "visible": true,
-            "locked": false,
-            "rot": 0,
-            "align": 5,
-            "bounds_type": 0,
-            "bounds_align": 0,
-            "crop_left": 0,
-            "crop_top": 0,
-            "crop_right": 0,
-            "crop_bottom": 0,
-            "id": 24,
-            "pos": {
-              "x": -5,
-              "y": 384
-            },
-            "scale": {
-              "x": 0.5685714483261108,
-              "y": 0.5699999928474426
             },
             "bounds": {
               "x": 0,

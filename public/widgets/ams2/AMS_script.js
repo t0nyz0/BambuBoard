@@ -127,6 +127,11 @@ async function updateAMS(telemetryObject) {
       updateTray(i, amsUnit.tray[i] || {});
     }
 
+    // Drying pill + humidity_raw % — see ams/AMS_script.js for details.
+    updateDryingStatus(amsUnit);
+    const humPct = amsUnit.humidity_raw != null ? parseInt(amsUnit.humidity_raw, 10) : NaN;
+    $('#humidityPercent').text(!isNaN(humPct) ? `(${humPct}%)` : '');
+
     // AMS Humidity
     const amsHumidity = amsUnit.humidity;
 
@@ -226,6 +231,29 @@ function disableUI() {
     $(`#tray${i}Active`).hide().css('background-color', 'grey');
     $(`#tray${i}Target`).hide();
   }
+  $('#dryingStatusPill').hide();
+}
+
+// See ams/AMS_script.js for explanation. Heating-capable models only.
+function updateDryingStatus(amsUnit) {
+  const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
+  const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
+  const $pill = $('#dryingStatusPill');
+  if (dryTime > 0) {
+    const detail = [];
+    if (dryTemp > 0) detail.push(`${dryTemp}°C`);
+    detail.push(formatDryMinutes(dryTime));
+    $pill.text(`Drying — ${detail.join(' / ')}`).show();
+  } else {
+    $pill.hide();
+  }
+}
+
+function formatDryMinutes(mins) {
+  if (mins < 60) return `${mins}m left`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
 }
 
 function log(logText) {

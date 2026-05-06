@@ -126,6 +126,14 @@ async function updateAMS(telemetryObject) {
       updateTray(i, amsUnit.tray[i] || {});
     }
 
+    // Drying pill — only AMS 2 Pro / AMS HT report dry_time > 0.
+    updateDryingStatus(amsUnit);
+
+    // Humidity raw percentage (the 1–5 humidity index controls the bars,
+    // humidity_raw is the actual % value shown next to the "Humidity" label).
+    const humPct = amsUnit.humidity_raw != null ? parseInt(amsUnit.humidity_raw, 10) : NaN;
+    $('#humidityPercent').text(!isNaN(humPct) ? `(${humPct}%)` : '');
+
     // AMS Humidity
     const amsHumidity = amsUnit.humidity;
 
@@ -225,6 +233,31 @@ function disableUI() {
     $(`#tray${i}Active`).hide().css('background-color', 'grey');
     $(`#tray${i}Target`).hide();
   }
+  $('#dryingStatusPill').hide();
+}
+
+// Drying pill state. ha-bambulab confirms only heating-capable AMSes
+// (AMS 2 Pro / AMS HT) ever publish dry_time > 0 — older models always
+// report 0, so a model check isn't needed.
+function updateDryingStatus(amsUnit) {
+  const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
+  const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
+  const $pill = $('#dryingStatusPill');
+  if (dryTime > 0) {
+    const detail = [];
+    if (dryTemp > 0) detail.push(`${dryTemp}°C`);
+    detail.push(formatDryMinutes(dryTime));
+    $pill.text(`Drying — ${detail.join(' / ')}`).show();
+  } else {
+    $pill.hide();
+  }
+}
+
+function formatDryMinutes(mins) {
+  if (mins < 60) return `${mins}m left`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
 }
 
 function log(logText) {
