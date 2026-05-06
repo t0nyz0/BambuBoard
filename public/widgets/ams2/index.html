@@ -38,19 +38,22 @@
       }
       .partTitle { flex-shrink: 0; margin-bottom: 10px; }
 
-      /* Drying pill — outline-style indicator next to title (only AMS 2 Pro
-         and AMS HT report dry_time > 0; older models stay hidden). */
+      /* Drying pill — outline-style indicator next to title. The card is
+         narrow (~198px rendered), so we keep the text short and use
+         nowrap + small font to keep it on one line. Wraps to its own
+         line below the title only if absolutely necessary. */
       .ams-drying-status {
         display: inline-block;
-        margin-left: 12px;
-        padding: 2px .65em 3px;
+        margin-left: 8px;
+        padding: 2px .55em 2px;
         background: rgba(226, 160, 74, 0.14);
         color: #e2a04a;
         border: 1px solid rgba(226, 160, 74, 0.45);
         border-radius: 10rem;
-        font-size: 0.6em;
+        font-size: 0.5em;
         font-weight: 600;
         letter-spacing: 0.02em;
+        white-space: nowrap;
         vertical-align: middle;
       }
 
@@ -66,27 +69,48 @@
       .ams-header .temp-row h4 { margin: 0; }
       .ams-header .humidity-container { margin: 0; }
 
+      /* Section divider between header and trays — small dim label with
+         a faint top border so users see the visual break between
+         "AMS chamber stats" and "what's loaded in each slot". */
+      .trays-label {
+        flex-shrink: 0;
+        margin: 4px 0 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 0.85em;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.45);
+      }
+
       /* Trays section — 4 evenly-distributed rows. Each row gets a subtle
-         border + faint background for visual separation, so users can
-         tell at a glance which slot a value belongs to. */
+         border + faint background for visual separation. */
       .ams-container {
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 4px;
         min-height: 0;
-        padding-top: 4px !important;
-        padding-bottom: 4px !important;
       }
       .ams-container .element {
         flex: 1;
         min-height: 0;
-        padding: 8px 12px;
+        padding: 6px 10px;
         background: rgba(255, 255, 255, 0.025);
         border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 8px;
+        border-radius: 6px;
         align-content: center;
         box-sizing: border-box;
+        transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+      }
+      /* Active tray — green-tinted container instead of relying on the tiny
+         pill. JS toggles `.tray-active` on the .element parent of whichever
+         tray pill is currently shown. */
+      .ams-container .element.tray-active {
+        background: rgba(81, 163, 79, 0.12);
+        border-color: rgba(81, 163, 79, 0.55);
+        box-shadow: 0 0 0 1px rgba(81, 163, 79, 0.25) inset;
       }
       .ams-container .dot-content {
         padding-bottom: 0;
@@ -145,6 +169,8 @@
                   </div>
                 </div>
               </div>
+
+              <div class="trays-label">Trays</div>
 
               <!-- 4 tray rows -->
               <div class="ams-container">

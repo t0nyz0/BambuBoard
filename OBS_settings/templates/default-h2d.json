@@ -84,7 +84,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 390,
-        "height": 1000,
+        "height": 850,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -107,7 +107,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams2/index.html",
         "width": 390,
-        "height": 1000,
+        "height": 850,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -196,7 +196,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/fans/index.html",
         "width": 800,
-        "height": 218,
+        "height": 374,
         "fps": 60,
         "fps_custom": true,
         "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -803,7 +803,7 @@
             "id": 11,
             "pos": {
               "x": -4,
-              "y": 969
+              "y": 892
             },
             "scale": {
               "x": 0.4946,

@@ -195,14 +195,19 @@ async function updateAMS(telemetryObject) {
       : { amsIndex: 255, trayIndex: 255 };
 
     $('#tray1Active, #tray2Active, #tray3Active, #tray4Active').hide();
+    // Reset container highlight on all trays before applying it to whichever
+    // one is active. See ams/AMS_script.js for rationale.
+    $('.ams-container .element').removeClass('tray-active');
     const activeColor = currentState === 'RUNNING' ? '#51a34f' : 'grey';
     $('#tray1Active, #tray2Active, #tray3Active, #tray4Active').css('background-color', activeColor);
 
     if (active.amsIndex === THIS_AMS_INDEX) {
-      if (active.trayIndex === 0) $('#tray1Active').show();
-      else if (active.trayIndex === 1) $('#tray2Active').show();
-      else if (active.trayIndex === 2) $('#tray3Active').show();
-      else if (active.trayIndex === 3) $('#tray4Active').show();
+      const slotMap = { 0: 1, 1: 2, 2: 3, 3: 4 };
+      const slot = slotMap[active.trayIndex];
+      if (slot) {
+        $(`#tray${slot}Active`).show();
+        $(`#tray${slot}Color`).closest('.element').addClass('tray-active');
+      }
     }
 
     // Filament change target indicator.
@@ -231,6 +236,7 @@ function disableUI() {
     $(`#tray${i}Active`).hide().css('background-color', 'grey');
     $(`#tray${i}Target`).hide();
   }
+  $('.ams-container .element').removeClass('tray-active');
   $('#dryingStatusPill').hide();
 }
 
@@ -240,20 +246,20 @@ function updateDryingStatus(amsUnit) {
   const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
   const $pill = $('#dryingStatusPill');
   if (dryTime > 0) {
-    const detail = [];
-    if (dryTemp > 0) detail.push(`${dryTemp}°C`);
-    detail.push(formatDryMinutes(dryTime));
-    $pill.text(`Drying — ${detail.join(' / ')}`).show();
+    const parts = ['Drying'];
+    if (dryTemp > 0) parts.push(`${dryTemp}°`);
+    parts.push(formatDryMinutes(dryTime));
+    $pill.text(parts.join(' · ')).show();
   } else {
     $pill.hide();
   }
 }
 
 function formatDryMinutes(mins) {
-  if (mins < 60) return `${mins}m left`;
+  if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 function log(logText) {
