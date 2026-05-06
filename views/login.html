@@ -6,83 +6,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="/css/theme.css">
   <link rel="stylesheet" href="/css/components.css">
+  <!-- Cloud sign-in lives on /setup now. Redirect anyone hitting /login
+       to the consolidated panel there. -->
+  <meta http-equiv="refresh" content="0; url=/setup#cloud-section">
 </head>
 <body>
   <main class="page page-narrow">
     <div class="card">
       <h3 class="card-title">Bambu Cloud sign-in</h3>
-      <p class="text-dim" id="cloud-state">Checking…</p>
-
-      <div id="signin-form" style="display:none">
-        <label class="field"><span>Email</span><input id="email" class="input" type="email"></label>
-        <div class="btn-row"><button id="send-code" class="btn btn-primary" type="button">Send verification code</button></div>
-
-        <label class="field" style="margin-top:var(--space-4)"><span>Verification code</span><input id="code" class="input"></label>
-        <div class="btn-row"><button id="verify" class="btn btn-primary" type="button">Verify</button></div>
-
-        <div id="mfa-block" style="display:none;margin-top:var(--space-4)">
-          <label class="field"><span>MFA code</span><input id="mfa-code" class="input"></label>
-          <div class="btn-row"><button id="mfa-submit" class="btn btn-primary" type="button">Submit MFA</button></div>
-        </div>
-      </div>
-
-      <div id="signedin-block" style="display:none">
-        <p>Signed in as <strong id="signed-as"></strong>.</p>
-        <button id="signout" class="btn btn-danger" type="button">Sign out</button>
-      </div>
-
-      <p style="margin-top:var(--space-4)"><a href="/setup" class="btn btn-ghost">Back to setup</a></p>
+      <p>The sign-in panel moved to the Setup page.</p>
+      <p><a href="/setup#cloud-section" class="btn btn-primary">Open Setup → Bambu Cloud</a></p>
     </div>
   </main>
   <script src="/js/nav.js"></script>
-  <script>
-    let tfaKey = null;
-    async function refresh() {
-      const r = await fetch('/auth/status').then(r => r.json()).catch(() => null);
-      const state = document.getElementById('cloud-state');
-      if (!r || !r.enabled) {
-        state.textContent = 'Cloud auth is disabled. Enable it on the setup page first.';
-        return;
-      }
-      if (r.signedIn) {
-        state.textContent = '';
-        document.getElementById('signedin-block').style.display = '';
-        document.getElementById('signed-as').textContent = r.email || '(unknown)';
-        document.getElementById('signin-form').style.display = 'none';
-      } else {
-        state.textContent = 'Signed out.';
-        document.getElementById('signin-form').style.display = '';
-        document.getElementById('signedin-block').style.display = 'none';
-      }
-    }
-    document.getElementById('send-code').addEventListener('click', async () => {
-      const email = document.getElementById('email').value.trim();
-      if (!email) return window.toast && window.toast('Email required', 'error');
-      const r = await fetch('/sendVerificationCode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: email }) });
-      const j = await r.json();
-      window.toast && window.toast(j.ok ? 'Code sent' : ('Failed: ' + (j.error || '')), j.ok ? '' : 'error');
-    });
-    document.getElementById('verify').addEventListener('click', async () => {
-      const email = document.getElementById('email').value.trim();
-      const code = document.getElementById('code').value.trim();
-      const r = await fetch('/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: email, code }) });
-      const j = await r.json();
-      if (j.ok) { window.toast && window.toast('Signed in'); refresh(); }
-      else if (j.mfa) { tfaKey = j.tfaKey; document.getElementById('mfa-block').style.display = ''; }
-      else { window.toast && window.toast('Failed: ' + (j.error || ''), 'error'); }
-    });
-    document.getElementById('mfa-submit').addEventListener('click', async () => {
-      const code = document.getElementById('mfa-code').value.trim();
-      const r = await fetch('/mfa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tfaKey, tfaCode: code }) });
-      const j = await r.json();
-      if (j.ok) { window.toast && window.toast('Signed in'); refresh(); }
-      else { window.toast && window.toast('Failed: ' + (j.error || ''), 'error'); }
-    });
-    document.getElementById('signout').addEventListener('click', async () => {
-      await fetch('/auth/signout', { method: 'POST' });
-      refresh();
-    });
-    refresh();
-  </script>
 </body>
 </html>

@@ -8,7 +8,7 @@ const fsp = fs.promises;
 const path = require('path');
 const fetch = require('node-fetch');
 
-function buildAuthRouter({ getConfig, paths }) {
+function buildAuthRouter({ getConfig, saveConfig, paths }) {
   const router = express.Router();
   const TOKEN_PATH = path.join(paths.data, 'accessToken.json');
   const log = (msg) => {
@@ -19,6 +19,20 @@ function buildAuthRouter({ getConfig, paths }) {
 
   function cloudEnabled() {
     return !!getConfig().cloudAuth?.enabled;
+  }
+
+  // Bambu's web login routes are behind Cloudflare and sometimes return an
+  // HTML challenge page instead of JSON, breaking response.json(). Wrap fetch
+  // so we surface a useful error instead of crashing on the SyntaxError.
+  async function fetchJson(url, opts) {
+    const r = await fetch(url, opts);
+    const text = await r.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; }
+    catch (_) {
+      throw new Error(`Bambu API returned non-JSON (status ${r.status}). The endpoint is likely behind a Cloudflare challenge — try the manual-token method instead.`);
+    }
+    return { ok: r.ok, status: r.status, headers: r.headers, data };
   }
 
   async function readToken() {
@@ -46,13 +60,13 @@ function buildAuthRouter({ getConfig, paths }) {
     try {
       const r = await fetch('https://api.bambulab.com/v1/user-service/user/sendemail/code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'BambuBoard/3' },
         body: JSON.stringify({ email: username, type: 'codeLogin' }),
       });
-      if (!r.ok) throw new Error(`Bambu API: ${r.status}`);
+      if (!r.ok) throw new Error(`Bambu API ${r.status}: code request failed`);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      res.status(500).json({ ok: false, error: e.message, tryManual: true });
     }
   });
 
@@ -61,20 +75,59 @@ function buildAuthRouter({ getConfig, paths }) {
     if (!cloudEnabled()) return res.json({ ok: true, lan: true });
     const { username, code } = req.body || {};
     try {
-      const r = await fetch('https://bambulab.com/api/sign-in/email', {
+      const { data } = await fetchJson('https://bambulab.com/api/sign-in/email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'BambuBoard/3' },
         body: JSON.stringify({ account: username, code }),
       });
-      const data = await r.json();
-      if (data.accessToken) {
+      if (data && data.accessToken) {
         await writeToken({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: username });
         return res.json({ ok: true });
       }
-      if (data.loginType === 'tfa' || data.tfaKey) {
+      if (data && (data.loginType === 'tfa' || data.tfaKey)) {
         return res.json({ ok: false, mfa: true, tfaKey: data.tfaKey });
       }
-      res.json({ ok: false, error: data.message || 'Verification failed' });
+      res.json({ ok: false, error: (data && data.message) || 'Verification failed', tryManual: true });
+    } catch (e) {
+      // The most common failure is Cloudflare returning an HTML challenge
+      // page. Tell the client to try the manual-token method.
+      res.status(500).json({ ok: false, error: e.message, tryManual: true });
+    }
+  });
+
+  // Manual token entry — fallback when the email/code flow is blocked by
+  // Cloudflare. The user pastes the `token` cookie value from a logged-in
+  // makerworld.com session. Auto-enables cloudAuth so the user doesn't have
+  // to flip a separate toggle first.
+  router.post('/auth/manual-token', async (req, res) => {
+    const { token, email } = req.body || {};
+    if (typeof token !== 'string' || token.trim().length < 20) {
+      return res.status(400).json({ ok: false, error: 'Token looks too short — paste the full value of the `token` cookie from makerworld.com.' });
+    }
+    // Strip common prefixes users paste by accident: "Bearer ", "token=", quotes
+    const cleaned = token.trim()
+      .replace(/^Bearer\s+/i, '')
+      .replace(/^token=/i, '')
+      .replace(/^["']|["']$/g, '');
+    try {
+      // Probe the API to make sure the token actually works before saving.
+      // Hitting /my/preference is cheap and confirms the token is live.
+      const r = await fetch('https://api.bambulab.com/v1/design-user-service/my/preference', {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${cleaned}`, 'User-Agent': 'BambuBoard/3' },
+      });
+      if (r.status === 401 || r.status === 403) {
+        return res.json({ ok: false, error: 'Token rejected by Bambu Cloud (401/403). Try copying it again from a fresh makerworld.com session.' });
+      }
+      // Save the token. Email is optional — pass it from the form if known.
+      await writeToken({ accessToken: cleaned, email: typeof email === 'string' && email ? email : null });
+      // Auto-enable cloudAuth in config so the rest of the app picks up the
+      // signed-in state. Saves the user from a separate toggle step.
+      const cfg = getConfig();
+      if (!cfg.cloudAuth?.enabled) {
+        await saveConfig({ ...cfg, cloudAuth: { ...(cfg.cloudAuth || {}), enabled: true } });
+      }
+      res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }

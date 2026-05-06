@@ -169,7 +169,7 @@ function renderGallery(widgets, caps, cloudSignedIn) {
           : cloudLocked
           ? el('div', { class: 'lock-overlay' }, [
               el('strong', { text: 'Requires Bambu Cloud' }),
-              el('a', { href: '/login', class: 'btn btn-ghost', style: 'margin-top:var(--space-2);font-size:12px', text: 'Sign in' })
+              el('a', { href: '/setup#cloud-section', class: 'btn btn-ghost', style: 'margin-top:var(--space-2);font-size:12px', text: 'Sign in' })
             ])
           : (iframe = el('iframe', { src: `/widgets/${w.slug}/`, title: w.name || w.slug, loading: 'lazy' }))
       ]),

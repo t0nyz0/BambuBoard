@@ -97,7 +97,7 @@ app.get('/data.json', (req, res) => {
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
 app.use('/api/obs', buildObsSceneRouter({ paths }));
-app.use('/', buildAuthRouter({ getConfig, paths }));
+app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 
 // Legacy /note endpoints — used by the notes widget (public/widgets/notes/*.html).
 // The widget expects { content: string } shape; the new /api/note returns
