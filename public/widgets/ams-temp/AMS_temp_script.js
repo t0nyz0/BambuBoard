@@ -66,21 +66,29 @@ function updateHumidityExtras(unit) {
   var humPct = unit.humidity_raw != null ? parseInt(unit.humidity_raw, 10) : null;
   $("#humidityPercent").text(humPct != null && !isNaN(humPct) ? `(${humPct}%)` : "");
 
-  // Drying state: dry_time > 0 while AMS is actively heating filament. Shown
-  // in amber under the humidity bars so users see when their filament is
-  // getting dried mid-stream.
+  // Drying state: dry_time > 0 while AMS is actively heating filament.
+  // Renders as a pulsing pill next to the AMS title. ha-bambulab confirms
+  // only AMS 2 Pro / AMS HT models report non-zero dry_time, so older
+  // AMS / AMS Lite users see nothing — no model gating needed.
   var dryTime = unit.dry_time != null ? parseInt(unit.dry_time, 10) : 0;
   var setting = unit.dry_setting || {};
+  var $pill = $("#dryingStatusPill");
   if (dryTime > 0) {
     var temp = parseInt(setting.dry_temperature, 10);
-    var detail = `${dryTime} min`;
-    if (!isNaN(temp) && temp > 0) detail += ` @ ${temp}°C`;
-    if (setting.dry_filament) detail += ` · ${setting.dry_filament}`;
-    $("#dryingStatus").show();
-    $("#dryingDetail").text(detail);
+    var detail = [];
+    if (!isNaN(temp) && temp > 0) detail.push(`${temp}°C`);
+    detail.push(formatDryMinutes(dryTime));
+    $pill.text(`Drying — ${detail.join(' / ')}`).show();
   } else {
-    $("#dryingStatus").hide();
+    $pill.hide();
   }
+}
+
+function formatDryMinutes(mins) {
+  if (mins < 60) return `${mins}m left`;
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
 }
 
 async function updateAMS(telemetryObject) {

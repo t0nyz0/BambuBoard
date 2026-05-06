@@ -53,18 +53,26 @@ function updateHumidityExtras(unit) {
   var humPct = unit.humidity_raw != null ? parseInt(unit.humidity_raw, 10) : null;
   $("#humidityPercent").text(humPct != null && !isNaN(humPct) ? `(${humPct}%)` : "");
 
+  // See ams-temp/AMS_temp_script.js — drying pill beside the AMS title.
   var dryTime = unit.dry_time != null ? parseInt(unit.dry_time, 10) : 0;
   var setting = unit.dry_setting || {};
+  var $pill = $("#dryingStatusPill");
   if (dryTime > 0) {
     var temp = parseInt(setting.dry_temperature, 10);
-    var detail = `${dryTime} min`;
-    if (!isNaN(temp) && temp > 0) detail += ` @ ${temp}°C`;
-    if (setting.dry_filament) detail += ` · ${setting.dry_filament}`;
-    $("#dryingStatus").show();
-    $("#dryingDetail").text(detail);
+    var detail = [];
+    if (!isNaN(temp) && temp > 0) detail.push(`${temp}°C`);
+    detail.push(formatDryMinutes(dryTime));
+    $pill.text(`Drying — ${detail.join(' / ')}`).show();
   } else {
-    $("#dryingStatus").hide();
+    $pill.hide();
   }
+}
+
+function formatDryMinutes(mins) {
+  if (mins < 60) return `${mins}m left`;
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
 }
 
 async function updateAMS(telemetryObject) {

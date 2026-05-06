@@ -11,6 +11,23 @@
       .container { height: 100%; box-sizing: border-box; }
       .bedcontainer { height: 100%; margin-top: 0; box-sizing: border-box; }
       .bed-title { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+      /* Drying indicator pill — sits inline beside the AMS title (e.g.
+         "AMS #1 Temp  Drying — 60°C / 45m left"). Was previously a row
+         appended below the humidity bar, which overflowed the iframe and
+         got clipped on tight layouts. */
+      .ams-drying-status {
+        display: inline-block;
+        margin-left: 10px;
+        padding: 2px .55em 3px;
+        background: #e2a04a;
+        color: #1a1a1a;
+        border-radius: 10rem;
+        font-size: 0.5em;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        vertical-align: middle;
+        animation: pulse-target 1.6s ease-in-out infinite;
+      }
     </style>
     <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
@@ -22,7 +39,10 @@
     <div class="container">
       <div class="bedcontainer">
       <div class="bed-title">
-        <h2 class="partTitle">AMS #1 Temp</h2>
+        <h2 class="partTitle">
+          AMS #1 Temp
+          <span id="dryingStatusPill" class="ams-drying-status" style="display:none"></span>
+        </h2>
 
         <div class="grid-columns-3">
 
@@ -54,10 +74,6 @@
           <div class="ams-type-remaining">
             <h4 class="finePrint">Humidity <span id="humidityPercent" class="fade" style="font-weight:400"></span></h4>
             <h4 id="humidityLevelText" class="finePrint">Low</h4>
-          </div>
-          <div id="dryingStatus" class="ams-type-remaining" style="display:none">
-            <h4 class="finePrint" style="color:#FFCC41">Drying</h4>
-            <h4 id="dryingDetail" class="finePrint" style="color:#FFCC41"></h4>
           </div>
       </div>
 
