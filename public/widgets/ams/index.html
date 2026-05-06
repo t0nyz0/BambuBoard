@@ -79,6 +79,22 @@
         justify-content: center;
       }
       .ams-container .element.tray-empty .progress-wrapper { visibility: hidden; }
+      /* "Drying — 60°C / 45m" indicator beside the AMS title. Only shown
+         when dry_time > 0 (AMS 2 Pro / AMS HT — the heating-capable
+         models — actively running a drying cycle). */
+      .ams-drying-status {
+        display: inline-block;
+        margin-left: 10px;
+        padding: 2px .55em 3px;
+        background: #e2a04a;
+        color: #1a1a1a;
+        border-radius: 10rem;
+        font-size: 0.5em;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        vertical-align: middle;
+        animation: pulse-target 1.6s ease-in-out infinite;
+      }
     </style>
     <script src="../_customizer.js"></script>
     <script src="../_amsActive.js"></script>
@@ -93,7 +109,10 @@
         <div class="grid grid-gap-30">
           <div class="column grid-gap-10">
             <div class="bed-title">
-              <h2 class="partTitle">AMS #1</h2>
+              <h2 class="partTitle">
+                <span id="amsTitle">AMS #1</span>
+                <span id="amsDryingStatus" class="ams-drying-status" style="display:none"></span>
+              </h2>
 
               <div class="ams-container">
                 <div class="element">
