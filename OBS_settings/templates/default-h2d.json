@@ -61,14 +61,12 @@
       "id": "ffmpeg_source",
       "versioned_id": "ffmpeg_source",
       "settings": {
-        "local_file": "",
-        "input": "rtsps://bblp:<ACCESS_CODE>@<PRINTER_IP>:322/streaming/live/1",
-        "is_local_file": false,
-        "restart_on_activate": true,
-        "hw_decode": true,
+        "ffmpeg_options": "protocol_whitelist=file,udp,rtp",
+        "local_file": "<SDP_PATH>",
+        "hw_decode": false,
+        "looping": false,
         "clear_on_media_end": false,
-        "width": 1920,
-        "height": 1080
+        "restart_on_activate": true
       },
       "enabled": true,
       "volume": 1,
