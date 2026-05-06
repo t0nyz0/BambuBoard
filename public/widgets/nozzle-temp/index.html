@@ -17,7 +17,10 @@
       .bedcontainer { margin-top: 0; height: 100%; box-sizing: border-box; }
       .grid.grid-gap-30 { height: 100%; }
       .column.grid-gap-10 { height: 100%; display: flex; flex-direction: column; align-items: stretch; }
-      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; padding-bottom: 18px; }
+      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; padding-bottom: 28px; }
+      /* Tighten the Current / Target lines slightly so the larger
+         bottom padding doesn't force the iframe to need more height. */
+      .bed-title h4.finePrint { font-size: 1.1em; }
     </style>
     <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
