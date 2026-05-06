@@ -63,89 +63,91 @@
         </div>
       </section>
 
-      <!-- Bambu Cloud auth — collapsed into the setup page. Only needed for
-           the MakerWorld profile widget + the model-image widget; LAN-only
-           operation works without this. Two methods, in order of preference:
-             1. Email + verification code (Bambu's normal email login)
-             2. Manual token paste (fallback when Cloudflare blocks #1) -->
+      <!-- Bambu Cloud auth — for the MakerWorld profile + model-image widgets.
+           Both sign-in methods are always visible so the token field can be
+           viewed/edited at any time without having to sign out first. -->
       <section class="card cloud-section" id="cloud-section">
         <h3 class="card-title">Bambu Cloud (optional)</h3>
         <p class="cloud-status">Sign in to populate the <strong>MakerWorld profile</strong> and <strong>model image</strong> widgets. LAN-only operation does not need this — skip this section unless you want those widgets.</p>
 
-        <!-- Signed-in state -->
-        <div id="cloud-signedin" style="display:none">
-          <div class="card-row">
-            <span>Status</span>
-            <span class="pill pill-info" id="cloud-as">Signed in</span>
+        <!-- Status row — always visible -->
+        <div class="card-row" style="margin-bottom: var(--space-3)">
+          <span>Status</span>
+          <span class="pill" id="cloud-status-pill">Checking…</span>
+        </div>
+
+        <!-- Method tabs — always visible whether signed in or not -->
+        <div class="btn-row" style="margin-bottom: var(--space-3)">
+          <button id="cloud-tab-token" class="btn btn-primary" type="button">Token (paste / edit)</button>
+          <button id="cloud-tab-email" class="btn btn-ghost"   type="button">Email login</button>
+        </div>
+
+        <!-- Method 1: editable access token — always shown, pre-filled with
+             current token if signed in. This is the primary method because
+             it's the only one that reliably bypasses Cloudflare gating. -->
+        <div id="cloud-method-token">
+          <p class="text-dim" style="font-size: 12px; margin: 0 0 var(--space-3)">
+            Paste / edit your Bambu Cloud access token directly. To get it: sign in to <a href="https://makerworld.com" target="_blank" rel="noopener">makerworld.com</a> in a browser → DevTools (F12) → <strong>Application → Cookies → makerworld.com</strong> → copy the value of the <code class="text-mono">token</code> cookie.
+          </p>
+          <details style="margin-bottom: var(--space-3)">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 13px">Detailed steps (click to expand)</summary>
+            <ol style="padding-left: 1.4em; line-height: 1.7; margin: var(--space-2) 0 0; color: var(--color-text-dim); font-size: 13px">
+              <li>Open <a href="https://makerworld.com" target="_blank" rel="noopener">https://makerworld.com</a> and sign in normally.</li>
+              <li>Press <kbd>F12</kbd> (or right-click → Inspect) to open DevTools.</li>
+              <li>Go to the <strong>Application</strong> tab (Chrome/Edge) or <strong>Storage</strong> tab (Firefox).</li>
+              <li>In the left sidebar: <strong>Cookies → https://makerworld.com</strong>.</li>
+              <li>Find the row with name <code class="text-mono">token</code>. Click on it and copy the entire <strong>Value</strong> field (long string, usually starts with <code class="text-mono">eyJ…</code>).</li>
+              <li>Paste it below and click <strong>Save token</strong>.</li>
+            </ol>
+            <p style="padding-left: 1.4em; margin: var(--space-2) 0 0; font-size: 12px; color: var(--color-text-muted)">
+              Stored locally in <code class="text-mono">data/accessToken.json</code> (gitignored). Used only to authenticate calls to api.bambulab.com from this server.
+            </p>
+          </details>
+          <label class="field">
+            <span>Access token <small class="text-dim" id="cloud-token-hint">(leave as-is, or paste a new one to replace)</small></span>
+            <textarea id="cloud-token" class="input" rows="3" style="font-family: var(--font-mono); font-size: 11px; resize: vertical; word-break: break-all" placeholder="eyJhbGciOi..."></textarea>
+          </label>
+          <div class="btn-row" style="margin-top: var(--space-2)">
+            <button id="cloud-token-show"  class="btn btn-ghost" type="button" style="font-size: 12px">Show / Hide</button>
+            <button id="cloud-token-copy"  class="btn btn-ghost" type="button" style="font-size: 12px">Copy</button>
+            <button id="cloud-token-clear" class="btn btn-ghost" type="button" style="font-size: 12px">Clear</button>
           </div>
-          <div class="btn-row" style="margin-top: var(--space-3)">
-            <button id="cloud-signout" class="btn btn-danger" type="button">Sign out</button>
+          <label class="field" style="margin-top: var(--space-3)">
+            <span>Email <small class="text-dim">(optional, for display only)</small></span>
+            <input id="cloud-token-email" class="input" type="email" autocomplete="email">
+          </label>
+          <div class="btn-row" style="margin-top: var(--space-2)">
+            <button id="cloud-token-save" class="btn btn-primary" type="button">Save token</button>
+            <span id="cloud-token-status" class="text-dim" style="font-size: 12px"></span>
           </div>
         </div>
 
-        <!-- Signed-out state — has both methods -->
-        <div id="cloud-signin">
-
-          <!-- Method tabs -->
-          <div class="btn-row" style="margin-bottom: var(--space-3)">
-            <button id="cloud-tab-email"  class="btn btn-primary" type="button">Method 1: Email login</button>
-            <button id="cloud-tab-token"  class="btn btn-ghost" type="button">Method 2: Paste token</button>
+        <!-- Method 2: email + verification code (kept as a secondary option;
+             often blocked by Cloudflare which is why Token is the default tab). -->
+        <div id="cloud-method-email" style="display:none">
+          <p class="text-dim" style="font-size: 12px; margin: 0 0 var(--space-3)">
+            Bambu sends a 6-digit code to your account email. Sometimes blocked by Cloudflare — if it errors, switch back to the Token tab.
+          </p>
+          <label class="field"><span>Bambu account email</span><input id="cloud-email" class="input" type="email" autocomplete="email"></label>
+          <div class="btn-row">
+            <button id="cloud-send-code" class="btn" type="button">Send code</button>
+            <span id="cloud-send-status" class="text-dim" style="font-size: 12px"></span>
           </div>
-
-          <!-- Method 1: email + verification code -->
-          <div id="cloud-method-email">
-            <p class="text-dim" style="font-size: 12px; margin: 0 0 var(--space-3)">
-              Bambu sends a 6-digit code to your account email. (Sometimes blocked by Cloudflare — if it errors, switch to Method 2.)
-            </p>
-            <label class="field"><span>Bambu account email</span><input id="cloud-email" class="input" type="email" autocomplete="email"></label>
-            <div class="btn-row">
-              <button id="cloud-send-code" class="btn" type="button">Send code</button>
-              <span id="cloud-send-status" class="text-dim" style="font-size: 12px"></span>
-            </div>
-            <label class="field" style="margin-top: var(--space-3)"><span>6-digit code from email</span><input id="cloud-code" class="input" inputmode="numeric" maxlength="6"></label>
-            <div class="btn-row">
-              <button id="cloud-verify" class="btn btn-primary" type="button">Sign in</button>
-              <span id="cloud-verify-status" class="text-dim" style="font-size: 12px"></span>
-            </div>
-            <!-- MFA appears here if Bambu account requires it -->
-            <div id="cloud-mfa" style="display:none; margin-top: var(--space-3); padding: var(--space-3); background: var(--color-surface-2); border-radius: var(--radius-sm)">
-              <label class="field"><span>MFA code (from authenticator app)</span><input id="cloud-mfa-code" class="input" inputmode="numeric" maxlength="6"></label>
-              <div class="btn-row"><button id="cloud-mfa-submit" class="btn btn-primary" type="button">Submit MFA</button></div>
-            </div>
+          <label class="field" style="margin-top: var(--space-3)"><span>6-digit code from email</span><input id="cloud-code" class="input" inputmode="numeric" maxlength="6"></label>
+          <div class="btn-row">
+            <button id="cloud-verify" class="btn btn-primary" type="button">Sign in</button>
+            <span id="cloud-verify-status" class="text-dim" style="font-size: 12px"></span>
           </div>
-
-          <!-- Method 2: manual token paste (fallback) -->
-          <div id="cloud-method-token" style="display:none">
-            <p class="text-dim" style="font-size: 12px; margin: 0 0 var(--space-3)">
-              Use this if email login fails (Cloudflare challenge, regional blocks, etc.). You'll grab your active session token from your browser's MakerWorld cookies.
-            </p>
-            <details style="margin-bottom: var(--space-3)">
-              <summary style="cursor: pointer; font-weight: 600">How to get your token (click to expand)</summary>
-              <ol style="padding-left: 1.4em; line-height: 1.7; margin: var(--space-2) 0 0; color: var(--color-text-dim); font-size: 13px">
-                <li>Open <a href="https://makerworld.com" target="_blank" rel="noopener">https://makerworld.com</a> in your browser and sign in normally.</li>
-                <li>Open DevTools — press <kbd>F12</kbd> (or right-click → Inspect).</li>
-                <li>Go to the <strong>Application</strong> tab (Chrome/Edge) or <strong>Storage</strong> tab (Firefox).</li>
-                <li>In the left sidebar: <strong>Cookies → https://makerworld.com</strong>.</li>
-                <li>Find the cookie named <code class="text-mono">token</code>. Click on it and copy the entire <strong>Value</strong> field (it's a long string starting with <code class="text-mono">eyJ…</code>).</li>
-                <li>Paste below and click Save.</li>
-              </ol>
-              <p style="padding-left: 1.4em; margin: var(--space-2) 0 0; font-size: 12px; color: var(--color-text-muted)">
-                The token is your live MakerWorld session — keep it private. It's stored locally in <code class="text-mono">data/accessToken.json</code> and used only to authenticate calls to api.bambulab.com from this server.
-              </p>
-            </details>
-            <label class="field"><span>MakerWorld <code class="text-mono">token</code> cookie value</span><textarea id="cloud-token" class="input" rows="3" style="font-family: var(--font-mono); font-size: 11px; resize: vertical" placeholder="eyJhbGciOi..."></textarea></label>
-            <label class="field"><span>Email <small class="text-dim">(optional, for display)</small></span><input id="cloud-token-email" class="input" type="email" autocomplete="email"></label>
-            <div class="btn-row">
-              <button id="cloud-token-save" class="btn btn-primary" type="button">Save token &amp; sign in</button>
-              <span id="cloud-token-status" class="text-dim" style="font-size: 12px"></span>
-            </div>
+          <div id="cloud-mfa" style="display:none; margin-top: var(--space-3); padding: var(--space-3); background: var(--color-surface-2); border-radius: var(--radius-sm)">
+            <label class="field"><span>MFA code (from authenticator app)</span><input id="cloud-mfa-code" class="input" inputmode="numeric" maxlength="6"></label>
+            <div class="btn-row"><button id="cloud-mfa-submit" class="btn btn-primary" type="button">Submit MFA</button></div>
           </div>
-
         </div>
 
         <p class="text-dim" style="margin-top:var(--space-4); font-size: 11px">
-          Tokens are stored locally in <code class="text-mono">data/accessToken.json</code> (gitignored).
-          <span id="cloud-disable-link" style="display:none">
+          Token stored locally in <code class="text-mono">data/accessToken.json</code> (gitignored).
+          <span id="cloud-actions" style="display:none">
+            &middot; <a href="#" id="cloud-signout-link">Sign out</a>
             &middot; <a href="#" id="cloud-disable">Disable cloud auth entirely</a>
           </span>
         </p>

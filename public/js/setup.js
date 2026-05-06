@@ -172,29 +172,68 @@
   function isOn(id) { return document.getElementById(id).classList.contains('on'); }
 
   // ---- Bambu Cloud sign-in panel ----
-  // Two methods, both inline in /setup. Method 1: email + verification code
-  // (Bambu's normal flow, but Cloudflare often returns an HTML challenge
-  // that breaks the JSON parser — we surface that as a "try Method 2"
-  // hint). Method 2: paste the `token` cookie from a logged-in
-  // makerworld.com session — most reliable when the API is gated.
+  // Both methods always visible (status pill at top, tabs below). Token tab
+  // pre-fills with the current saved token so the user can view / edit /
+  // replace it without signing out first. Email tab is a secondary option.
   function setupCloudPanel() {
     let tfaKey = null;
+    let tokenVisible = false;
+
+    function setStatusPill(state, text) {
+      const pill = document.getElementById('cloud-status-pill');
+      pill.className = 'pill ' + (state === 'on' ? 'pill-info' : state === 'off' ? '' : 'pill-warn');
+      pill.textContent = text;
+    }
 
     async function refresh() {
-      const r = await fetch('/auth/status').then(r => r.json()).catch(() => null);
-      if (!r) return;
-      const signin    = document.getElementById('cloud-signin');
-      const signedin  = document.getElementById('cloud-signedin');
-      const disableLink = document.getElementById('cloud-disable-link');
-      if (r.signedIn) {
-        signin.style.display = 'none';
-        signedin.style.display = '';
-        document.getElementById('cloud-as').textContent = r.email ? `Signed in as ${r.email}` : 'Signed in';
-        if (disableLink) disableLink.style.display = '';
+      const [status, tokInfo] = await Promise.all([
+        fetch('/auth/status').then(r => r.json()).catch(() => null),
+        fetch('/auth/token').then(r => r.json()).catch(() => ({ token: '', email: '' })),
+      ]);
+      if (!status) return;
+
+      // Status pill
+      if (status.signedIn) {
+        setStatusPill('on', status.email ? `● Signed in as ${status.email}` : '● Signed in');
+      } else if (status.enabled) {
+        setStatusPill('warn', '◌ Cloud enabled, not signed in');
       } else {
-        signin.style.display = '';
-        signedin.style.display = 'none';
-        if (disableLink) disableLink.style.display = r.enabled ? '' : 'none';
+        setStatusPill('off', '○ Disabled (LAN-only mode)');
+      }
+
+      // Sign-out / disable links shown when there's anything to sign out OF
+      const actions = document.getElementById('cloud-actions');
+      if (actions) actions.style.display = (status.signedIn || status.enabled) ? '' : 'none';
+
+      // Pre-fill token field with the current saved token (masked by default)
+      const tokenField = document.getElementById('cloud-token');
+      const emailField = document.getElementById('cloud-token-email');
+      const hint       = document.getElementById('cloud-token-hint');
+      if (tokenField && tokInfo) {
+        tokenField.value = tokInfo.token || '';
+        tokenField.type = 'text'; // textarea ignores type, use show/hide via dataset masking instead
+        // Mask visually if not in show mode
+        applyTokenMask();
+        if (tokInfo.token) {
+          hint.textContent = `(loaded from data/accessToken.json — edit to replace)`;
+        } else {
+          hint.textContent = '(paste your makerworld.com token cookie value)';
+        }
+      }
+      if (emailField && tokInfo && !emailField.value) emailField.value = tokInfo.email || '';
+    }
+
+    function applyTokenMask() {
+      const ta = document.getElementById('cloud-token');
+      if (!ta) return;
+      // Persist the real value in dataset; show masked or real based on state
+      if (!ta.dataset.real) ta.dataset.real = ta.value;
+      if (tokenVisible) {
+        ta.value = ta.dataset.real;
+        ta.style.webkitTextSecurity = '';
+      } else {
+        // Browser-native password masking on textarea (Webkit/Chromium/Safari)
+        ta.style.webkitTextSecurity = 'disc';
       }
     }
 
@@ -208,14 +247,73 @@
     document.getElementById('cloud-tab-email').addEventListener('click', () => showMethod('email'));
     document.getElementById('cloud-tab-token').addEventListener('click', () => showMethod('token'));
 
-    // Method 1: email + verification code
+    // ---- Token tab actions ----
+    const tokenField = document.getElementById('cloud-token');
+
+    // Track edits so user-typed values aren't masked back to the saved token
+    tokenField.addEventListener('input', () => {
+      tokenField.dataset.real = tokenField.value;
+      // While typing, always show the value (no masking interference)
+      tokenField.style.webkitTextSecurity = '';
+    });
+    tokenField.addEventListener('focus', () => {
+      // On focus, reveal so editing is sane
+      tokenField.style.webkitTextSecurity = '';
+    });
+    tokenField.addEventListener('blur', () => {
+      // On blur, re-apply mask if user hasn't toggled show
+      if (!tokenVisible) tokenField.style.webkitTextSecurity = 'disc';
+    });
+
+    document.getElementById('cloud-token-show').addEventListener('click', () => {
+      tokenVisible = !tokenVisible;
+      tokenField.style.webkitTextSecurity = tokenVisible ? '' : 'disc';
+    });
+    document.getElementById('cloud-token-copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(tokenField.dataset.real || tokenField.value);
+        window.toast && window.toast('Token copied to clipboard');
+      } catch (_) { window.toast && window.toast('Copy failed', 'error'); }
+    });
+    document.getElementById('cloud-token-clear').addEventListener('click', () => {
+      tokenField.value = '';
+      tokenField.dataset.real = '';
+      tokenField.style.webkitTextSecurity = '';
+      tokenField.focus();
+    });
+
+    document.getElementById('cloud-token-save').addEventListener('click', async () => {
+      const status = document.getElementById('cloud-token-status');
+      const token = (tokenField.dataset.real || tokenField.value || '').trim();
+      const email = document.getElementById('cloud-token-email').value.trim();
+      if (!token) { status.textContent = 'Paste your token first'; status.style.color = 'var(--color-error)'; return; }
+      status.textContent = 'Verifying token with Bambu Cloud…';
+      status.style.color = '';
+      try {
+        const r = await fetch('/auth/manual-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, email }) });
+        const j = await r.json();
+        if (j.ok) {
+          status.textContent = '✓ Token saved & verified';
+          status.style.color = 'var(--color-ok)';
+          window.toast && window.toast('Signed in to Bambu Cloud');
+          refresh();
+        } else {
+          status.textContent = '✗ ' + (j.error || 'Token rejected');
+          status.style.color = 'var(--color-error)';
+        }
+      } catch (e) {
+        status.textContent = '✗ ' + e.message;
+        status.style.color = 'var(--color-error)';
+      }
+    });
+
+    // ---- Email tab actions ----
     document.getElementById('cloud-send-code').addEventListener('click', async () => {
       const status = document.getElementById('cloud-send-status');
       const email = document.getElementById('cloud-email').value.trim();
       if (!email) { status.textContent = 'Enter your email first'; status.style.color = 'var(--color-error)'; return; }
       status.textContent = 'Enabling cloud auth & sending code…';
       status.style.color = '';
-      // sendVerificationCode requires cloudAuth.enabled — quietly enable it first
       await ensureCloudEnabled();
       try {
         const r = await fetch('/sendVerificationCode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: email }) });
@@ -224,11 +322,11 @@
           status.textContent = '✓ Code sent — check your email';
           status.style.color = 'var(--color-ok)';
         } else {
-          status.innerHTML = `✗ ${escapeHtml(j.error || 'Send failed')}` + (j.tryManual ? ' — try <a href="#" data-switch-token>Method 2</a>' : '');
+          status.innerHTML = `✗ ${escapeHtml(j.error || 'Send failed')}` + (j.tryManual ? ' — try the <a href="#" data-switch-token>Token tab</a>' : '');
           status.style.color = 'var(--color-error)';
         }
       } catch (e) {
-        status.innerHTML = `✗ ${escapeHtml(e.message)} — try <a href="#" data-switch-token>Method 2</a>`;
+        status.innerHTML = `✗ ${escapeHtml(e.message)} — try the <a href="#" data-switch-token>Token tab</a>`;
         status.style.color = 'var(--color-error)';
       }
     });
@@ -253,11 +351,11 @@
           document.getElementById('cloud-mfa').style.display = '';
           status.textContent = 'MFA required — see below';
         } else {
-          status.innerHTML = `✗ ${escapeHtml(j.error || 'Verify failed')}` + (j.tryManual ? ' — try <a href="#" data-switch-token>Method 2</a>' : '');
+          status.innerHTML = `✗ ${escapeHtml(j.error || 'Verify failed')}` + (j.tryManual ? ' — try the <a href="#" data-switch-token>Token tab</a>' : '');
           status.style.color = 'var(--color-error)';
         }
       } catch (e) {
-        status.innerHTML = `✗ ${escapeHtml(e.message)} — try <a href="#" data-switch-token>Method 2</a>`;
+        status.innerHTML = `✗ ${escapeHtml(e.message)} — try the <a href="#" data-switch-token>Token tab</a>`;
         status.style.color = 'var(--color-error)';
       }
     });
@@ -271,42 +369,18 @@
       else window.toast && window.toast('MFA failed: ' + (j.error || ''), 'error');
     });
 
-    // Method 2: paste token
-    document.getElementById('cloud-token-save').addEventListener('click', async () => {
-      const status = document.getElementById('cloud-token-status');
-      const token = document.getElementById('cloud-token').value.trim();
-      const email = document.getElementById('cloud-token-email').value.trim();
-      if (!token) { status.textContent = 'Paste your token first'; status.style.color = 'var(--color-error)'; return; }
-      status.textContent = 'Verifying token with Bambu Cloud…';
-      status.style.color = '';
-      try {
-        const r = await fetch('/auth/manual-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, email }) });
-        const j = await r.json();
-        if (j.ok) {
-          status.textContent = '✓ Token saved & verified';
-          status.style.color = 'var(--color-ok)';
-          window.toast && window.toast('Signed in to Bambu Cloud');
-          refresh();
-        } else {
-          status.textContent = '✗ ' + (j.error || 'Token rejected');
-          status.style.color = 'var(--color-error)';
-        }
-      } catch (e) {
-        status.textContent = '✗ ' + e.message;
-        status.style.color = 'var(--color-error)';
-      }
-    });
-
-    // Sign out / disable
-    document.getElementById('cloud-signout').addEventListener('click', async () => {
+    // ---- Sign out / Disable links (in footer) ----
+    const signoutLink = document.getElementById('cloud-signout-link');
+    if (signoutLink) signoutLink.addEventListener('click', async (e) => {
+      e.preventDefault();
       await fetch('/auth/signout', { method: 'POST' });
       window.toast && window.toast('Signed out');
       refresh();
     });
-    document.getElementById('cloud-disable').addEventListener('click', async (e) => {
+    const disableLink = document.getElementById('cloud-disable');
+    if (disableLink) disableLink.addEventListener('click', async (e) => {
       e.preventDefault();
       if (!confirm('Disable Bambu Cloud auth? Profile / model-image widgets will go back to placeholder content.')) return;
-      // Sign out (clear token) AND set cloudAuth.enabled = false
       await fetch('/auth/signout', { method: 'POST' });
       const cur = await fetch('/api/settings').then(r => r.json());
       await fetch('/api/settings', {
@@ -317,7 +391,7 @@
       refresh();
     });
 
-    // "try Method 2" inline links inside error messages
+    // "try Token tab" inline links inside email-method error messages
     document.addEventListener('click', (e) => {
       if (e.target.matches('[data-switch-token]')) {
         e.preventDefault();

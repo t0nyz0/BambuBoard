@@ -53,6 +53,18 @@ function buildAuthRouter({ getConfig, saveConfig, paths }) {
     res.json({ enabled: true, signedIn: !!(t && t.accessToken), email: t?.email || null });
   });
 
+  // Return the actual access token so the setup page can pre-fill the
+  // editable token field (lets the user manipulate / replace it without
+  // signing out first). Same-origin only — this is a self-hosted local
+  // server, the token is in data/accessToken.json on the same machine.
+  router.get('/auth/token', async (req, res) => {
+    const t = await readToken();
+    res.json({
+      token: t?.accessToken || '',
+      email: t?.email || '',
+    });
+  });
+
   // Send verification code (cloud-mode only)
   router.post('/sendVerificationCode', async (req, res) => {
     if (!cloudEnabled()) return res.json({ ok: true, lan: true });
