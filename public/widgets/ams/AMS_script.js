@@ -126,13 +126,6 @@ async function updateAMS(telemetryObject) {
       updateTray(i, amsUnit.tray[i] || {});
     }
 
-    // AMS drying status — only AMS 2 Pro / AMS HT support active heating
-    // cycles. We don't get the model name in the regular print payload, so
-    // we gate display on `dry_time > 0` (other models always report 0).
-    // `dry_time` is minutes remaining; `dry_setting.dry_temperature` is
-    // the target °C. Show e.g. "Drying — 60°C / 45m left" beside the title.
-    updateDryingStatus(amsUnit);
-
     // AMS Humidity
     const amsHumidity = amsUnit.humidity;
 
@@ -232,32 +225,6 @@ function disableUI() {
     $(`#tray${i}Active`).hide().css('background-color', 'grey');
     $(`#tray${i}Target`).hide();
   }
-  $('#amsDryingStatus').hide();
-}
-
-// Show "Drying — 60°C / 45m" pill next to the AMS title when this unit is
-// running a drying cycle. ha-bambulab uses the same dry_time + dry_setting
-// fields. Heating-capable models: AMS 2 Pro (n3f/) and AMS HT (n3s/) —
-// older AMS / AMS Lite always report dry_time: 0 so the pill stays hidden.
-function updateDryingStatus(amsUnit) {
-  const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
-  const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
-  const $el = $('#amsDryingStatus');
-  if (dryTime > 0) {
-    const detail = [];
-    if (dryTemp > 0) detail.push(`${dryTemp}°C`);
-    detail.push(formatDryMinutes(dryTime));
-    $el.text(`— ${detail.join(' / ')}`).show();
-  } else {
-    $el.hide();
-  }
-}
-
-function formatDryMinutes(mins) {
-  if (mins < 60) return `${mins}m left`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
 }
 
 function log(logText) {

@@ -127,10 +127,6 @@ async function updateAMS(telemetryObject) {
       updateTray(i, amsUnit.tray[i] || {});
     }
 
-    // AMS drying status — see ams/AMS_script.js comments. Heating-capable
-    // models (AMS 2 Pro, AMS HT) report dry_time > 0 while running a cycle.
-    updateDryingStatus(amsUnit);
-
     // AMS Humidity
     const amsHumidity = amsUnit.humidity;
 
@@ -230,31 +226,6 @@ function disableUI() {
     $(`#tray${i}Active`).hide().css('background-color', 'grey');
     $(`#tray${i}Target`).hide();
   }
-  $('#amsDryingStatus').hide();
-}
-
-// Show "Drying — 60°C / 45m left" pill next to the AMS title when this
-// unit is running a drying cycle. Only AMS 2 Pro / AMS HT support active
-// heating; other models always report dry_time: 0 so the pill stays hidden.
-function updateDryingStatus(amsUnit) {
-  const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
-  const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
-  const $el = $('#amsDryingStatus');
-  if (dryTime > 0) {
-    const detail = [];
-    if (dryTemp > 0) detail.push(`${dryTemp}°C`);
-    detail.push(formatDryMinutes(dryTime));
-    $el.text(`— ${detail.join(' / ')}`).show();
-  } else {
-    $el.hide();
-  }
-}
-
-function formatDryMinutes(mins) {
-  if (mins < 60) return `${mins}m left`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 ? `${h}h left` : `${h}h ${m}m left`;
 }
 
 function log(logText) {
