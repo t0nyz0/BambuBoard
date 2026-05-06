@@ -245,9 +245,9 @@ async function loginAndFetchImage() {
         } else {
           $("#printModelName2").text("");
         }
-        $("#modelWeight").text(data.modelWeight + "g");
+        $("#modelWeight").text(data.modelWeight != null ? (data.modelWeight + "g") : "—");
 
-        $("#totalPrints").text(data.totalPrints);
+        $("#totalPrints").text(data.totalPrints != null ? data.totalPrints : "—");
       }
     }
   }

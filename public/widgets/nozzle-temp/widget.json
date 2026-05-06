@@ -1,0 +1,9 @@
+{
+  "name": "Nozzle temperature",
+  "description": "Nozzle temperature with current/target and progress bar. Use ?nozzle=0 (right, default) or ?nozzle=1 (left) for dual-nozzle printers.",
+  "recommendedSize": { "w": 400, "h": 120 },
+  "tags": ["temperature", "nozzle"],
+  "params": {
+    "nozzle": { "type": "number", "default": 0, "description": "Nozzle index: 0=right (default), 1=left (dual-nozzle only)" }
+  }
+}

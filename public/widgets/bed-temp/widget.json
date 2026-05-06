@@ -1,0 +1,1 @@
+{ "name": "Bed temperature", "description": "Heat-bed temp with target + progress bar.", "recommendedSize": {"w":400,"h":120}, "tags":["temperature"] }

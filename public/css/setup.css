@@ -1,0 +1,31 @@
+.setup-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  max-width: 720px;
+  margin: 0 auto;
+}
+.setup-grid .field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+@media (max-width: 540px) {
+  .setup-grid .field-row { grid-template-columns: 1fr; }
+}
+
+.firstrun-hero {
+  text-align: center;
+  padding: var(--space-6) 0;
+  margin-bottom: var(--space-5);
+}
+.firstrun-hero h1 { font-size: 32px; }
+.firstrun-hero p { color: var(--color-text-dim); font-size: 15px; max-width: 520px; margin: 0 auto; }
+
+.access-code-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }
+
+.cloud-section .cloud-status { font-size: 13px; color: var(--color-text-dim); margin-bottom: var(--space-3); }
+
+.test-result { font-size: 13px; padding: var(--space-2) 0; }
+.test-result.ok { color: var(--color-ok); }
+.test-result.error { color: var(--color-error); }

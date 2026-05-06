@@ -1,0 +1,7 @@
+{
+  "name": "Left nozzle temperature",
+  "description": "Left nozzle temperature (H2D/dual-nozzle). Legacy widget — equivalent to nozzle-temp/?nozzle=1.",
+  "recommendedSize": { "w": 400, "h": 120 },
+  "tags": ["nozzle", "temperature", "h2d"],
+  "requiresCap": "hasDualNozzle"
+}

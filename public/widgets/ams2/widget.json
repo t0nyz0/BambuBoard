@@ -1,0 +1,7 @@
+{
+  "name": "AMS #2",
+  "description": "Filament tray status for the second AMS unit (H2D only).",
+  "recommendedSize": { "w": 800, "h": 200 },
+  "tags": ["filament", "ams", "h2d"],
+  "requiresCap": "hasDualAMS"
+}

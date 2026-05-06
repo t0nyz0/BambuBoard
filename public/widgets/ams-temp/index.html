@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <title>BambuBoard | AMS</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* Uniform height-fill chain — see /widgets/ams/index.html. */
+      html, body { height: 100%; margin: 0; }
+      body { background: transparent !important; }
+      .container { height: 100%; box-sizing: border-box; }
+      .bedcontainer { height: 100%; margin-top: 0; box-sizing: border-box; }
+      .bed-title { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+    </style>
+    <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
     <meta http-equiv="refresh" content="28800" />
   </head>
@@ -13,7 +22,7 @@
     <div class="container">
       <div class="bedcontainer">
       <div class="bed-title">
-        <h2 class="partTitle">AMS Temperature</h2>
+        <h2 class="partTitle">AMS #1 Temp</h2>
 
         <div class="grid-columns-3">
 
@@ -43,8 +52,12 @@
             <div id="humidity5" class="humidity-item "></div>
           </div>
           <div class="ams-type-remaining">
-            <h4 class="finePrint">Humidity</h4>
+            <h4 class="finePrint">Humidity <span id="humidityPercent" class="fade" style="font-weight:400"></span></h4>
             <h4 id="humidityLevelText" class="finePrint">Low</h4>
+          </div>
+          <div id="dryingStatus" class="ams-type-remaining" style="display:none">
+            <h4 class="finePrint" style="color:#FFCC41">Drying</h4>
+            <h4 id="dryingDetail" class="finePrint" style="color:#FFCC41"></h4>
           </div>
       </div>
 

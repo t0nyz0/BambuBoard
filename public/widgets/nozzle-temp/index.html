@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <title>BambuBoard</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* See comments in /widgets/ams/index.html. Same coordinated pair
+         (tight container margins + transparent body) for the Left/Right
+         Nozzle pair on H2D printers. Plus the same flex/height-fill chain
+         so the dark card extends to the iframe edges (no dead space at top
+         from styles.css's default bedcontainer margin-top). This gives
+         predictable card-to-card gaps when adjacent widgets stack. */
+      html, body { height: 100%; margin: 0; }
+      body { background: transparent !important; }
+      .container { margin-left: 5px; margin-right: 15px; height: 100%; box-sizing: border-box; }
+      .bedcontainer { margin-top: 0; height: 100%; box-sizing: border-box; }
+      .grid.grid-gap-30 { height: 100%; }
+      .column.grid-gap-10 { height: 100%; display: flex; flex-direction: column; align-items: stretch; }
+      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; }
+    </style>
+    <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
     <meta http-equiv="refresh" content="28800" />
   </head>
@@ -18,13 +34,13 @@
         <div class="grid grid-gap-30">
           <div class="column grid-gap-10">
             <div class="bed-title">
-              <h2 class="partTitle">Nozzle Temperature</h2>
+              <h2 class="partTitle" data-default="Nozzle" data-default-dual="Right Nozzle">Nozzle<span id="activeTag" class="badge-active" style="display:none;font-size:20px;width:40px;">active</span></h2>
                           <div class="progress-wrapper">
                     <div id="nozzleProgressBarParent" class="progress">
                       <div id="nozzleProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
                     </div>
                   </div>
-                <div style="display: flex;justify-content: space-between;">
+                <div>
                   <h4 class="finePrint">
                     <b>Current: <span id="nozzleCurrentTempC">0</span></b><span id="nozzleCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleCurrentTempF">0</span><span id="nozzleCurrentTempSymbolsF"><sup>°</sup>F</span>
                   </h4>

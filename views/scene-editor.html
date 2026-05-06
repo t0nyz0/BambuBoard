@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BambuBoard — Scene editor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/scene-editor.css">
+</head>
+<body>
+  <main class="page" style="max-width: none">
+
+    <div class="editor-toolbar">
+      <div class="group">
+        <select id="loader" class="select input"></select>
+      </div>
+      <div class="group">
+        <small class="text-dim">Scene:</small>
+        <select id="scene-picker" class="select input" disabled></select>
+      </div>
+      <input id="file-input" type="file" accept="application/json" style="display:none">
+
+      <div class="spacer"></div>
+
+      <div class="diff-preview" id="diff">No file loaded</div>
+
+      <div class="group" id="canvas-info" title="OBS canvas resolution. Click to change — must match your OBS Settings → Video → Base (Canvas) Resolution.">
+        <small class="text-dim">Canvas:</small>
+        <button id="canvas-res-btn" class="btn btn-ghost" type="button" style="padding: 2px 6px; font-size: 12px;">1920×1080</button>
+      </div>
+
+      <div class="group">
+        <small class="text-dim" id="zoom-label">100%</small>
+      </div>
+
+      <div class="group">
+        <button id="undo-btn" class="btn btn-ghost" type="button" title="Undo (Cmd/Ctrl+Z)" disabled>↶ Undo</button>
+        <button id="redo-btn" class="btn btn-ghost" type="button" title="Redo (Cmd/Ctrl+Shift+Z)" disabled>↷ Redo</button>
+        <button id="autolayout-btn" class="btn btn-ghost" type="button" title="Auto-arrange widgets into a clean paneled layout">⌘ Auto-layout</button>
+      </div>
+
+      <div class="group">
+        <button id="widget-drawer-btn" class="btn btn-ghost" type="button" title="Show available widgets to drag onto the canvas">+ Widgets</button>
+      </div>
+
+      <div class="group">
+        <button id="reset-btn" class="btn btn-ghost" type="button">Reset</button>
+        <button id="save-btn"  class="btn" type="button">Save</button>
+        <button id="download-btn" class="btn" type="button">Download</button>
+        <button id="save-continue-btn" class="btn btn-primary" type="button" title="Save the current scene and go to the Export step">Save &amp; Continue to Export →</button>
+      </div>
+    </div>
+
+    <div id="canvas-shell" class="canvas-shell" style="height:calc(100vh - 220px)">
+      <div id="canvas-wrap" class="scene-canvas-wrap">
+        <div id="canvas" class="scene-canvas"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <aside id="widget-drawer" class="widget-drawer">
+    <div class="widget-drawer-header">
+      <h4>Widgets</h4>
+      <button id="widget-drawer-close" class="btn btn-ghost" type="button">×</button>
+    </div>
+    <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2);padding:0 var(--space-3)">
+      Drag a widget onto the canvas to add it to the scene.
+    </p>
+    <div id="widget-drawer-list" class="widget-drawer-list"></div>
+  </aside>
+
+  <aside id="inspector" class="inspector">
+    <div class="card-row">
+      <h4 id="insp-name">Selected</h4>
+      <button id="inspector-close" class="btn btn-ghost" type="button">×</button>
+    </div>
+    <div class="row">
+      <label>X</label><input id="insp-x" class="input" type="number"><span></span>
+      <label>Y</label><input id="insp-y" class="input" type="number"><span></span>
+      <label>W</label><input id="insp-w" class="input" type="number"><span></span>
+      <label>H</label><input id="insp-h" class="input" type="number"><span></span>
+    </div>
+    <div class="row">
+      <label>Flags</label>
+      <label style="font-size:12px"><input id="insp-visible" type="checkbox"> Visible</label>
+      <label style="font-size:12px"><input id="insp-locked" type="checkbox"> Locked</label>
+    </div>
+    <div class="row" style="gap:4px">
+      <label>Layer</label>
+      <button id="layer-front" class="btn btn-ghost" type="button" style="font-size:11px;padding:2px 6px" title="Move to front (top of stack)">⤒ Front</button>
+      <button id="layer-fwd" class="btn btn-ghost" type="button" style="font-size:11px;padding:2px 6px" title="Move forward one layer">↑ Fwd</button>
+      <button id="layer-bwd" class="btn btn-ghost" type="button" style="font-size:11px;padding:2px 6px" title="Move backward one layer">↓ Bwd</button>
+      <button id="layer-back" class="btn btn-ghost" type="button" style="font-size:11px;padding:2px 6px" title="Move to back (bottom of stack)">⤓ Back</button>
+      <small id="layer-info" class="text-dim" style="font-size:10px;white-space:nowrap"></small>
+    </div>
+    <div class="row">
+      <label>Scale</label>
+      <select id="insp-scale-filter" class="select input" style="grid-column:span 2;font-size:12px">
+        <option value="">Auto (default)</option>
+        <option value="point">Point (pixelated)</option>
+        <option value="bicubic">Bicubic</option>
+        <option value="lanczos">Lanczos</option>
+        <option value="area">Area</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>B.Anchor</label>
+      <select id="insp-bounds-align" class="select input" style="grid-column:span 2;font-size:12px">
+        <option value="0">Center</option>
+        <option value="5">Top-Left</option>
+        <option value="4">Top</option>
+        <option value="6">Top-Right</option>
+        <option value="1">Left</option>
+        <option value="2">Right</option>
+        <option value="9">Bottom-Left</option>
+        <option value="8">Bottom</option>
+        <option value="10">Bottom-Right</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Crop L</label><input id="insp-crop-l" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop T</label><input id="insp-crop-t" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop R</label><input id="insp-crop-r" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop B</label><input id="insp-crop-b" class="input" type="number" min="0" value="0"><span></span>
+    </div>
+
+    <div id="media-block" style="display:none">
+      <hr>
+      <h4 style="font-size:13px">Media source preview</h4>
+      <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2)">
+        Browser can't play RTSP/SDP directly. Paste a browser-playable URL
+        (MJPEG, MP4, or your camera's HTTP feed) to preview it here. Stored
+        locally; not saved to the scene file.
+      </p>
+      <div class="row">
+        <label class="full">URL</label>
+      </div>
+      <div class="row">
+        <input id="media-url" class="input full" type="text" placeholder="http://printer/video">
+      </div>
+      <div class="row">
+        <button id="media-clear" class="btn btn-ghost full" type="button">Clear preview URL</button>
+      </div>
+    </div>
+
+    <div id="cust-block" style="display:none">
+      <hr>
+      <h4 style="font-size:13px">Widget theme</h4>
+      <div class="row">
+        <label>Title</label>
+        <input id="cust-title" class="input full" type="text" placeholder="(use widget default)">
+      </div>
+      <div class="row">
+        <label>Theme</label>
+        <select id="cust-theme" class="select input full">
+          <option value="">(default)</option>
+          <option value="dark">dark</option>
+          <option value="light">light</option>
+          <option value="transparent">transparent</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Accent</label>
+        <input id="cust-accent" class="input full" type="color">
+      </div>
+      <div class="row">
+        <label>Font px</label>
+        <input id="cust-font" class="input full" type="number" min="8" max="64" placeholder="auto">
+      </div>
+      <div class="row">
+        <label>Padding</label>
+        <input id="cust-pad" class="input full" type="number" min="0" max="64" placeholder="0">
+      </div>
+      <div class="row">
+        <button id="autosize-btn" class="btn btn-ghost full" type="button" title="Resize the OBS source to match the widget's natural content size" disabled>Auto-size to content</button>
+      </div>
+
+      <!-- Advanced — telemetry bindings.
+           Power users can repoint any bindable parameter at a different path
+           in /data.json (e.g. a 5th AMS unit, a custom firmware field).
+           Only shown for widgets whose widget.json declares a `bindings` manifest.
+           Round-trips through the iframe URL as `?bind.<id>=<JSONPath>`. -->
+      <details id="bindings-block" class="bindings-block" style="display:none; margin-top: var(--space-3)">
+        <summary style="cursor:pointer; font-size:13px; font-weight:600; color: var(--color-text-dim); user-select: none">
+          Advanced — telemetry bindings
+        </summary>
+        <p class="text-dim" style="font-size:11px;margin: var(--space-2) 0">
+          Bind a widget parameter to any path in <code class="text-mono">/data.json</code>.
+          Use <code class="text-mono">$.print.foo[N].bar</code> JSONPath syntax. Live value shown on the right.
+        </p>
+        <div id="bindings-list"></div>
+      </details>
+    </div>
+  </aside>
+
+  <script src="/js/nav.js"></script>
+  <script src="/assets/js/jsmpeg.min.js" defer></script>
+  <script src="/js/scene-editor.js"></script>
+</body>
+</html>

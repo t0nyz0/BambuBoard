@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BambuBoard — Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/dashboard.css">
+  <link rel="stylesheet" href="/assets/css/material-symbols.css">
+</head>
+<body>
+  <main class="page">
+
+    <div class="print-banner">
+      <div>
+        <div class="banner-status" id="banner-status">Offline</div>
+        <div class="banner-meta" id="banner-meta"></div>
+      </div>
+      <div style="min-width:240px;flex:1;max-width:480px">
+        <div class="progress"><div class="bar" id="banner-progress" style="width:0"></div></div>
+      </div>
+    </div>
+
+    <div class="dashboard">
+
+      <!-- Left column: temperatures + fans -->
+      <div class="dashboard-col">
+        <div class="tile" id="tile-bed">
+          <h4>Bed temperature</h4>
+          <div class="tile-row"><span class="tile-value" id="bed-current">—</span><span class="tile-sub" id="bed-target">target —</span></div>
+          <div class="progress"><div class="bar" id="bed-bar" style="width:0"></div></div>
+        </div>
+        <div class="tile" id="tile-chamber">
+          <h4>Chamber temperature</h4>
+          <div class="tile-row"><span class="tile-value" id="chamber-current">—</span><span class="tile-sub" id="chamber-max">max —</span></div>
+          <div class="progress"><div class="bar" id="chamber-bar" style="width:0"></div></div>
+        </div>
+        <div class="tile" id="tile-nozzle1">
+          <h4 id="tile-nozzle1-label">Nozzle</h4>
+          <div class="tile-row"><span class="tile-value" id="nozzle1-current">—</span><span class="tile-sub" id="nozzle1-target">target —</span></div>
+          <div class="progress"><div class="bar" id="nozzle1-bar" style="width:0"></div></div>
+        </div>
+        <div class="tile" id="tile-nozzle2">
+          <h4>Left nozzle</h4>
+          <div class="tile-row"><span class="tile-value" id="nozzle2-current">—</span><span class="tile-sub" id="nozzle2-target">target —</span></div>
+          <div class="progress"><div class="bar" id="nozzle2-bar" style="width:0"></div></div>
+        </div>
+        <div class="tile">
+          <h4>Fans</h4>
+          <div class="fans-row" id="fans-row"></div>
+        </div>
+      </div>
+
+      <!-- Center column: print details + AMS -->
+      <div class="dashboard-col">
+        <div class="tile">
+          <h4>Print info</h4>
+          <div id="print-info"></div>
+        </div>
+        <div class="tile" id="tile-ams1">
+          <h4>AMS #1</h4>
+          <div class="ams-trays" id="ams1-trays"></div>
+        </div>
+        <div class="tile" id="tile-ams2">
+          <h4>AMS #2</h4>
+          <div class="ams-trays" id="ams2-trays"></div>
+        </div>
+      </div>
+
+      <!-- Right column: notes + meta -->
+      <div class="dashboard-col">
+        <div class="tile">
+          <h4>Footer text (notes widget)</h4>
+          <textarea id="note-text" class="input" rows="3" placeholder="Auto-updates with the model name; type to override"></textarea>
+          <div class="card-row" style="margin-top:var(--space-2)">
+            <small id="note-status" class="text-dim">—</small>
+            <div class="btn-row">
+              <button id="note-auto" class="btn btn-ghost" type="button">Auto</button>
+              <button id="note-save" class="btn btn-primary" type="button">Save</button>
+            </div>
+          </div>
+        </div>
+        <div class="tile">
+          <h4>Printer info</h4>
+          <div id="printer-info"></div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="/js/caps.js"></script>
+  <script src="/js/nav.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

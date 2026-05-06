@@ -1,0 +1,66 @@
+:root {
+  /* Page background matches the OBS widget body color (`#2a2a2a` from
+     public/widgets/styles.css) so the workflow pages and the live dashboard
+     feel like the same product as the OBS overlays you're streaming. */
+  --color-bg:        #2a2a2a;
+  /* Cards / surfaces sit darker than the page bg, mirroring the widget's
+     `.bed-title { background: rgba(0,0,0,0.25) }` overlay pattern that gives
+     the dashboard widgets their characteristic inset look. */
+  --color-surface:   #1f2125;
+  --color-surface-2: #252830;
+  --color-border:    #3a3d44;
+  /* Text color tokens match widget defaults: heading white, fine-print
+     `rgb(180,180,180)` (= #b4b4b4). */
+  --color-text:      #f0f1f5;
+  --color-text-dim:  #b4b4b4;
+  --color-text-muted:#7a7e8a;
+  --color-accent:    #51a34f;
+  --color-accent-2:  #4a90e2;
+  --color-warn:      #e2a04a;
+  --color-error:     #e55454;
+  --color-ok:        #51a34f;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-1: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-2: 0 4px 16px rgba(0,0,0,.4);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Open Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+a { color: var(--color-accent-2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4 { margin: 0 0 var(--space-3) 0; font-weight: 600; line-height: 1.2; }
+h1 { font-size: 28px; }
+h2 { font-size: 22px; }
+h3 { font-size: 18px; }
+h4 { font-size: 15px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: .04em; }
+
+p { margin: 0 0 var(--space-3) 0; }
+small, .text-dim { color: var(--color-text-dim); font-size: 13px; }
+.text-mono { font-family: var(--font-mono); font-size: 13px; }
+.text-muted { color: var(--color-text-muted); }
+
+::selection { background: var(--color-accent); color: #fff; }

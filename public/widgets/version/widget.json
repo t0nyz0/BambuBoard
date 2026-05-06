@@ -1,0 +1,1 @@
+{ "name": "Version stamp", "description": "Shows BambuBoard version in a corner.", "recommendedSize": {"w":200,"h":30}, "tags":["info"] }

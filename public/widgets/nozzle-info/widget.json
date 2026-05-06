@@ -1,0 +1,1 @@
+{ "name": "Nozzle info", "description": "Nozzle type, size, current speed level.", "recommendedSize": {"w":400,"h":120}, "tags":["info","nozzle"] }

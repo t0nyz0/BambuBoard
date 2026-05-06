@@ -1,0 +1,1 @@
+{ "name": "Notes / footer", "description": "Auto-updates with the model name each print; can be manually overridden from the dashboard.", "recommendedSize": {"w":600,"h":40}, "tags":["info"] }

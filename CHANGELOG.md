@@ -1,0 +1,370 @@
+# BambuBoard Changelog
+
+All notable changes to this project are documented in this file. The format follows [Keep a Changelog](https://keepachangelog.com/), and the project adheres to [Semantic Versioning](https://semver.org/).
+
+---
+
+## Unreleased
+
+### Fixed
+- **Nozzle and AMS side-by-side overlap in H2D template** (`OBS_settings/templates/default-h2d.json`) — root cause: the right-column iframes (Nozzle Temperature at x=184 and ams2 at x=184) overlapped the left-column iframes by 17px each. Because the right items appear later in the OBS scene_items array, they rendered on top of the left items, partially covering them. **Final fix:** moved both right widgets to `x=185`. Iframes overlap by 16px, but the overlap is entirely within the `.container` margin zone (15px × 0.5308 scale ≈ 8px on each side) where both iframes show identical `#2a2a2a` body color — visually seamless. The dark cards (`bed-title`), which start 8px inset from each iframe edge, now touch exactly at the canvas midline with zero visible gap. **Why:** users perceived the original layout as "right covering left", and an interim x=201 fix introduced an unwanted 16px gap; the x=185 placement gives clean card-touches-card layout.
+- **Fans widget compact redesign + layout fix** (`public/widgets/fans/index.html`, `OBS_settings/templates/default-h2d.json`) — pre-fix: Fans at `y=975, scale=0.4913, source=800×210` rendered 393×103, overlapping the AMS row (ends at y=997) by 22px and butting up against the canvas bottom edge.
+
+  **First iteration** dropped scale to 0.39 to fit vertically (82px height, no overflow), but at that scale Fans was only 312px wide vs the AMS row's 398px — width mismatch left the bottom row looking wrong.
+
+  **Final fix** redesigned the widget for a wider-but-shorter natural shape:
+  - **Widget HTML/CSS** restructured each fan cell from vertical (label / gauge / pct stacked) to horizontal grid (gauge 56×56 on left, label + pct stacked on right). Icon font shrunk from 42px to 26px. Tighter padding throughout. Naturally fits a wide-and-short viewport.
+  - **Source dimensions** changed from `800×210` to `800×165` (closer to the 5:1 aspect ratio of its available space).
+  - **Scale** set to `0.4975` uniform, giving rendered `398×82px`.
+  - **Position**: `x=-6` (matches AMS row left edge), `y=998` (1.2px below AMS).
+
+  Fans now spans `x=-6→392` (pixel-exact match with the AMS row above) and `y=998→1080` (lands precisely at the canvas edge). Zero overlap, zero overflow, zero width mismatch.
+
+  **Why:** the previous "shrink scale to fit" approach broke horizontal alignment with the row above. The right answer for "content doesn't fit its given space" is to redesign the widget's internal layout for the new aspect ratio, not warp the scale.
+
+- **Fans widget — standard typography matching the rest of the widget set** (`public/widgets/fans/index.html`) — replaced an earlier vh-based `clamp()` design (which produced tiny text because `vh` inside an iframe refers to the source viewport height, not the rendered height) with fixed em sizing matching the standard widget scale: 1.25em labels and percentages (matching `.finePrint` used everywhere else), 96×96 ring gauge, 44px spinning icon. Now visually consistent with Bed Temp, Chamber Temp, AMS Temp, etc. **Why:** user feedback after the previous iteration: "fans look honestly worse still, the text sizes don't match other widgets." Lesson: OBS scales iframes uniformly so fixed em-based sizing scales correctly; vh tricks don't add value and just introduce bugs.
+
+- **Expanded OBS import instructions on the Export page** (`views/hub.html`, `public/js/hub.js`) — replaced the brief 4-line instruction list with a three-step walkthrough: (A) Import the scene file into OBS — links to obsproject.com for users without OBS, full menu path "Scene Collection → Import…", with the actual scene-collection name ("BambuBoard 3.0.0") that will appear in OBS auto-stamped from `/api/status`. (B) Enable the printer camera — explains LAN Only Liveview must be toggled at the printer (BambuBoard can't enable it remotely), with per-model setting paths and firmware-version requirements. Includes external links to Bambu Lab Wiki (LAN/cloud settings page) and Bambu Lab Support. (C) Keep BambuBoard running while streaming — reminder that the server must stay up for widgets to receive live data. **Why:** users were unclear how to actually use the downloaded `.json` and how to set up the camera; the previous 4-line list assumed too much OBS familiarity.
+
+- **Default H2D template replaced with the user's polished layout** (`OBS_settings/templates/default-h2d.json`) — installed the user-iterated H2D scene as the new shipped default, scrubbed of personal info: `localhost:8080` → `<HOST>` placeholder (16 widget URLs), and the scene collection's top-level `name` set to `BambuBoard <VERSION>` so it auto-substitutes the running version. The previous template embedded `BambuBoard 1.2.4` literally — now any user downloading a scene gets the correct version stamp.
+- **Dynamic version substitution in served templates** (`src/routes/obsScene.js`, `OBS_settings/templates/default-h2d.json`, `OBS_settings/templates/default-x1.json`) — added `<VERSION>` placeholder support alongside the existing `<HOST>` substitution. Both default templates now use `"name": "BambuBoard <VERSION>"` and the server replaces it with the live `package.json` version when serving via `/api/obs/templates/:slug`. Raw endpoint (`/templates/:slug/raw`) returns the unsubstituted source. **Why:** the X1 template still said `BambuBoard 1.1.9` and the H2D one said `BambuBoard 1.2.4` — stale literal versions confused users about what they were running.
+
+- **Right rail top gap aligned to Print Progress** (`OBS_settings/templates/default-h2d.json`) — the Print Progress widget at the top (containing "Print Complete..." + remaining/ETA/model/layer/weight info) extended slightly past where Chamber Temp's 3px gap was measured from. Shifted every right-rail widget down 2px so the gap below Print Progress is 3px to match the rest. Fans source height 222 → 218 to preserve the 3px canvas-bottom margin. Final stack: every widget 3px apart, 3.18px to canvas bottom.
+
+- **Right rail final tuning — 3px gaps + Nozzle content fit + canvas-bottom margin** (`OBS_settings/templates/default-h2d.json`) — bumped uniform gaps 2px → 3px, fixed Nozzle "Target: OFF" line getting clipped (source height 125 → 140 so the iframe fits all content lines), and added a 3.2px margin between Fans bottom and the canvas bottom edge so Fans doesn't visually butt up against the page edge. Fans source height shrunk 256 → 222 to keep the bottom margin tight. All positions adjusted accordingly: Bed Temp 298→299, AMS Temp 380→382, ams-temp-2 496→499, Nozzle 612→616, AMS row 677→690, Fans 953→967. Result: every gap on the right rail (Chamber Temp through canvas bottom) is exactly 3px ± 0.04px tolerance.
+
+- **All right-rail widgets standardized + uniform 2px gaps** (`OBS_settings/templates/default-h2d.json`, `public/widgets/{chamber-temp,bed-temp,ams-temp,ams-temp-2,fans}/index.html`) — applied the same `height: 100%` chain that AMS/Nozzle widgets had to every right-rail widget, so each card fills its iframe edge-to-edge. With cards filling iframes, iframe gap = visible gap. Repositioned all widgets (Bed Temp 288→298, AMS Temp 363→380, ams-temp-2 473→496, Nozzle 584→612, AMS row 649→677, Fans 925→953) so every gap is uniformly 2px. Fans source height shrunk 313 → 256 to fit. Also **fixed a Fans bug** where missing `.container { height: 100% }` broke the height chain, leaving a "major gap at the bottom under Fans" — chain is now complete. **Why:** user noted each widget had different internal padding/margin behavior, leading to inconsistent visible gaps; standardizing the layout pattern means every widget's card geometry is predictable from its OBS template position.
+
+- **Uniform vertical gaps across the right rail** (`OBS_settings/templates/default-h2d.json`, `public/widgets/{nozzle-temp,nozzle-temp-2,fans,ams,ams2}/index.html`) — the bottom section (Nozzle / AMS / Fans) had visible card-to-card gaps of 7-15px while the top widgets were 1-5px. Three coordinated fixes:
+  - **Nozzle source height 175 → 125** so the iframe is sized for its actual content (title + progress bar + Current/Target lines) instead of leaving big dead space below.
+  - **`height: 100%` flex chain** added to Nozzle widgets (already on AMS/Fans) — `.bedcontainer { margin-top: 0; height: 100% }` + `.column.grid-gap-10 { display: flex; flex-direction: column; align-items: stretch }` + `.bed-title { flex: 1 }`. The dark card now fills the iframe edge-to-edge instead of leaving the styles.css default 15px bedcontainer margin-top dead space.
+  - **Fans gets the same `.bedcontainer { margin-top: 0 }` override** to remove dead space at the top of the Fans card.
+  - **Vertical positions**: AMS y=676 → 649, Fans y=952 → 925, Fans source height 259 → 313 (fills the new available space exactly to canvas bottom y=1080).
+  - **AMS bed-title bottom padding** trimmed 6 → 4px so AMS content extends closer to its card edge.
+  Result: visible card-to-card gaps in the bottom section are now 1.6px (Nozzle→AMS) and 2.0px (AMS→Fans), matching the top widgets' 1.2-4.5px range. **Why:** user wanted uniform tight gaps like the top widgets — the bottom widgets were carrying dead space inside their iframes from the default natural-height `bed-title` layout.
+
+- **Right-rail pixel-perfect width unification (final pass)** (`OBS_settings/templates/default-h2d.json`, `public/widgets/{ams,ams2}/index.html`) — math-driven exact match of side-by-side widget visible card edges to the full-width widgets above. Previous iteration was within ~4px; this iteration nails it within 1.4px across all 9 right-rail widgets.
+  - Solved exactly for `scale * (390 + 390 - 30) = 384 - 3.5` → scale = `0.50733` (was 0.5128). Side-by-side iframe width: 197.9px (was 200).
+  - Right widgets pos.x = 194 (was 196) so iframes still touch at the midpoint.
+  - Fans scale `0.5 → 0.4946`, source 800×259 (was 256) so its visible card edges (3.42, 384.26) match the side-by-side total visible (3.61, 384.25) — Fans no longer extends past the side-by-side row width.
+  - AMS bed-title bottom padding reduced 14px → 6px (top stays 12px) so the AMS card content extends closer to the bottom card edge, halving the visible content-to-content gap with Fans below.
+  - Final visible card edges across the entire right rail (Chamber Temp through Fans) span x≈3.5 to x≈384.3 — pixel-aligned within ~1.4px. **Why:** user kept noting "still slightly too wide" / "still too much gap" through several iterations; this final pass solves the geometry algebraically rather than hand-tuning.
+
+- **Right-rail visible-edge matching + AMS taller + Fans fills canvas** (`OBS_settings/templates/default-h2d.json`, `public/widgets/{ams,ams2,nozzle-temp,nozzle-temp-2}/index.html`) — final right-rail layout pass after the previous width-unification still left side-by-side cards extending past the full-width widgets' visible left edge.
+  - **Asymmetric `.container` margins** on each side-by-side widget pair: left widget (Nozzle temp 2, AMS Trays) gets `margin: 0 5px 0 15px` (15px outer = matches full-width left edge, 5px inner = closer to sibling). Right widget (Nozzle Temperature, ams2) is the mirror: `margin: 0 15px 0 5px`. Together with iframe positions at x=-4 and x=196 (200px each, touching at midpoint), the visible card edges land at x=3.69 (left card start) and x=388.3 (right card end) — matching the AMS Temp / Bed Temp / Chamber Temp visible edges (3.53 to 384.42) within ~4px. Middle gap between sibling cards: 5.14px.
+  - **AMS source height bumped 480 → 540** (12.5% more vertical room). Rendered AMS height: 277px (was 246). The flex chain (`.element { flex: 1; min-height: 0 }`) auto-redistributes, so each of the 4 trays grows from ~91px tall to ~108px — less cramped, more readable. The user's "AMS trays seem cramped, make AMS bigger" request, addressed by adding height rather than scaling content.
+  - **Fans repositioned to fill canvas bottom**: y=955, source 800×250 (was 312) at scale 0.5 → rendered 400×125. Fans now lands exactly at y=1080 (canvas edge) with a 2px gap to the AMS row above.
+  - Final right-rail vertical: Nozzle y=584-674, AMS y=676-953, Fans y=955-1080. Tight 2px gaps between rows; the entire right column is one unified visual rail. **Why:** user wanted (a) side-by-side widgets to match the full-width widgets' visible left/right edges, (b) less vertical gap between AMS and Nozzle rows, (c) Fans to fill canvas, (d) AMS taller so trays don't look cramped — all four addressed in one coordinated edit.
+
+- **Right-rail width unification + vertical tightening** (`OBS_settings/templates/default-h2d.json`, `public/widgets/{ams,ams2}/index.html`) — the H2D template's right rail had inconsistent widths: full-width widgets (Bed Temp, AMS Temp, Chamber Temp) span ~399px while the side-by-side pairs (Left/Right Nozzle, AMS #1/#2) totaled ~414px. Plus Fans had visible dead space above and below.
+  - **Side-by-side scale** dropped from 0.5308 to 0.5128 → each widget renders 200px wide. Right widgets at x=194 (iframes touch at the boundary, no overlap). Total span: x=-6→394 (400px) — matches the full-width row exactly.
+  - **AMS y position** moved 680 → 676 (closes the gap left by the now-shorter Nozzle row above at scale 0.5128).
+  - **AMS bed-title bottom padding** reduced 28px → 14px (about 7px less scaled dead space at the bottom of each AMS card, so the visible content meets the Fans card with less empty space between).
+  - **Fans repositioned + resized**: y=924 (2px below AMS), source viewport 800×290 → 800×312, scale 0.4975 → 0.5 → rendered 400×156. Fans now spans x=-6→394 (matches the rest of the right rail) and y=924→1080 (lands exactly at the canvas bottom edge).
+  - Result: every widget on the right rail (Chamber Temp through Fans) has consistent ~399-400px width, no overlaps, and 2-7px vertical breathing room between rows. **Why:** user feedback "now left and right nozzle are too wide collectively, same with ams 1 and 2 they need to match width of ams #1 temp and #2 temp, the fans widget doesn't go to bottom of page to fill the space and is a little far from the ams 1 and 2 widgets."
+
+- **Side-by-side widgets — non-overlapping iframes + tight container margins** (`OBS_settings/templates/default-h2d.json`, `public/widgets/{ams,ams2,nozzle-temp,nozzle-temp-2}/index.html`) — instead of relying on iframe overlap + transparent body to make the AMS and Nozzle pairs visually meet, the right approach is to make the iframes truly non-overlapping. Right widgets moved back to `x=201` (iframes touch at the boundary, zero overlap). Each side-by-side widget overrides `.container { margin: 0 5px }` (reducing styles.css's default 15px) so the dark `bed-title` card extends closer to the iframe edges, leaving a clean 5.3px visible gap between siblings. Transparent body backgrounds are kept as a defensive fallback in case anyone later repositions the iframes to overlap. **Why:** user feedback "or honestly it could be ams 1 overlapping ams2 in the tray widgets, it's just so hard to tell" — the previous overlap-by-design approach was inherently ambiguous about z-order. Non-overlapping iframes eliminate all ambiguity, and the tightened internal margins close the visible gap to a small intentional spacer. Bonus: each widget's content area is now 20px wider in viewport coords so internal text has more horizontal room.
+
+- **Fans / AMS vertical-space rebalance** (`OBS_settings/templates/default-h2d.json`, `public/widgets/fans/index.html`) — even after the redesign, Fans at 144px wide × 82px tall was still too cramped for readable gauges + labels + percentages on stream. Final solution: redistributed vertical canvas space between the AMS row and the Fans row.
+  - **AMS source height** dropped from 610 → 480 (~21% shorter). Rendered AMS row height: 324 → 255px. The AMS widget's flex chain (`.element { flex: 1; min-height: 0 }`) auto-redistributes the trays into the smaller space — no other AMS changes needed.
+  - **AMS row** also moved from y=673 to y=680 (fixes a pre-existing 4px overlap with the Nozzle row above).
+  - **Fans source viewport** grew from 800×165 → 800×290 (much taller). Scale stays at 0.4975, so rendered Fans size is now 398×144px (was 398×82) — 76% more vertical room.
+  - **Fans widget CSS rebuilt** for the now-vertical-friendly cell shape: each fan cell stacks label (1.05em) on top, an 86×86 ring gauge with 38px spinning icon in the middle, and a large readable percentage (1.4em weight 700) at the bottom. `justify-content: space-between` distributes the three rows evenly across the cell height. **Why:** users on stream couldn't read the fan percentages at the previous compressed size; this restores legibility while keeping the canvas footprint exact (Fans now occupies y=936-1080 with no overflow, full AMS-row width).
+
+### Changed
+- **Theme palette aligned with OBS widget colors** (`public/css/theme.css`) — the workflow pages (Setup / Layout / Export) and the dashboard now use the same color tokens as the OBS widgets themselves (`public/widgets/styles.css`):
+  - `--color-bg` `#1a1c20` → `#2a2a2a` (matches widget body color)
+  - `--color-surface` `#23262d` → `#1f2125` (darker than bg, mirrors `.bed-title`'s `rgba(0,0,0,0.25)` overlay pattern)
+  - `--color-text-dim` `#9aa0ad` → `#b4b4b4` (matches `.finePrint`'s `rgb(180,180,180)`)
+  - `--color-text` `#e6e8ee` → `#f0f1f5` (slightly less stark)
+  - `--color-border` `#353944` → `#3a3d44` (slightly lighter for better edge visibility on the new bg)
+  **Why:** workflow pages felt visually disconnected from the OBS overlay widgets they're meant to deliver. Now they share the same surface palette so the whole product feels cohesive.
+- **Brand mark v2** (`public/js/nav.js`, `public/css/components.css`) — bumped the logo SVG from 22×22 to 30×30 with a colored gradient fill (`#6dc26b → #3d8c3b`) on the stacked print-layer bars + a stronger drop shadow. Wordmark upgraded to 19px / weight 800 / tighter `-0.015em` tracking with a `#ffffff → #b8d8b6` text-clip gradient. **Why:** v1 had an SVG mark next to the wordmark but the user noted it still didn't pop enough — v2 reads as a confident product mark instead of a placeholder.
+
+### Added
+- **README + onboarding revamp** (`README.md`, `scripts/build-widget-catalog.js`, `.github/workflows/docker-publish.yml`, `package.json`) — full rewrite of the README:
+  - **Narrative section at the top** explaining the v2 → v3 transition (v2 grew into multi-printer management; v3 returns BambuBoard to its OBS-streaming-overlay roots). Multi-printer users explicitly directed to stay on v2.x.
+  - **One-line Docker install** at the top: `docker run -d -p 8080:8080 -v $(pwd)/data:/usr/src/app/data ghcr.io/t0nyz0/bambuboard:latest`. Multi-arch image (linux/amd64 + linux/arm64) so Raspberry Pi / Apple Silicon hosts work without local builds.
+  - **4-step quickstart** that mirrors the in-app stepper (Setup → Connect → Layout → Export), with the credentials checklist users need before starting.
+  - **Supported printers table** with BambuBoard caps + MQTT auto-detection notes (X1E mapped to X1C; H2D Pro/H2C/H2S/X2D mapped to H2D).
+  - **Auto-generated widget catalog** via new `scripts/build-widget-catalog.js` reading every `widget.json`. Output is a Markdown table with name/description/recommended size/params/cap-gating; embedded in the README with `<!-- WIDGET-CATALOG-START/END -->` markers for future regeneration. Run `npm run build:widget-catalog` to regenerate.
+  - **GHCR publish workflow upgraded**: switched to modern actions (`@v3/v4/v5` instead of v2), added `docker/setup-qemu-action` + `docker/setup-buildx-action` for multi-arch builds, `docker/metadata-action` for proper semver tagging (`v3.1.0` → `:3`, `:3.1`, `:3.1.0`, `:latest`), GitHub Actions cache for fast rebuilds. Triggered on `main` push (`:latest`) and `v*.*.*` tag push (semver).
+  - **Updated troubleshooting** section covering MQTT auto-detection, RTSP setup steps, scene-import gotchas.
+  - **URL parameters reference** documenting `?theme`, `?accent`, `?fontSize`, `?title`, `?pad`, plus widget-specific params and the new `?bind.<id>=` advanced binding syntax.
+- **Advanced widget parameter binding (read-only)** (`public/widgets/_customizer.js`, `public/js/scene-editor.js`, `views/scene-editor.html`, `public/widgets/{print-info,ams}/widget.json`):
+  - **`?bind.<id>=<JSONPath>` URL parameter** lets power users repoint any bindable widget parameter at any path in `/data.json`. Example: `/widgets/ams/?bind.amsUnit=$.print.ams.ams[4]` reads the 5th AMS unit on a 5-AMS-Hub setup. JSONPath subset: `$.a.b[0].c` (object props + array indices), no recursive descent / filters / functions — minimal, predictable.
+  - **`_customizer.js` runs the resolver loop**: fetches `/data.json` every 1.5s, resolves each binding path, stashes results on `window.__bindings`, dispatches `bambuboard:binding-update` event when values change. Widgets can either listen for the event or read `window.__bindings.<id>` on demand. Backwards compatible — widgets that don't care about bindings continue to work as before.
+  - **`widget.json` `bindings` manifest** declares which params are bindable, their default JSONPath, type, and a hint. Example added to `print-info` (5 bindings: subtaskName, layerNum, totalLayers, remainingMin, gcodeState) and `ams` (3 bindings: amsUnit, humidity, amsTemp).
+  - **Scene editor inspector** has a new collapsible "Advanced — telemetry bindings" sub-section that reads the selected widget's manifest, renders one mono-font input per binding with the path's live current value (resolved against a 1s-cached `/data.json`) shown next to it. Edits update the iframe immediately and round-trip cleanly through Save / Download as `?bind.*` URL params on the OBS source.
+  - **`loadCollection()` parses URL params on load**: any existing `?theme`/`?accent`/`?title`/`?pad`/`?fontSize`/`?bind.*` params on widget sources are read back into `state.customizations` so previously-saved scenes show the correct values in the inspector and round-trip safely on re-save (previously, customizations could silently drop if the user only edited a different field).
+- **BambuBoard brand mark + connection-state logo** (`public/js/nav.js`, `public/css/components.css`) — replaced the plain green `<span class="dot">` in the top-left with an inline SVG: three stacked rounded bars suggesting print layers (additive manufacturing) plus a small status dot in the top-right corner of the mark. The dot reflects MQTT connection state — pulses green when online, dims amber when offline, gray when unknown. Brand wordmark gets a subtle text-clip gradient (white → light gray). Hover tints the background. **Why:** the previous brand was placeholder-y; the new mark is recognizable as printer-related and doubles as an at-a-glance status indicator.
+- **Theme cohesion polish** (`public/css/components.css`) — pulled the dashboard widget aesthetic into the shared component styles so workflow pages feel like the same product as the live OBS overlays. Cards now have a subtle top-edge inset highlight + soft 180° gradient overlay + layered drop shadows (sharp 1px + diffuse 4px) matching the `.bed-title` widget card visual language. Buttons get the same inset-highlight treatment; primary buttons gain a green-tinted outer glow. The top nav and stepper bar both get the inset-highlight + drop shadow so they sit visually "above" the page like real toolbars. The active stepper circle gets an accent-tinted halo. **Why:** users noted the workflow pages (Setup / Layout / Export) felt disconnected from the polished widget overlay aesthetic of the dashboard; the goal was "feels connected", not "redesigned" — theme tokens (colors / spacing / fonts) untouched, just added depth.
+
+- **Step-based navigation flow** (`public/js/nav.js`, `public/css/components.css`, `views/setup.html`, `public/js/setup.js`, `views/hub.html`, `public/js/hub.js`, `public/js/scene-editor.js`, `views/scene-editor.html`) — clear 4-step workflow signposted via a breadcrumb stepper at the top of every workflow page: **Setup → Connect → Layout → Export**. Each step is clickable once unlocked; locked steps are grayed out. Stepper hidden on `/dashboard`, `/login`, and `/customize` since those aren't part of the setup flow. **Why:** new users had no clear path from "I just installed this" to "I have an OBS scene running on stream"; nav was 5 items in arbitrary order with no indication of workflow.
+- **MQTT-based printer auto-detection** (`src/lib/caps.js`, `src/mqtt.js`, `src/server.js`, `src/routes/api.js`) — port of ha-bambulab's `pybambu/utils.py:get_printer_type()`. On MQTT connect, BambuBoard now sends a `get_version` request alongside the existing `pushall`. The printer responds with a `module` array containing `product_name` (e.g. `"Bambu Lab H2D Pro"`) and `hw_ver` fields, which we use to identify the printer model. Detection logic: (1) match by product_name (longest match wins, so "H2D Pro" beats "H2D"); (2) fallback to hw_ver + project_name table for older firmware (AP02 → X1E, AP04+C11 → P1P, AP04+C12 → P1S, AP05+N2S → A1, AP05+N1 → A1MINI, AP05 → X1C). Detected type is persisted to `config.printer.type` automatically; raw model string saved to `config.printer.model`; provenance flag in `config.printer.detectedFrom: 'mqtt'|'config'`. **Why:** users had to manually pick their printer type from the dropdown, and there was no way to detect mismatches between configured and actual hardware.
+- **`/api/status` exposes new fields**: `printer.model` (raw product name from MQTT, e.g. "Bambu Lab H2D Pro"), `printer.detectedFrom` (`'mqtt'` or `'config'`), top-level `setupComplete` (true when config has valid serialNumber/url/accessCode) and `connected` (true when MQTT online). The stepper UI uses these to compute completion state for each step.
+- **Setup page Connect section** (`views/setup.html`, `public/js/setup.js`) — after saving credentials, a "Step 2: Verify connection" panel appears below the form showing live MQTT status, the auto-detected printer model, and last telemetry timestamp. Polls `/api/status` every 1.5s. The "Continue to Layout →" button is disabled until both `connected: true` and `printer.detectedFrom: 'mqtt'` are seen, then enables and navigates to `/scene-editor`. **Why:** the previous flow dropped users on `/` after save with no confirmation that the printer was actually reachable; failures were only visible from the nav status pill.
+- **Scene editor "Save & Continue to Export →" button** (`views/scene-editor.html`, `public/js/scene-editor.js`) — saves the current scene with a default timestamped name (so the user doesn't have to think of one), then navigates to `/#saved=<name>` so the Export page can highlight just-saved scenes with a green flash animation. **Why:** users had to use Save (which prompted for a name) then manually navigate to download — three clicks for one logical action.
+- **Hub repurposed as Step 4: Export page** (`views/hub.html`, `public/js/hub.js`, `public/css/hub.css`) — hero updated to "Export to OBS" with a "Back to Layout" button. Added an "How to import into OBS Studio" instructions card (Scene Collection → Import → pick `.json`). Reordered sections: Saved scenes (most prominent, sorted newest-first) → Default templates (secondary) → Browse individual widgets (collapsed `<details>` at bottom). Just-saved scenes get a `.scene-card-highlight` green border + flash animation. **Why:** the hub used to be a generic widget gallery; it's now a focused export step with clear OBS import guidance.
+
+### Changed
+- **Nav reordered** (`public/js/nav.js`) — new order: Setup, Layout, Export, Dashboard. "Widgets" → "Export"; "Scene editor" → "Layout"; "Customize" dropped from main nav (still reachable from Export page widget tiles). **Why:** matches the workflow order; "Widgets" was misleading as the page primarily hosted scene templates and saved scenes.
+- **Scene editor auto-load tightened** (`public/js/scene-editor.js`) — when `/api/status` returns a `printer.type` that no template's `recommendedTypes` list matches, the editor now falls back to `default-x1` (covers most printer families) instead of leaving the canvas empty. Also dispatches a `bambuboard:scene-loaded` window event after loading and shows "Loading layout for &lt;type&gt;…" in the diff badge while the template fetches. **Why:** the user's main complaint was "open scene editor → see widgets immediately"; the previous code worked for known types but silently failed for new/unknown types.
+- **`config.printer.type` may be auto-overwritten** by MQTT detection. The user's manual selection persists until MQTT reports a different type, then it's replaced (with a `[bambuboard]` log line so it's visible). The provenance is tracked via `config.printer.detectedFrom`.
+
+- **Phase 14 remaining OBS schema fields in scene editor** (`public/js/scene-editor.js`, `views/scene-editor.html`, `public/css/scene-editor.css`):
+  - **Visible / Locked inspector toggles** — two checkboxes in the inspector panel. Toggling Visible dims the item on canvas (`.item-hidden { opacity: 0.35 }`) and sets `visible` in the JSON; toggling Locked disables drag/resize handles (`pointer-events: none`) and sets `locked`. Both call `snapshot()` for undo support and round-trip through Save/Download. **Why:** visible/locked were already read from the JSON and applied as CSS classes on render, but had no UI controls — users couldn't change them from the editor.
+  - **Crop fields** (`crop_left`, `crop_top`, `crop_right`, `crop_bottom`) — four number inputs in the inspector. Non-zero values apply `clip-path: inset(...)` on the item's `.body` wrapper; coordinates are converted from source pixels to rendered pixels via the item's scale factors. **Why:** cropping is common in real OBS scenes and was previously pass-through only (correct in the downloaded JSON but invisible in the editor preview).
+  - **`scale_filter` dropdown** — Point / Bicubic / Lanczos / Area / Auto. Maps `"point"` → `image-rendering: pixelated` on `<img>` and `<video>` elements; all other values → `auto`. **Why:** matches OBS's per-source upscaling filter, visible for retro-look pixel-art images.
+  - **`bounds_align` dropdown** — nine options (Center, Top-Left, Top, Top-Right, Left, Right, Bottom-Left, Bottom, Bottom-Right) using the same bitfield enum as OBS's `align`. Writes to `item.bounds_align` and round-trips on Save/Download. **Why:** bounds-mode sources with non-fill anchor need this to position content correctly within their bounding box.
+- **Cloud badge on widget hub tiles** — widgets with `"tags": ["cloud"]` in their `widget.json` now show a purple "cloud" pill in the tile header. When cloud auth is not signed in, these tiles are greyed out with a "Requires Bambu Cloud — Sign in via Setup to enable" overlay (similar to the capability-locked overlay for printer-type-specific widgets). **Why:** users had no visual indication of which widgets need cloud auth or why they appeared blank.
+- **RTSP video relay endpoint** (`src/routes/video.js`) — new server-side proxy that relays the printer's RTSP camera feed (`rtsps://bblp:{accessCode}@{ip}:322/streaming/live/1`) as MPEG-TS over WebSocket at `ws://*/api/printer/video`, decoded client-side by JSMpeg. Uses `rtsp-relay` + bundled `ffmpeg-static` so no system ffmpeg needed. Health check at `GET /api/printer/video/status`. **Why:** the scene editor's Media Source placeholder required users to manually paste MJPEG URLs; now it can show live camera feed automatically.
+- **Cloud login UX on hub** — cloud-locked widget tiles now show a direct "Sign in" link button (`<a href="/login">`) instead of plain text, so users can reach the login page in one click without navigating to Setup first. **Why:** the previous "Sign in via Setup to enable" text didn't link anywhere, forcing users to manually navigate.
+- **Scene editor widget drawer** — a right slide-out panel (toggled via the "**+ Widgets**" toolbar button) that lists all available widgets with live preview thumbnails and recommended dimensions. Drag any widget from the drawer and drop it onto the canvas to add a new OBS browser source at the drop position. The new source is immediately selectable with full inspector support (position, size, theme, crop, etc.) and round-trips through Save/Download as a proper OBS scene item. **Why:** users had to manually edit JSON or use OBS to add new widgets to a scene — now it's drag-and-drop from within the editor.
+
+- **Nozzle type codes decoded to human-readable names** (`public/js/dashboard.js`, `public/widgets/printer-info/PRINTER_info_script.js`, `public/widgets/nozzle-info/NOZZLE_info_script.js`) — raw nozzle type codes like `HS05` are now decoded using ha-bambulab's material mapping: `00` = Stainless Steel, `01` = Hardened Steel, `05` = Tungsten Carbide, with "High Flow" prefix when applicable. Legacy string values like `hardened_steel` are also title-cased. **Why:** the dashboard showed cryptic codes like "HS05 · ⌀0.4mm" instead of "Tungsten Carbide · ⌀0.4mm".
+
+- **AMS filament change target indicator** (`public/widgets/ams/`, `public/widgets/ams2/`, `public/widgets/styles.css`) — when the AMS is changing filament, the target tray now shows a pulsing amber "target" badge alongside the existing green "active" badge. Uses `print.ams.tray_tar` (target tray) and `print.ams.tray_now` (current tray) from MQTT telemetry, with stage confirmation via `stg_cur` (4=changing, 22=unloading, 24=loading). The badge pulse-animates at 1.2s to draw attention during the swap. Supports multi-AMS (tray encoding: bits[1:0]=slot, bits[3:2]=unit) and AMS HT (≥128). **Why:** during multi-color prints, users couldn't see which filament tray the AMS was moving to — they only saw the currently active tray.
+- **Z-order / layer controls in scene editor** (`views/scene-editor.html`, `public/js/scene-editor.js`) — the inspector now shows a "Layer" row with ⤒ Front / ↑ Fwd / ↓ Bwd / ⤓ Back buttons and a position indicator (e.g. "5 / 19"). Reorders `state.items[]` to control which widget renders on top of which, matching OBS's source stacking order. Selection follows the moved item and the change pushes to undo. **Why:** users couldn't control widget layering — a camera feed on top of widgets, or a text label behind a progress bar, required editing raw JSON.
+- **Nozzle widget unification** (`public/widgets/nozzle-temp/`, `public/widgets/nozzle-temp-2/`) — the nozzle-temp widget now accepts a `?nozzle=N` URL parameter (0=right/default, 1=left), using H2D bit-packed temperature format (`device.extruder.info[N].temp`) with legacy fallback for single-nozzle printers. Title auto-labels based on printer caps: "Nozzle" (single) or "Right/Left Nozzle" (dual). The legacy `nozzle-temp-2/` folder is preserved for existing OBS scenes but rewritten to use the same unified logic hardcoded to index 1. **Why:** eliminates the code duplication between nozzle-temp and nozzle-temp-2 (previously byte-identical except for index constants), and the right-nozzle widget was still using the legacy `nozzle_temper` field instead of the H2D bit-packed format.
+
+- **Fan widget redesigned** (`public/widgets/fans/`) — replaced the simple spinning material icons with SVG ring gauges around each fan. Each fan now shows a circular gauge that fills and color-shifts based on speed (green → amber → red), larger readable labels ("Aux", "Chamber", "Cooling", "Heatbreak" per ha-bambulab convention), prominent percentage text, and the spinning fan icon centered within the ring. The spinning speed still matches the raw fan value. The JS was completely rewritten — eliminated 4× duplicated 16-case switch statements (~300 lines) in favor of a clean data-driven loop (~100 lines). **Why:** the previous design had tiny labels and small spinning icons with no visual indication of speed — looked flat and uninformative on an OBS overlay.
+
+### Fixed
+- **Active nozzle badge greyed out when idle** (`public/widgets/nozzle-temp/`, `public/widgets/nozzle-temp-2/`) — the green "active" pill on the nozzle-temp widget now dims to grey at 50% opacity when the printer isn't actively printing (IDLE, FINISH, etc.) and shows bright green only during RUNNING/PREPARE/PAUSE. **Why:** the bright green badge was misleading when the printer was resting — it looked like the nozzle was actively in use.
+- **AMS empty tray display** (`public/widgets/ams/AMS_script.js`, `public/widgets/ams2/AMS_script.js`) — empty AMS trays now show "Empty" with dimmed opacity (0.35) instead of "Inactive" with a misleading "0%" remaining. Both scripts rewritten with a shared `updateTray()` helper, replacing 4× copy-pasted blocks with a clean loop. The empty tray detection uses `!filType && !color` (checks filament type and color) instead of the buggy `!remain` check (which was truthy for `-1`, causing empty trays to enter the "has data" branch). **Why:** trays with no filament showed "Inactive" and a progress bar, looking broken instead of intentionally empty.
+- **Generic/3rd-party filament type label blank** (`public/widgets/ams/`, `public/widgets/ams2/`) — trays with non-Bambu filament (tag_uid = "0000000000000000") now correctly show their filament type label (e.g. "PLA", "PETG") instead of an empty string. The original logic `uid ? '' : filType` was only showing the type for uid-less manual entries, not for generic RFID-tagged filament. **Why:** users loading third-party filament saw the material name but no type — confusing when you have multiple brands of the same type.
+- **AMS widget consistent tray row heights** (`public/widgets/ams/index.html`, `public/widgets/ams2/index.html`) — AMS tray rows now always fill the full widget viewport equally using flexbox (`flex: 1`), regardless of whether a tray is empty or loaded. Previously, empty trays were shorter than loaded ones, causing AMS #1 (3 empty + 1 loaded) to look visibly shorter than AMS #2 (4 loaded). **Why:** side-by-side AMS widgets with different content would have mismatched heights on stream.
+- **Nozzle / AMS center line alignment** (`OBS_settings/templates/default-h2d.json`) — the vertical seam between Left/Right Nozzle widgets now aligns with the seam between AMS #1/#2 below them. Nozzle positions nudged from x=-5/x=186 to x=-6/x=184 (1–2px each) to match the AMS column positions. Gap center offset reduced from 1.6px to 0.1px. **Why:** the visible "center line" between the two columns was inconsistent between the nozzle row and AMS row.
+
+### Changed
+- **Camera source position fixed in H2D template** (`OBS_settings/templates/default-h2d.json`) — the Printer Camera source now matches the original BambuBoard H2D 1.0 layout: positioned at (420, 99) with scale 0.87× (rendering at ~1670×940px), filling the right ~80% of the canvas behind widgets. Previously was too small (920×540) and mispositioned. **Why:** the camera feed is the visual background of the scene, not a small pip.
+- **RTSP video placeholder shows Bambu setup instructions** (`public/js/scene-editor.js`, `src/routes/video.js`) — when the camera feed isn't available, the placeholder now shows step-by-step setup instructions: enable LAN Only Liveview on the printer touchscreen, reboot, and firmware requirements. The hint message from the video status API is also more specific about the printer-side setting. **Why:** users seeing "RTSP disabled" had no idea what to do about it.
+- **Auto-layout rewritten** (`public/js/scene-editor.js`) — the previous "conservative" auto-layout only snapped X/Y to the 10px grid, producing no visible change on already-grid-aligned layouts. New algorithm properly stacks items into columns: separates full-width anchors (progress bars, notes), clusters remaining items by x-center into columns, then stacks each column top-to-bottom with consistent spacing, skipping over anchor regions. **Why:** users expected auto-layout to actually reorganize the layout, not just nudge by 2–3 pixels.
+- **Snap-to-widget edges during drag** (`public/js/scene-editor.js`) — dragging a widget now snaps its edges and center to the edges/centers of nearby widgets (8px proximity), plus canvas edges (0, canvas width/height). Works alongside shift-to-grid. **Why:** aligning widgets by hand to pixel-perfect edges was tedious without edge-snapping.
+- **Resolution change scales widgets proportionally** (`public/js/scene-editor.js`) — changing the canvas resolution (e.g. 1920×1080 → 1280×720) now scales all widget positions, sizes, and bounds proportionally instead of leaving them at their original absolute positions. **Why:** switching resolution without scaling made all widgets overflow or cluster in one corner.
+- **H2D template: AMS #1/#2 positions swapped** (`OBS_settings/templates/default-h2d.json`) — AMS #1 (ams tray widget) now renders on the left, AMS #2 on the right. Both AMS tray widgets normalized to 390×610 source dimensions with matching scale (0.5308) so they render at identical 207×324px. **Why:** AMS #2 was on the left and #1 on the right, which was visually confusing.
+
+### Fixed
+- **Progress widget blank state** (`public/widgets/progress-info/PROGRESS_script.js`) — the widget only handled `RUNNING`, `FINISH`, and `FAILED` gcode states. Any other state (e.g. `PREPARE`, `PAUSE`, `IDLE`, `SLICING`, or unknown states at print start) left `#printStatus` empty, causing the progress bar to jump to the top with no label. Now handles all known states with appropriate text and colors, plus a fallback that title-cases any unknown state (e.g. "Processing..."). **Why:** the brief moment between print start and first `RUNNING` state produced a broken-looking widget.
+- **Nozzle temp widgets: Current/Target on same line** (`public/widgets/nozzle-temp/index.html`, `public/widgets/nozzle-temp-2/index.html`) — changed layout from `display: flex; justify-content: space-between` (side-by-side) to stacked (one per line), making the widget taller to fill the gap between AMS temp and AMS tray widgets in the scene editor. **Why:** the cramped single-line layout left visible whitespace gaps in the H2D scene layout.
+- **Cloud widget endpoints (`/profile-info`, `/login-and-fetch-image`) were stubs** — both returned placeholder data instead of fetching from the Bambu Cloud API. Ported the real implementation from BamubBoard-H2D: `/profile-info` now does a two-step fetch (get UID from `/my/preference`, then full profile from `/user/profile/:uid`) and returns handle, avatar, fanCount, followCount, likeCount, collectionCount, downloadCount, boostGained. `/login-and-fetch-image` fetches the latest print task's cover image from `/my/tasks`. Both endpoints cache responses (30s for images, 10min for profile) and fall back gracefully when cloud auth is off. **Why:** model-image and profile-info widgets were rendering blank/placeholder since v3.0.0 even with cloud auth enabled.
+- **Dashboard: second nozzle tile mislabeled "Right nozzle"** — the HTML in `views/dashboard.html` hardcoded "Right nozzle" for the `tile-nozzle2` tile, but per ha-bambulab convention (`info[0]` = right, `info[1]` = left) that tile shows the **left** nozzle. The JS already correctly sets nozzle1 to "Right nozzle" for dual-nozzle printers, so both tiles displayed "Right nozzle". Fixed to "Left nozzle". **Why:** copy-paste error in the original HTML.
+- **H2D MQTT connection stability** — removed H2D from the continuous-pushall list in `src/mqtt.js`. The H2D was being flooded by rapid-fire pushall requests on every non-print MQTT message, causing a tight connect→ECONNRESET→reconnect loop. H2D now uses the 5-minute interval pushall like P1/A1, with the initial pushall on connect still providing immediate data. **Why:** real-hardware testing confirmed continuous pushall overwhelms the H2D's MQTT broker; X1/X1C handle it fine.
+
+### Added
+- **`AGENTS.md`** — agent guidance covering project layout, critical conventions (PRINTER_CAPS, ha-bambulab parity, OBS round-trip safety, widget URL parameters, pretty URLs, scene-editor invariants), the always-log-changes-to-CHANGELOG rule, and a "don't" list. Read this before making changes.
+- **Auto-select OBS scene template** matching the connected printer's type. The scene editor's loader dropdown now auto-picks `default-h2d` when the printer is H2D, `default-x1` for X1/X1C/P1*/A1*. **Why:** users were having to pick the same dropdown on every page load; the connected printer type is already known via `/api/status`.
+
+### Fixed
+- **Left/Right Nozzle widget visual parity.** Two-part fix:
+  1. **Widget script** — `nozzle-temp-2/NOZZLE_script.js` was rendering "OFF OFF" (one for °C, one for °F display elements) when the target temperature was 0, making the widget wrap to a second line and look taller than the right widget. Now mirrors right-widget behavior: hides the °C span and shows "OFF" once in the °F slot.
+  2. **OBS template** — `default-h2d.json` had non-identical source dimensions for the two nozzle widgets (380×175 vs 385×175 with scales 0.545 vs 0.542). Both normalized to **380×175 with scale 0.545**, rendering at exactly 207×95 px regardless of content. **Why:** sister widgets showing the same kind of info should be visually indistinguishable, especially on stream where users notice every pixel of inconsistency. Restored to the original right-widget dimensions (rather than shrinking to a smaller average) per the user's principle: **OBS source dimensions are sacred and rarely change** — the layout has been arranged perfectly in OBS, so widget content must adapt to fit, never the other way around.
+- **Scene editor render-bug black-hole** — `looksLikeImageUrl()` and `mkIframe()` were referenced but never defined; the resulting `ReferenceError` on the trademark-logo source aborted the rest of the `forEach`, silently dropping 10 left-rail widgets from the canvas. Added the helper definitions and wrapped per-item rendering in try/catch as a defensive backstop. **Why:** a single bad item should never make most of the canvas disappear.
+- **OBS scene-editor diff counter showing "no changes" after auto-layout** — `selectScene()` was using `Array.slice()` (shallow copy), so each item's `pos`/`scale`/`bounds` objects were shared with `state.original`. Mutations during drag/resize/auto-layout silently mutated the original too, defeating the modified-vs-original comparison. Now deep-clones via `structuredClone()`. Also resets undo/redo history on scene switch.
+- **Auto-layout was too aggressive** — the original k-means + tight-stacking version overlapped big items (Model Image at 512×550) onto small ones in the same column and reordered the visual hierarchy. Replaced with a **conservative align-and-snap** pass: clusters items by current x-position into bands (within 30px tolerance), aligns each band to its snapped median, snaps every item's y to the 10px grid. Doesn't re-stack or reorder — preserves the user's intent.
+
+### Changed
+- Nozzle widget header strings now declare `data-default` and `data-default-dual` attributes so the customizer's cap-aware default mechanism can swap "Nozzle" → "Right Nozzle" on H2D without changing HTML.
+- Both nozzle widgets now have the `#activeTag` "active" badge; the toggle logic reads `device.extruder.state >> 4 & 0xF` and lights up the badge for whichever nozzle is the active extruder. Previously only the left widget had this.
+
+---
+
+## v3.0.0 — Unified single-printer rebuild
+
+A full ground-up merge of the two pre-existing forks (`BambuBoard` for X1/P1/A1, and `BamubBoard-H2D` for the H2D) into one codebase, with significant new capabilities. **Multi-printer support was intentionally dropped** in favor of a single-printer-of-any-type model — the old multi-printer plumbing made the codebase hard to extend and most users only have one printer; complex setups can run a separate instance per printer.
+
+The release pivots the project's identity from "live print monitor" to "**OBS streaming overlay toolkit**" — the widgets that get embedded in OBS as Browser Sources are now treated as the primary product, with a live preview gallery, a visual scene editor, and a full customizer. The in-app dashboard is still there but secondary.
+
+### Why this rebuild
+
+Maintaining two forks was painful — bugs fixed in one rarely made it to the other, the H2D-specific dual-AMS / dual-nozzle widgets had drifted, and the two `bambuConnection.js` backends were 90% identical with the remaining 10% being subtly incompatible. v3.0 unifies them and rebuilds the project layout to professional standards (proper `src/`, `views/`, `public/{css,js}/` separation; runtime state in `data/`; pretty URLs; modern CSS design tokens; ESM-style route modules).
+
+The H2D's structural differences (dual extruders, dual AMS units, packed-int telemetry fields) are now expressed as **printer capabilities** in a single map rather than duplicated code:
+
+```js
+H2D: { hasChamberTemp: true, hasDualNozzle: true, hasDualAMS: true, maxAms: 4 }
+```
+
+Widgets and dashboard tiles render conditionally based on these flags. Adding a future printer model means adding one row.
+
+---
+
+### Major features
+
+#### OBS scene editor (`/scene-editor`)
+
+A WYSIWYG editor that loads OBS scene-collection JSONs (templates, saved scenes, or any uploaded `.json`) and renders a faithful 1920×1080 preview with **live widget iframes positioned at their real OBS coordinates and sizes**. You see what your overlay will actually look like in OBS, with real telemetry flowing.
+
+- **Visual fidelity:** the editor reproduces OBS's browser-source pipeline — each iframe paints at its source's natural viewport (`settings.{width,height}`) and is then `transform: scale()`'d to the on-canvas size. Without this, widgets thought they had less room than they were designed for and overflowed.
+- **OBS `settings.css` injection:** for same-origin widgets we append a `<style>` tag inside the iframe's `<head>`; for cross-origin sources (the trademark logo) we parse the body-level rules out of `settings.css` and apply them to the wrapper. Critical for the H2D logo's rounded dark backdrop and the Notes widget's translucent black bar.
+- **Round-trip-safe export:** the editor clones the original JSON and only mutates the items + URLs you actually changed. Audio mixers, transitions, hotkeys, scene order, modules, and any unrecognized fields are preserved verbatim. A diff counter ("N modified / M total") shows what's about to change before download.
+- **Drag, resize, snap-to-grid, keyboard nudge, undo/redo, multi-scene picker.** Cmd/Ctrl+Z and Shift+Arrow keys work as expected. Hold Shift while dragging to snap to a 10px grid.
+- **Customize panel** per widget: theme, accent color, font size, padding, **title override** (so users with three AMS units can label them however they want), all round-tripped as URL parameters on the OBS browser-source URL.
+- **Auto-size:** each widget reports its rendered content size to the editor 600ms after load via `postMessage`. Click "Auto-size to content (W×H)" in the inspector to set the OBS source's dimensions to the measured values.
+- **Auto-layout:** a conservative align-and-snap pass that clusters items by current x-position and aligns each band to its snapped median. Doesn't re-stack or reorder — preserves the user's layout intent. (An earlier aggressive k-means version was tried and reverted because it overlapped big items with small ones.)
+- **Media-source override:** the OBS Media Source (typically the printer's RTSP camera feed) can't be played in browser. Click the Media Source item and paste any browser-playable URL (MJPEG endpoint, mp4 loop, anything). Stored in localStorage per source UUID so it persists. Server-side RTSP relay deferred to v3.2.
+- **Canvas resolution** read from the scene-collection's `resolution` field. A toolbar pill shows the current dimensions and lets users switch between 1080p / 1440p / 4K / 720p / custom — must match OBS's Base Canvas Resolution.
+- **OBS schema fidelity:** the editor honors `pos`, `scale`, `bounds`, `bounds_type`, `align` (anchor offset), `rot` (rotation), `blend_type` (CSS `mix-blend-mode`: lighten/multiply/etc.), `visible`, `locked`, and `enabled` flags. Crop, `bounds_align`, and `scale_filter` flagged for follow-up.
+
+#### Widget hub (`/`)
+
+The new home of the app. A live gallery of every widget rendering with real telemetry, scene-template downloads with `<HOST>` pre-substituted, and per-tile customize panels. Users see what the widgets actually look like before adding them to their OBS scene. Widget tiles for printer-specific widgets (AMS #2, second nozzle on H2D) are greyed out for non-H2D printers via `requiresCap` flags in each widget's `widget.json` manifest.
+
+#### In-app dashboard (`/dashboard`)
+
+Capability-flag-driven layout. The dashboard's HTML includes all DOM blocks (single-AMS, second-AMS, single-nozzle, second-nozzle, chamber-temp); JS reads the printer's `type` from `/api/status` and toggles `display: none` on blocks whose capability flag is false. Same code path for every printer model.
+
+Right/left nozzle naming auto-swaps based on `caps.hasDualNozzle` so single-nozzle printers see "Nozzle" while H2D sees "Right Nozzle" / "Left Nozzle".
+
+#### Setup wizard (`/setup`)
+
+First-run experience: empty `config.json` → all routes redirect to `/setup?firstRun=1` with friendly copy. Test-connection button hits real MQTT before saving. Three cards: Printer config, Display preferences, optional Bambu Cloud auth. Save triggers `reloadPrinter()` server-side so changes take effect without a process restart.
+
+#### Optional Bambu Cloud auth
+
+Off by default (LAN-only operation works fine without it). Enable in setup to populate the `profile-info` and `model-image` widgets from MakerWorld. Sign-in flow is email + verification code with optional MFA, ported from the H2D fork's working implementation. Tokens cached in `data/accessToken.json` (gitignored).
+
+---
+
+### Telemetry parsing improvements
+
+Cross-checked against the actively-maintained [`ha-bambulab`](https://github.com/greghesp/ha-bambulab) Home Assistant integration (much more thorough than what the existing widgets had).
+
+- **Bit-packed temperatures:** newer Bambu firmware (notably H2D) packs current and target temperatures into a single int32 — low 16 bits = current, high 16 bits = target. This lives at `device.bed.info.temp`, `device.ctc.info.temp` (chamber, was previously `null` on H2D — that's why the widget showed "0°C NaN°F"), and `device.extruder.info[i].temp` (per nozzle). Dashboard and chamber-temp widget now read packed first, fall back to legacy flat fields.
+- **Active nozzle index** decoded from `(device.extruder.state >> 4) & 0xF`. Right/left labeling matches ha-bambulab convention: `info[0]` = right, `info[1]` = left.
+- **Stage enum expanded** from ~12 hand-curated entries to all **78** from `pybambu/const.py:CURRENT_STAGE_IDS` — covers calibration phases, HMS pause states, hotend pick/place, blade homing, etc.
+- **Fan-speed model** matched to `ha-bambulab/utils.py:fan_percentage()` — `(raw/15)*100` rounded to nearest 10. Fan labels updated: `big_fan1` = "Aux", `big_fan2` = "Chamber".
+- **Dual-AMS active-tray fix** (the bug both AMS widgets showed *something* as active simultaneously): the active nozzle's `extruder.info[i].snow` field encodes which AMS+tray is feeding (`amsIndex = snow >> 8`, `trayIndex = snow & 0x3`). Special values: 255 = none, 254 = external spool. Now in `public/widgets/_amsActive.js`, used by both `ams/` and `ams2/` widgets so only the AMS unit actually feeding the active nozzle highlights a tray.
+- **AMS humidity and dryer:** `humidity` (1–5 enum) drives the level bars; `humidity_raw` (0–100%) shown as `(N%)` next to the level text; `dry_time > 0` reveals an amber "Drying" row showing remaining minutes + target temp + filament name.
+- **HMS error pills** on the dashboard: when `print.hms[]` has entries, severity-colored pills appear under the print banner. Severity decoded from the high nibble of the high word; click a pill to open the official Bambu wiki troubleshooting page for that specific 4-part hex code (e.g. `HMS_0300_0100_0001_0007`).
+- **Fixed `ams-temp-2` reading wrong index:** the H2D fork's copy-paste left 4 stale `ams.ams[0]` references in the AMS #2 widget (lines 175, 192, 195, 279) so both AMS-temp widgets always showed identical values. Now correctly reads `ams.ams[1]`.
+
+---
+
+### Multi-AMS support (Phase 12)
+
+Bambu's AMS Hub chains up to 4 AMS units. The two-folder pattern (`ams/` + `ams2/`) doesn't scale to four, so:
+
+- **`?ams=N` URL parameter** (0–3) on `public/widgets/ams/` and `public/widgets/ams-temp/`. One widget file drives any AMS unit. Default 0 (primary AMS).
+- **`PRINTER_CAPS.maxAms`** field added — A1 / A1 Mini = 1, everything else = 4.
+- Legacy `ams2/`, `ams-temp-2/` folders preserved unchanged so already-imported OBS scenes keep working.
+- For 3-AMS or 4-AMS setups, just add `/widgets/ams/?ams=2` and `/widgets/ams/?ams=3` browser sources in OBS.
+
+---
+
+### Customizer URL parameters (Tier 1 of Phase 7)
+
+Every widget reads URL parameters via `public/widgets/_customizer.js` and applies them as CSS / DOM tweaks:
+
+- `?theme=dark|light|transparent` — overrides the body class
+- `?accent=51a34f` — sets the `--bb-accent` CSS variable
+- `?fontSize=24` — sets `body.style.fontSize`
+- `?title=Anything` — overrides the widget's `<h2 class="partTitle">`
+- `?pad=12` — sets body padding for breathing room around content
+- `?ams=N` (AMS widgets only) — multi-AMS targeting
+
+Plus a **capability-aware default** mechanism: a title element can declare `data-default` and `data-default-dual` attributes; the customizer fetches `/api/status` and picks the dual variant when `caps.hasDualNozzle`. So `nozzle-temp` shows "Nozzle" on X1/P1/A1 but "Right Nozzle" on H2D.
+
+The `/api/obs/customize` endpoint round-trips all customizations through to downloaded scene files: clone the scene, walk every browser source URL, and append the per-widget query string with allowlist-based duplicate stripping.
+
+---
+
+### Project restructure (Phase 0)
+
+The single-file 667-line `bambuConnection.js` was split into:
+
+```
+src/
+├── server.js          Express bootstrap, route mounting
+├── mqtt.js            Single-printer MQTT client + connection test + auto-update note.json
+├── config.js          Load / save / migrate / first-run detect
+├── routes/
+│   ├── pages.js       Pretty-URL HTML routes
+│   ├── api.js         /api/* JSON endpoints
+│   ├── auth.js        /login /verify /mfa (cloud auth, gated)
+│   └── obsScene.js    /api/obs/* template + scene + customize endpoints
+└── lib/caps.js        PRINTER_CAPS map
+```
+
+Plus:
+- `views/` — HTML pages served by explicit routes (no more `.html` in URLs)
+- `public/css/` — split from a 20KB monolith into `theme.css` + `components.css` + per-page CSS
+- `public/js/` — split from a 1639-line `script.js` into per-page logic
+- `data/` — runtime state (data.json, accessToken.json, note.json, scenes/) — gitignored
+
+Pretty URLs (`/`, `/dashboard`, `/setup`, `/scene-editor`, `/customize`, `/login`) implemented via explicit Express routes. Old `*.html` URLs 301-redirect to the bare path so existing bookmarks keep working.
+
+---
+
+### Migrators
+
+Two legacy config shapes auto-migrate on first boot:
+
+1. **Old H2D fork** (flat keys: `BambuBoard_printerURL`, `BambuBoard_printerSN`, etc.) → new `printer` object with `type: "H2D"`.
+2. **Old multi-printer BambuBoard** (`printers[]` array) → first valid printer kept, rest dropped with a warning. Multi-printer is intentionally not supported in v3.
+
+Both produce a `config.json.pre-merge-{type}-{timestamp}.bak` backup before overwriting. Legacy runtime files (`accessToken.json`, `note.json`, `public/data.json`) at the repo root are auto-moved into `data/` on first boot.
+
+---
+
+### OBS scene templates
+
+`OBS_settings/templates/` ships scrubbed working scenes:
+- `default-x1.json` — X1, X1C, P1, P1P, P1S, A1, A1 Mini
+- `default-h2d.json` — H2D (with the AMS #2, AMS #2 humidity, and right-nozzle widgets)
+
+Both stripped of personal IPs (replaced with `<HOST>` placeholder), Streamlabs viewer-count source (had embedded token), Windows-path SDP camera source, "Watching now" text label, and OBS hotkeys / profile / recents.
+
+The hub's "Download for OBS" button serves these with `<HOST>` substituted from the request. Users can also download the raw template and find-replace `<HOST>` themselves.
+
+---
+
+### Bug fixes worth calling out
+
+- **Scene editor diff counter always said "no changes"** — root cause was `selectScene()` using `array.slice()` which is a shallow copy. Each item's `pos`/`scale`/`bounds` objects were shared with `state.original`, so drag/resize/auto-layout silently mutated the original. Now deep-clones via `structuredClone()`.
+- **Scene editor lost 10 left-rail widgets when loading the H2D template** — `looksLikeImageUrl` and `mkIframe` were referenced but never defined, threw on the trademark logo source (item #9), and `forEach` aborted the rest of the loop. Fixed by adding the helpers and wrapping per-item rendering in try/catch as a defensive measure.
+- **Chamber Temperature: 0°C NaN°F** on H2D — the widget read `chamber_temper` directly which is null on current H2D firmware (moved to packed `device.ctc.info.temp`).
+- **"Filament weight: undefinedg"** in print-info widget — null-concat bug. Now renders "—" when missing.
+- **Model-image widget broken** — its `<img src="../../plate.png">` 404'd because we'd removed the root-level `express.static` mount during the restructure. Moved `plate.png` to `public/assets/`.
+- **`/api/status` cloud-auth `signedIn` always false** — was hardcoded; now reads `data/accessToken.json`.
+- **Legacy widget endpoints missing** — added `/version`, `/settings`, `/preference-fan-icons`, `/preference-fan-percentages`, `/status`, `/profile-info`, `/login-and-fetch-image`, `/note` so existing widget HTML/JS works unmodified.
+
+---
+
+### Removed / dropped
+
+- **Multi-printer support** (`printers[]` array, per-printer routes, tabbed dashboard, `printer-grid.html`). Migration keeps the first printer.
+- **Video streaming** (`videoStreamer.js`, `rtsp-relay` dependency, video iframe wiring). Users can use VLC/OBS against the printer's RTSP URL directly. Server-side relay flagged as a v3.2 candidate.
+- **`express-ws`** dependency (no longer used).
+- **Per-printer `data_*.json`** files. Single-printer = single `data.json`.
+- The vestigial root-level `express.static('public')` mount — assets are now scoped to `/css`, `/js`, `/assets`, `/widgets`.
+
+---
+
+### Known limitations / deferred to v3.x
+
+- **Server-side RTSP relay** — would let the scene editor render the printer's actual camera feed instead of requiring a manual MJPEG override URL. Adding this means re-introducing a video pipeline that was removed in this release. Targeted for v3.2.
+- **Phase 14 remainders** — crop fields (`crop_left/top/right/bottom`), `bounds_align`, `scale_filter`, and inspector toggles for visibility/locked. Lower priority because they're rarely used in real-world scenes.
+- **Auto-layout improvements** — current implementation is conservative (align-and-snap). A smarter "make this look right" mode would need a layout-template system, possibly with named templates per printer type.
+- **Multi-canvas scene collections** (OBS 32+) — the `canvases` field is passed through but not interpreted. Most users only have one canvas.
+- **Real-hardware verification under print load** — current testing was against a printer in `FINISH` state. Pushall cadence on H2D under continuous printing is unverified.
+
+---
+
+### Migration notes for existing users
+
+**Coming from BambuBoard v2.x (multi-printer):**
+1. First boot will rewrite `config.json` to single-printer shape, picking the first printer from your `printers[]`. Backup at `config.json.pre-merge-multi-{timestamp}.bak`.
+2. Other printers from your old config are dropped — to monitor multiple printers, run a separate v3 instance per printer on different ports.
+3. Existing OBS scenes keep working unchanged (widget URLs unchanged for single-printer use).
+4. Docker tag `bambuboard:latest` continues to work.
+
+**Coming from BamubBoard-H2D v1.2.x:**
+1. First boot detects the flat-key `BambuBoard_printerURL` config and converts to the new `printer` object with `type: "H2D"`. Backup at `config.json.pre-merge-h2d-{timestamp}.bak`.
+2. The H2D-specific `ams2`, `ams-temp-2`, `nozzle-temp-2` widget URLs continue to resolve.
+3. Bambu Cloud auth is now opt-in via the `cloudAuth.enabled` config flag — it's off by default in v3. Re-enable in `/setup` if you used it.
+4. The `bambuboard-h2d` Docker repository will be archived; switch to `bambuboard:latest`.
+
+---
+

@@ -59,11 +59,39 @@ async function updateUI(telemetryObject) {
       );
       $("#printProgressBar").css("background-color", "grey");
     } else if (printStatus === "FAILED") {
-      $("#printStatus").text("Print failed" + "... ");
+      $("#printStatus").text("Print failed...");
       $("#printProgressBar").width(
         (telemetryObject.mc_percent * progressParentWidth) / 100
       );
-      $("#printProgressBar").css("background-color", "#red");
+      $("#printProgressBar").css("background-color", "red");
+    } else if (printStatus === "PAUSE") {
+      $("#printStatus").text("Paused... " + (telemetryObject.mc_percent || 0) + "%");
+      $("#printProgressBar").width(
+        (telemetryObject.mc_percent * progressParentWidth) / 100
+      );
+      $("#printProgressBar").css("background-color", "#e2a04a");
+    } else if (printStatus === "PREPARE") {
+      $("#printStatus").text("Preparing...");
+      $("#printProgressBar").width(5);
+      $("#printProgressBar").css("background-color", "#4a90e2");
+    } else if (printStatus === "IDLE") {
+      $("#printStatus").text("Idle");
+      $("#printProgressBar").width(5);
+      $("#printProgressBar").css("background-color", "grey");
+    } else if (printStatus === "SLICING") {
+      $("#printStatus").text("Slicing...");
+      $("#printProgressBar").width(5);
+      $("#printProgressBar").css("background-color", "#4a90e2");
+    } else {
+      // Unknown or new state — show something rather than blank
+      const label = printStatus
+        ? printStatus.charAt(0).toUpperCase() + printStatus.slice(1).toLowerCase()
+        : 'Processing';
+      $("#printStatus").text(label + "...");
+      $("#printProgressBar").width(
+        (telemetryObject.mc_percent * progressParentWidth) / 100 || 5
+      );
+      $("#printProgressBar").css("background-color", "grey");
     }
 
     return telemetryObject;

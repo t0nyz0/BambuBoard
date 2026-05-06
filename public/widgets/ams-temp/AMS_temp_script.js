@@ -14,6 +14,16 @@ let settings = "";
 let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
+// Multi-AMS support: read ?ams=N URL parameter (0..3) so a single widget file
+// can drive any AMS unit. Default is 0 (primary AMS). The legacy ams2/
+// folder still exists as a fallback for back-compat with already-imported
+// OBS scenes; new scenes can simply add ?ams=1, ?ams=2, ?ams=3 to /widgets/ams/.
+const AMS_INDEX = (function () {
+  const n = parseInt(new URLSearchParams(window.location.search).get('ams'), 10);
+  return Number.isFinite(n) && n >= 0 && n <= 3 ? n : 0;
+})();
+
+
 async function loadSettings() {
   try {
       const response = await fetch(fullServerURL + '/settings');
@@ -46,11 +56,40 @@ async function retrieveData() {
   return telemetryObject;
 }
 
+// Update humidity-raw % and drying status. Logic shared between AMS #1 and #2
+// (both ams-temp/ and ams-temp-2/ widgets call this with their unit index).
+// Mirrors ha-bambulab's AMS humidity / dryer model.
+function updateHumidityExtras(unit) {
+  if (!unit) return;
+  // humidity_raw is the actual percentage (0-100). Falls back to humidity index
+  // (1-5, low-to-high) which doesn't have a percentage form.
+  var humPct = unit.humidity_raw != null ? parseInt(unit.humidity_raw, 10) : null;
+  $("#humidityPercent").text(humPct != null && !isNaN(humPct) ? `(${humPct}%)` : "");
+
+  // Drying state: dry_time > 0 while AMS is actively heating filament. Shown
+  // in amber under the humidity bars so users see when their filament is
+  // getting dried mid-stream.
+  var dryTime = unit.dry_time != null ? parseInt(unit.dry_time, 10) : 0;
+  var setting = unit.dry_setting || {};
+  if (dryTime > 0) {
+    var temp = parseInt(setting.dry_temperature, 10);
+    var detail = `${dryTime} min`;
+    if (!isNaN(temp) && temp > 0) detail += ` @ ${temp}°C`;
+    if (setting.dry_filament) detail += ` · ${setting.dry_filament}`;
+    $("#dryingStatus").show();
+    $("#dryingDetail").text(detail);
+  } else {
+    $("#dryingStatus").hide();
+  }
+}
+
 async function updateAMS(telemetryObject) {
   /// AMS
 
+  updateHumidityExtras(telemetryObject.ams.ams[AMS_INDEX]);
+
   // AMS Humidity
-  let amsHumidity = telemetryObject.ams.ams[0].humidity;
+  let amsHumidity = telemetryObject.ams.ams[AMS_INDEX].humidity;
 
   if (currentState !== "RUNNING")
   {
@@ -149,7 +188,7 @@ let amsTargetTemp = 140;
 let amsTempPercentage = 1;
 // ams Target Temp
 
-amsTempPercentage = (telemetryObject.ams.ams[0].temp / 60) * 100;
+amsTempPercentage = (telemetryObject.ams.ams[AMS_INDEX].temp / 60) * 100;
 
 log("amsTargetTemp = " + amsTargetTemp);
 log("amsTempPercentage = " + amsTempPercentage);
@@ -166,10 +205,10 @@ $("#amsTargetTempC").text("60");
 $("#amsTargetTempF").text(amsTargetTemp);
 
 // Set current temp in UI
-var amsCurrentTemp = (telemetryObject.ams.ams[0].temp * 9) / 5 + 32;
+var amsCurrentTemp = (telemetryObject.ams.ams[AMS_INDEX].temp * 9) / 5 + 32;
 amsCurrentTemp = parseFloat(amsCurrentTemp.toFixed(1));
 $("#amsCurrentTempF").text(amsCurrentTemp);
-$("#amsCurrentTempC").text(telemetryObject.ams.ams[0].temp);
+$("#amsCurrentTempC").text(telemetryObject.ams.ams[AMS_INDEX].temp);
 
 log("amsCurrentTemp = " + amsCurrentTemp);
 let progressamsParentWidth = $("#amsProgressBarParent").width();
@@ -253,7 +292,7 @@ function disableUI() {
   $("#amsCurrentTempSymbolsF").hide();
   $("#amsCurrentTempSymbolsC").hide();
 
-  let amsHumidity = telemetryObject.ams.ams[0].humidity;
+  let amsHumidity = telemetryObject.ams.ams[AMS_INDEX].humidity;
   //let amsHumidity = "1";
 
   $("#humidity1").css("background", "gray");

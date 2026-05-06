@@ -1,0 +1,1 @@
+{ "name": "Printer info", "description": "Printer name, model, serial, IP.", "recommendedSize": {"w":400,"h":140}, "tags":["info"] }

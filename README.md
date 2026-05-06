@@ -1,207 +1,230 @@
 # BambuBoard
 
-> [!WARNING] 
-> CURRENTLY WORKING ON MERGING DOCUMENTATION FOR THE NEW VERSION 2.0 - 
-> Please read this page for v2.0 setup information: https://github.com/t0nyz0/BambuBoard/blob/main/MULTI_PRINTER_SETUP.md
+> **OBS dashboard widgets for Bambu Lab printers.** Live print stats overlays designed for streamers — drop a scene file into OBS Studio and you have a polished, real-time print dashboard on stream.
 
-> [!NOTE]
-> All MakerWorld OBS widgets will be moved into a stand alone project in a future update. This includes the model image preview and the makerworld profile widget. This will allow this project to run without needing a makerworld security token to be established. This project will focus on displaying all of the information that can be retrived directly from the printer itself.
+<p align="center">
+  <strong>Setup → Connect → Layout → Export.</strong> Four steps, signposted in the app.
+</p>
 
-Bambu Dashboard for viewing real time data from the Bambu X1 Carbon 3D printer. Are you looking for the best Bambu printer OBS overlay? Scroll to the bottom. 
-Also make sure to check out a live stream here: https://www.youtube.com/channel/UChDOFv_-8TxYOfkteSlvAqA/live
+---
 
-### For more detailed project information visit: https://t0nyz.com/projects/bambuboard
+## Why v3? (the short story)
 
-# Screenshots:
+BambuBoard started as a dashboard for OBS browser-source widgets. Over time v2 grew into a full multi-printer management app — useful, but a different product. **v3.0 returns BambuBoard to its core:** a polished single-printer dashboard built around streaming overlays, with a guided setup flow, a visual scene-layout editor, and one-click export to OBS.
 
-OBS Mode (Using widgets)
-<img width="1506" alt="image" src="https://github.com/user-attachments/assets/ed0432a5-e6fb-47f3-a8a5-8285d4289a0d">
+- **Want streaming widgets, a clean overlay, and quick OBS import?** You're in the right place.
+- **Want multi-printer fleet management?** Stay on **v2.x** — see the [v2 branch](https://github.com/t0nyz0/BambuBoard/tree/v2). v3 is intentionally single-printer.
 
-Standard Mode
-![image](https://github.com/t0nyz0/BambuBoard/assets/63085518/33ebcaa1-a80b-4372-b218-1b22901b0695)
+Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widget customizations) carries over. The major addition in v3 is the **scene editor** — drag widgets around an OBS-canvas-sized preview, then save & export the scene JSON in one click.
 
+---
 
-# Installation Option 1 (Docker)
+## Quickstart — Docker (recommended)
 
-## Step 1: Install Docker
+A single command. Multi-arch image (works on x86, Apple Silicon, Raspberry Pi):
 
-Before running the BambuBoard in Docker, ensure that Docker is installed on your system.
-
-### Instructions:
-
-- **Windows and macOS:**
-  1. Download and install Docker Desktop from [Docker's official website](https://www.docker.com/products/docker-desktop).
-  2. Follow the installation instructions provided on the website.
-
-- **Linux:**
-  1. Open a terminal and run the following commands to install Docker:
-     ```cpp
-     sudo apt-get update
-     sudo apt-get install docker-ce docker-ce-cli containerd.io
-     ```
-  2. Start the Docker service:
-     ```cpp
-     sudo systemctl start docker
-     sudo systemctl enable docker
-     ```
-
-For detailed instructions, visit the [Docker installation documentation](https://docs.docker.com/get-docker/).
-
-
-## Step 2: Run the Docker Container
-
-### Run the Docker container using the following command:
-
-```ccp
-docker run -d \
--p 8080:8080 \
--e BAMBUBOARD_HTTP_PORT=8080 \
--e BAMBUBOARD_PRINTER_URL=10.0.0.1 \
--e BAMBUBOARD_PRINTER_PORT=8883 \
--e BAMBUBOARD_PRINTER_SN=bambu_serialnumber \
--e BAMBUBOARD_PRINTER_ACCESS_CODE=bambu_accesscode \
--e BAMBUBOARD_TEMP_SETTING=both \
--e BAMBUBOARD_FAN_PERCENTAGES=false \
--e BAMBUBOARD_FAN_ICONS=true \
--e BAMBUBOARD_LOGGING=false \
---name bambuboard-instance \
-ghcr.io/t0nyz0/bambuboard:latest
+```bash
+docker run -d --name bambuboard -p 8080:8080 \
+  -v $(pwd)/data:/usr/src/app/data \
+  -v $(pwd)/config.json:/usr/src/app/config.json \
+  ghcr.io/t0nyz0/bambuboard:latest
 ```
 
-## Step 3: Login and setup configuration 
-### Goto: (http://(bambuboard-ip):8080/login.html) and login to your BambuLab account. 
-- Setup your printer IP, Access Code and Serial Number if you have not done so already.
+Then open **http://localhost:8080**. The first-run setup wizard appears automatically.
 
-  <img width="1094" alt="image" src="https://github.com/user-attachments/assets/1146c413-3920-4a16-8ac4-c18216a62018">
+For docker-compose users, see [`docker-compose.yml`](docker-compose.yml) — `docker compose up -d` and you're done.
 
+## Quickstart — from source
 
-# Installation Option 2 (Manual install)
+```bash
+git clone https://github.com/t0nyz0/BambuBoard.git
+cd BambuBoard
+npm install
+npm start
+```
 
-## Step 1: Install Node.js
+Open `http://localhost:8080`.
 
-Node.js is required to run the BambuBoard application. Here's how to install it on your Raspberry Pi:
+---
 
-1. Open a terminal on your Raspberry Pi.
-2. Update your package list:
-   ```ccp
-   sudo apt update
-   ```
-3. Upgrade your packages to their latest versions:
-   ```ccp
-   sudo apt full-upgrade
-   ```
-4. Install Node.js:
-   ```ccp
-   sudo apt install nodejs
-   ```
-5. (Optional) Install npm, Node.js' package manager:
-   ```ccp
-   sudo apt install npm
-   ```
-6. Verify the installation by checking the version of Node.js and npm:
-   ```ccp
-   node -v
-   npm -v
-   ```
-## Step 2: Clone the BambuBoard Repository
+## The 4-step flow
 
-To get the BambuBoard code, you need to clone its repository from GitHub:
+When you open BambuBoard for the first time, you'll be guided through:
 
-1. Navigate to the directory where you want to clone the repository:
-   ```ccp
-   cd /path/to/directory
-   ```
-2. Clone the repository:
-   ```ccp
-   git clone https://github.com/t0nyz0/BambuBoard.git
-   ```
-3. Change into the cloned repository's directory:
-   ```ccp
-   cd BambuBoard
-   ```
+1. **Setup** (`/setup`) — Enter your printer's IP, serial number, and LAN access code. Test the connection from this page before saving.
+2. **Connect** (still `/setup`, lower section) — BambuBoard asks the printer to identify itself via MQTT. Within a few seconds you'll see "Auto-detected: H2D" (or whichever model). The "Continue to Layout →" button lights up.
+3. **Layout** (`/scene-editor`) — A 1920×1080 canvas auto-loads the matching default template for your printer type. Drag widgets, resize, change themes, snap to grid. When you're happy, click **Save & Continue to Export**.
+4. **Export** (`/`) — Download the scene `.json` file. In OBS Studio: **Scene Collection → Import…** → pick the file. Done.
 
-## Step 3: Install Dependencies
+You'll need before starting:
+- The printer's **IP address** (printer screen → Settings → Network).
+- The **serial number** (Settings → Device Info, or back-panel sticker).
+- The **LAN access code** (Bambu Studio → Device → Access Code).
 
-BambuBoard may have Node.js dependencies that need to be installed:
+---
 
-1. Within the BambuBoard directory, install the dependencies:
-   ```ccp
-   npm install
-   ```
+## Supported printers
 
-## Step 4: Run the Application
+Printer type is **auto-detected from MQTT** when BambuBoard connects — no need to remember which model you picked. The detection mirrors [ha-bambulab](https://github.com/greghesp/ha-bambulab)'s logic (matches by MQTT `product_name`, falls back to hardware version).
 
-To start the BambuBoard dashboard:
+| Model | BambuBoard type | Caps |
+|-------|----------------|------|
+| X1 | `X1` | Chamber temp |
+| X1 Carbon | `X1C` | Chamber temp |
+| X1E | `X1C` (mapped) | Chamber temp |
+| P1P | `P1P` | — |
+| P1S, P2S | `P1S` | — |
+| A1 | `A1` | Single AMS |
+| A1 Mini | `A1M` | Single AMS |
+| H2D, H2D Pro, H2C, H2S, X2D | `H2D` | Chamber temp, dual nozzle, dual AMS |
 
-1. Run the application:
-   ```ccp
-   node bambuConnection.js
-   ```
+All printers support up to 4 chained AMS units via the AMS Hub (`?ams=0|1|2|3` URL parameter on the AMS widgets).
 
-# Accessing the Dashboard
+---
 
-Once the application is running, you can access the BambuBoard dashboard. Open your browser and navigate to:
-   ```ccp
-   http://ipaddress:8080
-   ```
-Replace `8080` with the actual port number if BambuBoard runs on a different port. (Configured in bambuConnection.js)
+## What's where
 
-Once you have the application setup, go to /login.html to login to Bambu and which will cache your login token for one year.
+```
+BambuBoard/
+├── src/                  Server (Node, Express)
+│   ├── server.js         Bootstrap
+│   ├── mqtt.js           Single-printer MQTT client + printer auto-detect
+│   ├── config.js         Load / save / migrate
+│   ├── routes/           api, pages, auth, obsScene, video
+│   └── lib/caps.js       PRINTER_CAPS map + printerTypeFromMqtt()
+├── views/                Pretty-URL HTML pages
+├── public/
+│   ├── css/              theme, components, hub, dashboard, setup, scene-editor
+│   ├── js/               nav (with stepper), hub, dashboard, setup, scene-editor
+│   ├── assets/           jQuery, Material Symbols, fonts (local — no CDNs)
+│   └── widgets/          OBS browser-source widgets (each its own folder)
+├── OBS_settings/
+│   └── templates/        Scrubbed default scenes for each printer family
+├── data/                 Runtime state (gitignored): data.json, accessToken.json, note.json, scenes/
+├── scripts/              build-widget-catalog.js, etc.
+├── config.json           Local config (gitignored)
+└── example.config.json
+```
+
+---
+
+## Pages
+
+- **`/setup`** — Step 1+2: Printer config, connection check, optional Bambu Cloud auth.
+- **`/scene-editor`** — Step 3: Visual scene editor. Auto-loads the matching template for your printer type.
+- **`/`** (Hub) — Step 4: Export. Saved scenes, default templates, and a collapsible widget gallery.
+- **`/dashboard`** — Live print monitor. Capability-driven layout (P1P sees no chamber temp; H2D sees both AMS units and both nozzles). Not part of the setup flow — open whenever.
+- **`/login`** — Bambu Cloud sign-in (only used when cloud auth is enabled).
+
+---
+
+## Widget catalog
+
+Every widget is a standalone HTML page you add as a Browser Source in OBS. The hub gallery shows live previews; the scene editor lets you drag them onto a canvas.
+
+<!-- WIDGET-CATALOG-START -->
+| Widget | Description | Recommended size | Params | Cap-gated |
+|--------|-------------|------------------|--------|-----------|
+| **AMS** (`ams`) | Filament tray status. Multi-AMS support: append ?ams=0\|1\|2\|3 to target a specific AMS unit (defaults to AMS #1). | 800×200 | — | — |
+| **AMS humidity / temp** (`ams-temp`) | Humidity + temperature for an AMS unit. Multi-AMS: ?ams=0\|1\|2\|3 (defaults to AMS #1). | 400×120 | — | — |
+| **AMS #2 humidity** (`ams-temp-2`) | Humidity / temperature for the second AMS unit (H2D only). | 400×120 | — | `hasDualAMS` |
+| **AMS #2** (`ams2`) | Filament tray status for the second AMS unit (H2D only). | 800×200 | — | `hasDualAMS` |
+| **Bed temperature** (`bed-temp`) | Heat-bed temp with target + progress bar. | 400×120 | — | — |
+| **Chamber temperature** (`chamber-temp`) | Enclosed-chamber temperature (X1, X1C, H2D). | 400×120 | — | `hasChamberTemp` |
+| **Fans** (`fans`) | All four fan speeds with animated spinning icons and circular gauge rings showing speed percentage. | 420×160 | — | — |
+| **Model image** (`model-image`) | Preview image of the current model (requires Bambu Cloud auth for live MakerWorld images). | 400×300 | — | — |
+| **Notes / footer** (`notes`) | Auto-updates with the model name each print; can be manually overridden from the dashboard. | 600×40 | — | — |
+| **Nozzle info** (`nozzle-info`) | Nozzle type, size, current speed level. | 400×120 | — | — |
+| **Nozzle temperature** (`nozzle-temp`) | Nozzle temperature with current/target and progress bar. Use ?nozzle=0 (right, default) or ?nozzle=1 (left) for dual-nozzle printers. | 400×120 | `?nozzle=0` | — |
+| **Left nozzle temperature** (`nozzle-temp-2`) | Left nozzle temperature (H2D/dual-nozzle). Legacy widget — equivalent to nozzle-temp/?nozzle=1. | 400×120 | — | `hasDualNozzle` |
+| **Print info** (`print-info`) | Total prints, model name, weight, nozzle/bed. | 400×160 | — | — |
+| **Printer info** (`printer-info`) | Printer name, model, serial, IP. | 400×140 | — | — |
+| **MakerWorld profile** (`profile-info`) | Followers, downloads, and stats from your MakerWorld profile (requires Bambu Cloud auth). | 400×180 | — | — |
+| **Progress** (`progress-info`) | Print progress bar with status text and percentage. | 600×80 | — | — |
+| **Version stamp** (`version`) | Shows BambuBoard version in a corner. | 200×30 | — | — |
+| **Wi-Fi signal** (`wifi`) | Wireless signal strength. | 200×80 | — | — |
+<!-- WIDGET-CATALOG-END -->
+
+Regenerate this table after adding/changing widgets:
+```bash
+npm run build:widget-catalog
+```
+
+Cap-gated widgets are greyed out in the hub gallery for incompatible printer types (e.g. `chamber-temp` is hidden on P1P which has no chamber).
+
+---
+
+## URL parameters
+
+Every widget supports query-string customization via `_customizer.js`:
+
+- `?theme=dark|light|transparent` — color scheme
+- `?accent=#51a34f` — accent color (hex)
+- `?fontSize=14` — base font size in px
+- `?title=My title` — override the widget's title text
+- `?pad=8` — extra body padding in px
+
+Plus widget-specific params (see catalog above) — e.g. `?ams=2` to point an AMS widget at the third unit.
+
+---
+
+## OBS scene templates
+
+Two pre-built scenes are included, scrubbed of personal info:
+
+- **`default-x1`** — X1, X1 Carbon, P1P, P1S, A1, A1 Mini (single nozzle, single AMS layout).
+- **`default-h2d`** — H2D / H2D Pro (dual nozzle + dual AMS layout).
+
+The scene editor auto-loads the right one based on the connected printer's type. You can also download the raw JSON from the Export page and import it directly into OBS.
+
+---
+
+## Bambu Cloud auth (optional)
+
+Off by default. Enable in `/setup` to populate the `profile-info` and `model-image` widgets with live MakerWorld data. Sign-in flow uses email + verification code (and MFA if enabled on your Bambu account). Tokens are cached in `data/accessToken.json` (gitignored). LAN-only operation does not require this.
+
+---
+
+## Running offline / on a LAN
+
+All assets (jQuery, Material Symbols, fonts) are bundled locally — no external CDN dependencies. The dashboard server only needs LAN access to your printer's MQTT port (8883 by default).
+
+---
+
+## Migrating from older versions
+
+The first boot of v3 detects and migrates two legacy config shapes:
+
+- **Old single-printer H2D fork** (flat `BambuBoard_printerURL` etc.) → new `printer` object with `type: "H2D"`.
+- **Old multi-printer BambuBoard v2** (`printers[]` array) → first printer is kept; the rest are dropped with a warning. **Multi-printer is not supported in v3** — for that, stay on v2.x.
+
+Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriting. Legacy runtime files (`accessToken.json`, `note.json`, `public/data.json`) at the repo root are auto-moved into `data/` on first boot.
+
+---
 
 ## Troubleshooting
 
-If you encounter any issues, consider the following:
+- **"Test connection" fails** — verify the IP, port (8883), serial number, and access code. The printer must be on the same LAN.
+- **No data appearing on dashboard** — check the printer's "LAN Mode Liveview" setting is enabled (Settings → General). Also check the "Connect" panel on `/setup` — it should show "MQTT: ✓ Connected" within 3-5s.
+- **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
+- **Camera widget shows "RTSP disabled"** — On the H2D, enable: Settings → Network → LAN Only Liveview → ON, then reboot the printer. May require firmware 01.06+.
+- **OBS scene fails to import** — make sure you used the Export page's Download button (which substitutes `<HOST>` for you), not the raw template.
 
-- Check that you have the correct permissions to clone the repository and install Node.js packages.
-- Verify that the firewall settings are not blocking the BambuBoard application.
-- Important: Bambu Account 2-factor authentication currently does not allow this program to communicate with Bambu API, right now 2FA is not supported. If you have 2FA on the program might fail to load, or freeze.
+---
 
+## Development
 
-## OBS mode
-
-OBS widgets are now supported as of 1/7/24
-
-https://github.com/t0nyz0/BambuBoard/assets/63085518/716d8832-ae8d-49e3-84d7-3cdb1adbddbc
-
-
-
-I have provided a sample scene file that you can import into OBS, using "Scene Collection > Import".
-
-Note: Before importing, you will need to open the JSON and replace the IP address listed with your server IP. 
-Also make sure to update the media feed to the ffmpeg provided to you from the Bambu software folder. Please refer to the Bambu GO Live documentation for more: https://wiki.bambulab.com/en/software/bambu-studio/virtual-camera
-
-In the "OBS_Settings" folder in the project root you will find the scene file for importing. If you run into any widgets not working, first check case sensitivity of the widget URL's. Depending on setup this can be an issue. 
-
-List of all widget addresses:
-```
-"AMS widget": "http://127.0.0.1:8080/widgets/ams/index.html"
-"AMS Temp widget: "http://127.0.0.1:8080/widgets/ams-temp/index.html"
-"Bed Temp widget": "http://127.0.0.1:8080/widgets/bed-temp/index.html"
-"Chamber Temp widget": "http://127.0.0.1:8080/widgets/chamber-temp/index.html"
-"Fan widget": "http://127.0.0.1:8080/widgets/fans/index.html"
-"Model image widget": "http://127.0.0.1:8080/widgets/model-image/index.html"
-"Nozzle temperature widget": "http://127.0.0.1:8080/widgets/nozzle-temp/index.html"
-"Nozzle info widget": "http://127.0.0.1:8080/widgets/nozzle-info/index.html"
-"Print info widget": "http://127.0.0.1:8080/widgets/print-info/index.html"
-"Progress bar widget": "http://127.0.0.1:8080/widgets/progress-info/index.html"
-"Wifi widget": "http://127.0.0.1:8080/widgets/wifi/index.html"
-"Notes EDIT widget": "http://127.0.0.1:8080/widgets/notes/edit.html"
-"Notes VIEW widget": "http://127.0.0.1:8080/widgets/notes/index.html"
-"Version widget": "http://127.0.0.1:8080/widgets/version/index.html"
+```bash
+npm install
+node src/server.js                # bare-bones; uses ./config.json + ./data/
+BAMBUBOARD_LOGGING=true node src/server.js > /tmp/bb.log 2>&1 &
+tail -f /tmp/bb.log               # verbose MQTT trace
 ```
 
-Note: If you want to EDIT notes go to this URL: http://server:8080/widgets/notes/edit.html
+For agent / contribution conventions, see [`AGENTS.md`](AGENTS.md).
 
-# Future Development Plans:
+---
 
-- ~~Celcius / Fahrenheit preference setting~~
-- Rebuild using React?
-- Better settings configuration
-- ~~Add AMS humidty / temp~~
-- ~~AMS Active tray tracking~~
-- Address bug with the "Total Prints" data point, the API does not appear to keep an entire record of all cloud prints. Total print count might always been inaccurate and may need to be removed in future versions.
+## License
 
-# Known Limitations:
-
-The AMS (Automated Material System) filament remaining percentage displayed on the dashboard may not always be 100% accurate, as the printer estimates filament usage.
-Stay tuned for updates and enhancements to BambuBoard, and feel free to contribute to its development. Your feedback and suggestions are always welcome!
+MIT — see [LICENSE](LICENSE).

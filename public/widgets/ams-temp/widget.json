@@ -1,0 +1,1 @@
+{ "name": "AMS humidity / temp", "description": "Humidity + temperature for an AMS unit. Multi-AMS: ?ams=0|1|2|3 (defaults to AMS #1).", "recommendedSize": {"w":400,"h":120}, "tags":["humidity","ams"] }

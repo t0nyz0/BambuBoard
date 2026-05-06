@@ -1,0 +1,13 @@
+{
+  "name": "Print info",
+  "description": "Total prints, model name, weight, nozzle/bed.",
+  "recommendedSize": { "w": 400, "h": 160 },
+  "tags": ["info"],
+  "bindings": [
+    { "id": "subtaskName",   "label": "Model name",            "default": "$.print.subtask_name",      "type": "string" },
+    { "id": "layerNum",      "label": "Current layer",         "default": "$.print.layer_num",         "type": "number" },
+    { "id": "totalLayers",   "label": "Total layers",          "default": "$.print.total_layer_num",   "type": "number" },
+    { "id": "remainingMin",  "label": "Time remaining (min)",  "default": "$.print.mc_remaining_time", "type": "number" },
+    { "id": "gcodeState",    "label": "Print state",           "default": "$.print.gcode_state",       "type": "string" }
+  ]
+}

@@ -1,45 +1,59 @@
-// BambuBoard
-// TZ | 11/20/23
+// BambuBoard — Unified nozzle temperature widget
+// Supports ?nozzle=N parameter: 0 = right (default), 1 = left
+// For single-nozzle printers, only ?nozzle=0 is meaningful.
+// Uses H2D bit-packed temp format with legacy fallback.
 
-//-------------------------------------------------------------------------------------------------------------
-const protocol = window.location.protocol; // 'http:' or 'https:'
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const NOZZLE_INDEX = parseInt(new URLSearchParams(location.search).get('nozzle') || '0', 10);
+
+const protocol = window.location.protocol;
+const serverURL = window.location.hostname;
 const serverPort = window.location.port;
-//-------------------------------------------------------------------------------------------------------------
-
-let currentState = "OFF";
-let modelImage = "";
-const consoleLogging = false;
-let settings = "";
-let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
+
+let currentState = 'OFF';
+const consoleLogging = false;
+let settings = '';
+
+// Set title data attributes based on nozzle index (before _customizer.js applies them).
+// _customizer.js already ran once at DOMContentLoaded, so we re-apply after setting attrs.
+(function setTitleDefaults() {
+  const h2 = document.querySelector('.partTitle');
+  if (!h2) return;
+  if (NOZZLE_INDEX === 0) {
+    h2.setAttribute('data-default', 'Nozzle');
+    h2.setAttribute('data-default-dual', 'Right Nozzle');
+  } else {
+    h2.setAttribute('data-default', 'Left Nozzle');
+    h2.setAttribute('data-default-dual', 'Left Nozzle');
+    // Set immediately so there's no flash of "Nozzle"
+    const firstText = h2.firstChild;
+    if (firstText && firstText.nodeType === 3) firstText.nodeValue = 'Left Nozzle';
+  }
+})();
 
 async function loadSettings() {
   try {
-    const serverURL = window.location.hostname;
-    const response = await fetch(fullServerURL + "/settings");
+    const response = await fetch(fullServerURL + '/settings');
     if (response.ok) {
-      const data = await response.json();
-      settings = data;
+      settings = await response.json();
     }
   } catch (error) {
-    console.error("Error loading settings:", error);
+    console.error('Error loading settings:', error);
   }
 }
 
 loadSettings();
 
 async function retrieveData() {
-  const response = await fetch(fullServerURL + "/data.json");
-
+  const response = await fetch(fullServerURL + '/data.json');
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
+  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
   } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
+    telemetryObject = 'Incomplete';
   } else {
     telemetryObject = null;
   }
@@ -49,147 +63,169 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
-    let printStatus = telemetryObject.gcode_state;
+    // Extract temperature from bit-packed H2D format, with legacy fallback.
+    const extruder = telemetryObject.device && telemetryObject.device.extruder
+      ? telemetryObject.device.extruder
+      : null;
+    const nozzleInfo = extruder && extruder.info && extruder.info[NOZZLE_INDEX]
+      ? extruder.info[NOZZLE_INDEX]
+      : null;
 
-    let modelName = telemetryObject.gcode_file;
-    modelName = modelName.replace("/data/Metadata/", "");
+    let nozzleCurrentTempC = 0;
+    let nozzleTargetTempC = 0;
 
-    $("#printModelName").text(telemetryObject.subtask_name);
-    $("#printCurrentLayer").text(
-      telemetryObject.layer_num + " of " + telemetryObject.total_layer_num
-    );
-
-    if (printStatus === "RUNNING") {
-      printStatus = "Printing";
-    } else if (printStatus === "FINISH") {
-      printStatus = "Print Complete";
-    } else if (printStatus === "FAILED") {
+    if (nozzleInfo && typeof nozzleInfo.temp === 'number') {
+      // H2D / newer packed format: low 16 bits = current, high 16 bits = target
+      nozzleCurrentTempC = nozzleInfo.temp & 0xFFFF;
+      nozzleTargetTempC = (nozzleInfo.temp >> 16) & 0xFFFF;
+    } else {
+      // Legacy single-nozzle format
+      nozzleCurrentTempC = telemetryObject.nozzle_temper || 0;
+      nozzleTargetTempC = telemetryObject.nozzle_target_temper || 0;
     }
 
-    /// Nozzle Temp
-    let nozzleTargetTemp = 0;
-    let nozzleTempPercentage = 1;
-    // Bed Target Temp
-    if (telemetryObject.nozzle_target_temper === 0) {
-      nozzleTargetTemp = "OFF";
-    } else {
-      nozzleTargetTemp = (telemetryObject.nozzle_target_temper * 9) / 5 + 32;
-      nozzleTempPercentage =
-        (telemetryObject.nozzle_temper / telemetryObject.nozzle_target_temper) *
-        100;
+    // Active-extruder badge for dual-nozzle printers.
+    // Show bright green when printing, grey/dim when idle.
+    const isPrinting = currentState === 'RUNNING' || currentState === 'PREPARE' || currentState === 'PAUSE';
+    try {
+      if (extruder && typeof extruder.state === 'number') {
+        const activeIdx = (extruder.state >> 4) & 0x0F;
+        if (activeIdx === NOZZLE_INDEX) {
+          $('#activeTag').show();
+          if (isPrinting) {
+            $('#activeTag').css({ 'background-color': '#51a34f', 'opacity': '1' });
+          } else {
+            $('#activeTag').css({ 'background-color': '#666', 'opacity': '0.5' });
+          }
+        } else {
+          $('#activeTag').hide();
+        }
+      } else {
+        $('#activeTag').hide();
+      }
+    } catch (_) { $('#activeTag').hide(); }
+
+    // Compute Fahrenheit and percentage
+    const nozzleCurrentTempF = Math.round((nozzleCurrentTempC * 9) / 5 + 32);
+    let nozzleTempPercentage = 0;
+
+    if (nozzleTargetTempC > 0) {
+      nozzleTempPercentage = (nozzleCurrentTempC / nozzleTargetTempC) * 100;
     }
 
     if (nozzleTempPercentage > 100) {
-      log("Nozzle percentage over 100, adjusting..." + nozzleTempPercentage);
+      log('Nozzle percentage over 100, adjusting...' + nozzleTempPercentage);
       nozzleTempPercentage = 100;
     }
 
-    log("nozzleTargetTemp = " + nozzleTargetTemp);
-    log("nozzleTempPercentage = " + nozzleTempPercentage);
+    // Set current temp in UI
+    if (nozzleCurrentTempC > 1 && nozzleCurrentTempC < 800) {
+      $('#nozzleCurrentTempC').text(nozzleCurrentTempC);
+      $('#nozzleCurrentTempF').text(nozzleCurrentTempF);
+    } else {
+      $('#nozzleCurrentTempC').text('-');
+      $('#nozzleCurrentTempF').text('-');
+    }
 
     // Set target temp in UI
-    $("#nozzleTargetTempF").text(nozzleTargetTemp);
-    $("#nozzleTargetTempC").text(telemetryObject.nozzle_target_temper);    
-
-    // Set current temp in UI
-    var nozzleCurrentTemp = Math.round((telemetryObject.nozzle_temper * 9) / 5 + 32);
-    $("#nozzleCurrentTempF").text(nozzleCurrentTemp);
-    
-    var nozzleCurrentTempC = Math.round(telemetryObject.nozzle_temper);
-    $("#nozzleCurrentTempC").text(nozzleCurrentTempC);
-
-    log("nozzleCurrentTemp = " + nozzleCurrentTemp);
-
-    let progressNozzleParentWidth = $("#nozzleProgressBarParent").width();
-    log("progressNozzleParentWidth = " + progressNozzleParentWidth);
-    $("#nozzleProgressBar").width(
-      (nozzleTempPercentage * progressNozzleParentWidth) / 100
-    );
-
-    if (nozzleTargetTemp === "OFF") {
-      $("#nozzleProgressBar").css("background-color", "grey");
-
-      $("#nozzleTargetTempC").hide();
-      $("#nozzleTargetTempSymbolsF").hide();
-      $("#nozzleTargetTempSymbolsC").hide();
+    let nozzleTargetDisplay;
+    if (nozzleTargetTempC > 0) {
+      const nozzleTargetTempF = Math.round((nozzleTargetTempC * 9) / 5 + 32);
+      $('#nozzleTargetTempC').text(Math.round(nozzleTargetTempC));
+      $('#nozzleTargetTempF').text(nozzleTargetTempF);
+      nozzleTargetDisplay = nozzleTargetTempC;
     } else {
-      if (settings.BambuBoard_tempSetting === "Fahrenheit") {
-        $("#nozzleTargetTempSymbolsF").show();
-        $("#nozzleCurrentTempSymbolsF").show();
-        $("#nozzleTargetTempF").show();
-        $("#nozzleCurrentTempF").show();
+      nozzleTargetDisplay = 'OFF';
+      $('#nozzleTargetTempF').text('OFF');
+      $('#nozzleTargetTempC').text('');
+    }
 
-        $("#nozzleCurrentTempC").hide();
-        $("#nozzleTargetTempSymbolsC").hide();
-        $("#nozzleCurrentTempSymbolsC").hide();
-        $("#nozzleTargetTempC").hide();
-      } else if (settings.BambuBoard_tempSetting === "Celsius") {
-        $("#nozzleTargetTempSymbolsF").hide();
-        $("#nozzleCurrentTempSymbolsF").hide();
-        $("#nozzleTargetTempF").hide();
-        $("#nozzleCurrentTempF").hide();
+    log('nozzleCurrentTempC = ' + nozzleCurrentTempC);
+    log('nozzleTargetTempC = ' + nozzleTargetTempC);
+    log('nozzleTempPercentage = ' + nozzleTempPercentage);
 
-        $("#nozzleCurrentTempC").show();
-        $("#nozzleTargetTempSymbolsC").show();
-        $("#nozzleCurrentTempSymbolsC").show();
-        $("#nozzleTargetTempC").show();
-      } else if (settings.BambuBoard_tempSetting === "Both") {
-        $("#nozzleTargetTempSymbolsF").show();
-        $("#nozzleCurrentTempSymbolsF").show();
-        $("#nozzleTargetTempF").show();
-        $("#nozzleCurrentTempF").show();
+    // Update progress bar
+    const progressNozzleParentWidth = $('#nozzleProgressBarParent').width();
+    $('#nozzleProgressBar').width((nozzleTempPercentage * progressNozzleParentWidth) / 100);
 
-        $("#nozzleCurrentTempC").show();
-        $("#nozzleTargetTempSymbolsC").show();
-        $("#nozzleCurrentTempSymbolsC").show();
-        $("#nozzleTargetTempC").show();
+    if (nozzleTargetDisplay === 'OFF') {
+      $('#nozzleProgressBar').css('background-color', 'grey');
+      $('#nozzleTargetTempC').hide();
+      $('#nozzleTargetTempSymbolsF').hide();
+      $('#nozzleTargetTempSymbolsC').hide();
+    } else {
+      if (settings.BambuBoard_tempSetting === 'Fahrenheit') {
+        $('#nozzleTargetTempSymbolsF').show();
+        $('#nozzleCurrentTempSymbolsF').show();
+        $('#nozzleTargetTempF').show();
+        $('#nozzleCurrentTempF').show();
+        $('#nozzleCurrentTempC').hide();
+        $('#nozzleTargetTempSymbolsC').hide();
+        $('#nozzleCurrentTempSymbolsC').hide();
+        $('#nozzleTargetTempC').hide();
+      } else if (settings.BambuBoard_tempSetting === 'Celsius') {
+        $('#nozzleTargetTempSymbolsF').hide();
+        $('#nozzleCurrentTempSymbolsF').hide();
+        $('#nozzleTargetTempF').hide();
+        $('#nozzleCurrentTempF').hide();
+        $('#nozzleCurrentTempC').show();
+        $('#nozzleTargetTempSymbolsC').show();
+        $('#nozzleCurrentTempSymbolsC').show();
+        $('#nozzleTargetTempC').show();
+      } else if (settings.BambuBoard_tempSetting === 'Both') {
+        $('#nozzleTargetTempSymbolsF').show();
+        $('#nozzleCurrentTempSymbolsF').show();
+        $('#nozzleTargetTempF').show();
+        $('#nozzleCurrentTempF').show();
+        $('#nozzleCurrentTempC').show();
+        $('#nozzleTargetTempSymbolsC').show();
+        $('#nozzleCurrentTempSymbolsC').show();
+        $('#nozzleTargetTempC').show();
       }
 
       if (nozzleTempPercentage > 80) {
-        $("#nozzleProgressBar").css("background-color", "red");
+        $('#nozzleProgressBar').css('background-color', 'red');
       } else if (nozzleTempPercentage > 50) {
-        $("#nozzleProgressBar").css("background-color", "yellow");
+        $('#nozzleProgressBar').css('background-color', 'yellow');
       } else {
-        $("#nozzleProgressBar").css("background-color", "#51a34f");
+        $('#nozzleProgressBar').css('background-color', '#51a34f');
       }
     }
 
-    log(telemetryObject.t_utc);
     return telemetryObject;
   } catch (error) {
-    console.error("Error: ", error);
+    console.error('Error: ', error);
   }
 }
 
 function disableUI() {
-  $("#nozzleProgressBar").css("background-color", "grey");
-  $("#nozzleTargetTempTempSymbols").hide();
+  $('#activeTag').hide();
+  $('#nozzleProgressBar').css('background-color', 'grey');
+  $('#nozzleProgressBar').width(0);
+  $('#nozzleTargetTempSymbolsF').hide();
+  $('#nozzleTargetTempSymbolsC').hide();
+  $('#nozzleTargetTempC').hide();
+  $('#nozzleCurrentTempC').hide();
+  $('#nozzleCurrentTempF').hide();
+  $('#nozzleCurrentTempSymbolsC').hide();
+  $('#nozzleCurrentTempSymbolsF').hide();
 }
 
 function log(logText) {
-  if (consoleLogging) {
-    console.log(logText);
-  }
+  if (consoleLogging) console.log(logText);
 }
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
-// Call the updateLog function to fetch and parse the data
 setInterval(async () => {
   try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateUI(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
+    const telemetryObject = await retrieveData();
+    if (telemetryObject != null && telemetryObject !== 'Incomplete') {
+      await updateUI(telemetryObject);
+    } else if (telemetryObject == null) {
       disableUI();
     }
   } catch (error) {
-    //console.error(error);
     await sleep(1000);
   }
 }, 1000);

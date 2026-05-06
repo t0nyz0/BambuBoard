@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BambuBoard</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* See /widgets/nozzle-temp/index.html — same flex/height chain so the
+         dark card fills its iframe edge-to-edge. Container margins mirrored
+         (15px outer, 5px inner) so cards align with full-width widgets above
+         and have a small gap with sibling Right Nozzle. */
+      html, body { height: 100%; margin: 0; }
+      body { background: transparent !important; }
+      .container { margin-left: 15px; margin-right: 5px; height: 100%; box-sizing: border-box; }
+      .bedcontainer { margin-top: 0; height: 100%; box-sizing: border-box; }
+      .grid.grid-gap-30 { height: 100%; }
+      .column.grid-gap-10 { height: 100%; display: flex; flex-direction: column; align-items: stretch; }
+      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; }
+    </style>
+    <script src="../_customizer.js"></script>
+    <script src="../../assets/js/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
+
+  <link
+    rel="stylesheet"
+    href="../../assets/css/material-symbols.css"
+  />
+  <body>
+    <div class="container">
+      <div class="bedcontainer">
+        <div class="grid grid-gap-30">
+          <div class="column grid-gap-10">
+            <div class="bed-title">
+              <h2 class="partTitle">Left Nozzle<span id="activeTag" class="badge-active" style="display:none;font-size:20px;width:40px;">active</span></h2>
+                          <div class="progress-wrapper">
+                    <div id="nozzleProgressBarParent" class="progress">
+                      <div id="nozzleProgressBar" class="progress-bar" style="width: 5px; background-color: #5c0000;"></div>
+                    </div>
+                  </div>
+                <div>
+                  <h4 class="finePrint" id="nozzleCurrentTemp">
+                    <b>Current: <span id="nozzleCurrentTempC">0</span></b><span id="nozzleCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleCurrentTempF">0</span><span id="nozzleCurrentTempSymbolsF"><sup>°</sup>F</span>
+                  </h4>
+                  <h4 class="finePrint">
+                    <b>Target: <span id="nozzleTargetTempC">0</span><span id="nozzleTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="nozzleTargetTempF">0</span><span id="nozzleTargetTempSymbolsF"><sup>°</sup>F</span></span>
+                  </h4>
+              </div>
+            </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="NOZZLE_script.js"></script>
+  </body>
+</html>

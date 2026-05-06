@@ -1,0 +1,6 @@
+{
+  "slug": "default-x1",
+  "label": "Default — X1 / X1C / P-series / A-series",
+  "description": "Working OBS scene with all standard widgets pre-positioned. Single-AMS, single-nozzle printers.",
+  "recommendedTypes": ["X1", "X1C", "P1P", "P1S", "P1", "A1", "A1M"]
+}

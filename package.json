@@ -1,15 +1,23 @@
 {
   "name": "bambuboard",
-  "version": "2.0.1",
-  "description": "bambu x1 printer dashboard",
-  "main": "bambuConnection.js",
-  "keywords": [],
-  "author": "",
+  "version": "3.0.0",
+  "description": "BambuBoard — OBS dashboard widgets for Bambu Lab printers (X1, X1C, P1, P1P, A1, H2D)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "build:widget-catalog": "node scripts/build-widget-catalog.js"
+  },
+  "keywords": [
+    "bambu",
+    "obs",
+    "3d-printing",
+    "widgets",
+    "h2d"
+  ],
   "license": "MIT",
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "express-ws": "^5.0.2",
     "mqtt": "^5.10.3",
     "node-fetch": "^2.7.0",
     "rtsp-relay": "^1.9.0"

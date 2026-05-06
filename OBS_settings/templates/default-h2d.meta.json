@@ -1,0 +1,6 @@
+{
+  "slug": "default-h2d",
+  "label": "Default — H2D",
+  "description": "Working OBS scene tuned for the H2D's dual nozzles and dual AMS units. Includes second-AMS and second-nozzle widgets.",
+  "recommendedTypes": ["H2D"]
+}

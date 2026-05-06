@@ -62,16 +62,31 @@ async function updateUI(telemetryObject) {
     let chamberTargetTempF = 140;
     let chamberTargetTempC = 60;
     let chamberTempPercentage = 1;
-    // Bed Target Temp
 
-    // Set target temp in UI
+    // Newer Bambu firmware (H2D) packs current+target into device.ctc.info.temp
+    // (low 16 bits current, high 16 bits target). Legacy firmware uses the
+    // top-level chamber_temper field. Read whichever one's present.
+    var chamberC = null;
+    var packed = telemetryObject.device && telemetryObject.device.ctc
+                 && telemetryObject.device.ctc.info && telemetryObject.device.ctc.info.temp;
+    if (typeof packed === 'number') {
+      chamberC = packed & 0xFFFF;
+    } else if (typeof telemetryObject.chamber_temper === 'number') {
+      chamberC = telemetryObject.chamber_temper;
+    }
+
     $("#chamberTargetTempF").text(chamberTargetTempF);
     $("#chamberTargetTempC").text(chamberTargetTempC);
 
-    // Set current temp in UI
-    var chamberCurrentTemp = (telemetryObject.chamber_temper * 9) / 5 + 32;
+    if (chamberC == null) {
+      $("#chamberCurrentTempC").text("—");
+      $("#chamberCurrentTempF").text("—");
+      return telemetryObject;
+    }
+
+    var chamberCurrentTemp = (chamberC * 9) / 5 + 32;
     $("#chamberCurrentTempF").text(chamberCurrentTemp);
-    $("#chamberCurrentTempC").text(telemetryObject.chamber_temper );
+    $("#chamberCurrentTempC").text(chamberC);
 
     log("chamberCurrentTemp = " + chamberCurrentTemp);
 

@@ -4,7 +4,17 @@
   <meta charset="UTF-8">
   <title>BambuBoard</title>
   <link rel="stylesheet" type="text/css" href="../styles.css">
-  <script src="../../assets/js/jquery-3.6.0.min.js"></script>
+  <style>
+    /* Uniform height-fill chain — see /widgets/ams/index.html for the
+       canonical explanation. Card fills iframe edge-to-edge so iframe
+       gaps in the OBS template equal visible card gaps. */
+    html, body { height: 100%; margin: 0; }
+    body { background: transparent !important; }
+    .container { height: 100%; box-sizing: border-box; }
+    .bed-title { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+  </style>
+  <script src="../_customizer.js"></script>
+    <script src="../../assets/js/jquery-3.6.0.min.js"></script>
   <meta http-equiv="refresh" content="28800">
 </head>
 

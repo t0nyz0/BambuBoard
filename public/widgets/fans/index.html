@@ -4,74 +4,172 @@
     <meta charset="UTF-8" />
     <title>BambuBoard</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
     <meta http-equiv="refresh" content="28800" />
-  </head>
+    <link rel="stylesheet" href="../../assets/css/material-symbols.css" />
+    <style>
+      /* Fans widget — uses the standard widget typography scale from
+         styles.css (1em body, 1.25em fine print, h2 default for titles)
+         so it visually matches Bed Temp / Chamber Temp / AMS Temp / etc.
+         Source viewport is 800×290; OBS scales the iframe uniformly so all
+         em-based sizes scale together — no vh tricks needed. */
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      /* Full height chain so the dark card fills the iframe edge-to-edge.
+         WITHOUT `.container { height: 100% }` the chain breaks (container
+         takes natural height of its child, not parent), leaving the card
+         shorter than the iframe with empty space at the bottom — which
+         showed as a "major gap" below Fans before. */
+      .container { height: 100%; box-sizing: border-box; }
+      .bedcontainer { height: 100%; margin-top: 0; box-sizing: border-box; }
+      .bed-title {
+        height: 100%;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
+      }
 
-  <link
-    rel="stylesheet"
-    href="../../assets/css/material-symbols.css"
-  />
+      .fan-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        padding: 0;
+        flex: 1;
+        min-height: 0;
+      }
+      .fan-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-around;
+        gap: 6px;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      /* Label uses h4-sized type (matches .finePrint elsewhere). */
+      .fan-label {
+        font-size: 1.25em;
+        font-weight: 400;
+        color: rgb(180, 180, 180);
+        text-shadow: 0 1px black;
+        letter-spacing: 0.3px;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        line-height: 1.2;
+      }
+
+      .fan-gauge {
+        position: relative;
+        width: 96px;
+        height: 96px;
+        flex-shrink: 0;
+      }
+      .fan-gauge svg {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        transform: rotate(-90deg);
+      }
+      .fan-gauge .gauge-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.08);
+        stroke-width: 4;
+      }
+      .fan-gauge .gauge-fill {
+        fill: none;
+        stroke-width: 4;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 0.6s ease, stroke 0.4s ease;
+      }
+      .fan-icon {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 44px !important;
+        color: rgba(200,200,200,0.7);
+        will-change: transform;
+        margin: 0 !important;
+      }
+      .fan-icon.spinning { color: rgba(255,255,255,0.9); }
+
+      /* Percentage matches .finePrint scale; bold for the active number. */
+      .fan-pct {
+        font-size: 1.25em;
+        font-weight: 700;
+        color: rgb(180, 180, 180);
+        text-shadow: 0 1px black;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+        text-align: center;
+      }
+      .fan-pct.active { color: #ffffff; }
+
+      @keyframes fan-spin {
+        from { transform: translate(-50%, -50%) rotate(0deg); }
+        to   { transform: translate(-50%, -50%) rotate(-360deg); }
+      }
+    </style>
+  </head>
   <body>
     <div class="container">
       <div class="bedcontainer">
-        <div class="bed-title fans">
+        <div class="bed-title">
           <h2 class="partTitle">Fans</h2>
-          <div class="fan-container flex">
-            <div class="fan1">
-              <h4 class="finePrint">Fan 1</h4>
-              <span
-                id="fan1"
-                class="material-symbols-outlined"
-                style="will-change: transform"
-              >
-                toys_fan
-              </span>
-              <span id="fan1-percent" class="fan-percentage">
-                
-              </span>
+          <div class="fan-grid">
+            <div class="fan-cell" data-fan="0">
+              <div class="fan-label">Aux</div>
+              <div class="fan-gauge">
+                <svg viewBox="0 0 72 72">
+                  <circle class="gauge-bg" cx="36" cy="36" r="32"></circle>
+                  <circle class="gauge-fill" cx="36" cy="36" r="32"
+                          stroke-dasharray="201.06" stroke-dashoffset="201.06"></circle>
+                </svg>
+                <span class="fan-icon material-symbols-outlined">toys_fan</span>
+              </div>
+              <div class="fan-pct">—</div>
             </div>
-
-            <div class="fan2">
-              <h4 class="finePrint">Fan 2</h4>
-              <span
-                id="fan2"
-                class="material-symbols-outlined"
-                style="will-change: transform"
-              >
-                toys_fan
-              </span>
-              <span id="fan2-percent" class="fan-percentage">
-
-              </span>
+            <div class="fan-cell" data-fan="1">
+              <div class="fan-label">Chamber</div>
+              <div class="fan-gauge">
+                <svg viewBox="0 0 72 72">
+                  <circle class="gauge-bg" cx="36" cy="36" r="32"></circle>
+                  <circle class="gauge-fill" cx="36" cy="36" r="32"
+                          stroke-dasharray="201.06" stroke-dashoffset="201.06"></circle>
+                </svg>
+                <span class="fan-icon material-symbols-outlined">toys_fan</span>
+              </div>
+              <div class="fan-pct">—</div>
             </div>
-
-            <div class="fan3">
-              <h4 class="finePrint">Cooling</h4>
-              <span
-                id="fan3"
-                class="material-symbols-outlined"
-                style="will-change: transform"
-              >
-                toys_fan
-              </span>
-              <span id="fan3-percent" class="fan-percentage">
-
-              </span>
+            <div class="fan-cell" data-fan="2">
+              <div class="fan-label">Cooling</div>
+              <div class="fan-gauge">
+                <svg viewBox="0 0 72 72">
+                  <circle class="gauge-bg" cx="36" cy="36" r="32"></circle>
+                  <circle class="gauge-fill" cx="36" cy="36" r="32"
+                          stroke-dasharray="201.06" stroke-dashoffset="201.06"></circle>
+                </svg>
+                <span class="fan-icon material-symbols-outlined">toys_fan</span>
+              </div>
+              <div class="fan-pct">—</div>
             </div>
-
-            <div class="fan4">
-              <h4 class="finePrint">Heatbreak</h4>
-              <span
-                id="fan4"
-                class="material-symbols-outlined"
-                style="will-change: transform"
-              >
-                toys_fan
-              </span>
-              <span id="fan4-percent" class="fan-percentage">
-
-              </span>
+            <div class="fan-cell" data-fan="3">
+              <div class="fan-label">Heatbreak</div>
+              <div class="fan-gauge">
+                <svg viewBox="0 0 72 72">
+                  <circle class="gauge-bg" cx="36" cy="36" r="32"></circle>
+                  <circle class="gauge-fill" cx="36" cy="36" r="32"
+                          stroke-dasharray="201.06" stroke-dashoffset="201.06"></circle>
+                </svg>
+                <span class="fan-icon material-symbols-outlined">toys_fan</span>
+              </div>
+              <div class="fan-pct">—</div>
             </div>
           </div>
         </div>

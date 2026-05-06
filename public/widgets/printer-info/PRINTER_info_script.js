@@ -10,6 +10,19 @@ const serverPort = window.location.port;
 let currentState = "OFF";
 let totalPrints = "";
 const consoleLogging = false;
+
+// Decode Bambu nozzle type codes (e.g. "HS05") into human-readable names.
+// Sourced from ha-bambulab pybambu/models.py:_nozzle_type_name().
+const _NOZZLE_MATERIALS = { '00': 'Stainless Steel', '01': 'Hardened Steel', '05': 'Tungsten Carbide' };
+function nozzleTypeName(code) {
+  if (!code || code.length < 4) {
+    if (typeof code === 'string') return code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return code || '—';
+  }
+  const highFlow = code[1] === 'H';
+  const material = _NOZZLE_MATERIALS[code.substring(2, 4)] || code;
+  return (highFlow ? 'High Flow ' : '') + material;
+}
 let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
@@ -38,9 +51,7 @@ async function updateUI(telemetryObject) {
     var nozzleSize = telemetryObject.nozzle_diameter;
     var printSpeed = telemetryObject.spd_lvl;
 
-    if (nozzleType === "hardened_steel") {
-      nozzleType = "Hardened Steel";
-    }
+    nozzleType = nozzleTypeName(nozzleType);
 
     $("#nozzleType").text(nozzleType);
     $("#nozzleSize").text(nozzleSize);

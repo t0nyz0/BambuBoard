@@ -1,9 +1,26 @@
-
-BambuData.txt
-data.json
-node_modules/*
+node_modules/
 package-lock.json
+pnpm-lock.yaml
 .DS_Store
+
+# Local config (per-install) — contains printer credentials, never commit
 config.json
-note.json
+# Stale config backups produced by the v2 → v3 migrator
+config.json.pre-merge-*.bak
+config.json.*.bak
+
+# Runtime state — printer telemetry, cloud auth tokens, user notes,
+# user-saved scene files. None of this should be in git.
+data/
+!data/.gitkeep
+
+# Legacy locations (cleaned up by migrator on first boot)
 accessToken.json
+note.json
+public/data.json
+public/data_*.json
+
+# Editor / IDE / agent local config
+.vscode/
+.idea/
+.claude/

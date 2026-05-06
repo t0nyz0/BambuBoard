@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BambuBoard — Setup</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/setup.css">
+</head>
+<body>
+  <main class="page page-narrow">
+
+    <div class="firstrun-hero" id="firstrun-hero" style="display:none">
+      <h1>Welcome to BambuBoard</h1>
+      <p>Tell us about your printer to get started. You'll need its IP address, serial number, and LAN access code (find these in Bambu Studio under Device → Access Code).</p>
+    </div>
+
+    <div class="setup-grid">
+
+      <section class="card">
+        <h3 class="card-title">Printer</h3>
+        <label class="field"><span>Name</span><input id="p-name" class="input" placeholder="My Printer"></label>
+        <div class="field-row">
+          <label class="field"><span>Type</span><select id="p-type" class="select"></select></label>
+          <label class="field"><span>Port</span><input id="p-port" class="input" placeholder="8883"></label>
+        </div>
+        <label class="field"><span>IP address or hostname</span><input id="p-url" class="input" placeholder="192.168.1.50"></label>
+        <label class="field"><span>Serial number</span><input id="p-sn" class="input" placeholder="00M00A0B1234567"></label>
+        <label class="field">
+          <span>LAN access code <small id="p-ac-status" class="text-dim"></small></span>
+          <div class="access-code-row">
+            <input id="p-ac" class="input" type="password" placeholder="••••••••">
+            <button id="show-ac" class="btn btn-ghost" type="button">Show</button>
+          </div>
+        </label>
+        <div class="btn-row">
+          <button id="test-btn" class="btn" type="button">Test connection</button>
+          <span class="test-result" id="test-result"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3 class="card-title">Display preferences</h3>
+        <label class="field"><span>Temperature unit</span>
+          <select id="temp" class="select">
+            <option value="C">Celsius</option>
+            <option value="F">Fahrenheit</option>
+            <option value="Both">Both</option>
+          </select>
+        </label>
+        <div class="card-row">
+          <span>Show fan percentages</span>
+          <span id="fan-pct" class="toggle"></span>
+        </div>
+        <div class="card-row">
+          <span>Show fan icons</span>
+          <span id="fan-icons" class="toggle"></span>
+        </div>
+        <div class="card-row">
+          <span>Verbose logging</span>
+          <span id="logging" class="toggle"></span>
+        </div>
+      </section>
+
+      <section class="card cloud-section">
+        <h3 class="card-title">Bambu Cloud (optional)</h3>
+        <p class="cloud-status">Sign in to populate the MakerWorld profile and model image widgets. LAN-only operation does not require this.</p>
+        <div class="card-row">
+          <span>Enable Bambu Cloud auth</span>
+          <span id="cloud-enabled" class="toggle"></span>
+        </div>
+        <p class="text-dim" style="margin-top:var(--space-3); font-size: 12px">
+          When enabled, sign in via the dedicated <a href="/login">login page</a>. Tokens are stored in <code class="text-mono">data/accessToken.json</code>.
+        </p>
+      </section>
+
+      <div class="btn-row" style="justify-content:flex-end">
+        <a href="/" class="btn btn-ghost">Cancel</a>
+        <button id="save-btn" class="btn btn-primary" type="button">Save</button>
+      </div>
+
+      <!-- Step 2: Connect. Hidden until the user has either saved valid
+           credentials in this session or already had a complete config.
+           setup.js polls /api/status every 1s while this section is visible
+           and updates the UI as MQTT connects and the printer auto-identifies
+           via the get_version response. -->
+      <section class="card" id="connect-step" style="display:none">
+        <h3 class="card-title" id="connect-anchor">
+          <a id="connect-anchor-link" href="#connect" style="color:inherit;text-decoration:none">Step 2 — Verify connection</a>
+        </h3>
+        <p class="text-dim">After saving credentials we connect to the printer and ask it to identify itself. This usually takes 2–5 seconds.</p>
+        <div class="card-row">
+          <span>MQTT</span>
+          <span class="pill" id="connect-mqtt">Waiting…</span>
+        </div>
+        <div class="card-row">
+          <span>Detected printer</span>
+          <span id="connect-detected" class="text-mono">—</span>
+        </div>
+        <div class="card-row">
+          <span>Last telemetry</span>
+          <span id="connect-last" class="text-dim">—</span>
+        </div>
+        <div class="btn-row" style="justify-content:flex-end; margin-top:var(--space-3)">
+          <button id="continue-btn" class="btn btn-primary" type="button" disabled>Continue to Layout →</button>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script src="/js/nav.js"></script>
+  <script src="/js/setup.js"></script>
+  <script>
+    if (new URLSearchParams(location.search).get('firstRun') === '1') {
+      document.getElementById('firstrun-hero').style.display = '';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BambuBoard | AMS</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* Uniform height-fill chain — see /widgets/ams/index.html. */
+      html, body { height: 100%; margin: 0; }
+      body { background: transparent !important; }
+      .container { height: 100%; box-sizing: border-box; }
+      .bedcontainer { height: 100%; margin-top: 0; box-sizing: border-box; }
+      .bed-title { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+    </style>
+    <script src="../_customizer.js"></script>
+    <script src="../../assets/js/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
+
+  <link rel="stylesheet" href="../../assets/css/material-symbols.css"/>
+  <body>
+    <div class="container">
+      <div class="bedcontainer">
+      <div class="bed-title">
+        <h2 class="partTitle">AMS #2 Temp</h2>
+
+        <div class="grid-columns-3">
+
+       <div class="temperature-container">
+                    <div class="progress-wrapper">
+              <div id="amsProgressBarParent" class="progress">
+                <div id="amsProgressBar" class="progress-bar" style="width: 5px; background-color: #FFCC41;"></div>
+              </div>
+            </div>
+  
+          <div style="display: flex;justify-content: space-between;">
+            <h4 class="finePrint">
+              <b>Current: <span id="amsCurrentTempC">0</span></b><span id="amsCurrentTempSymbolsC"><b><sup>°</sup>C</b></span> <span style="color:grey;"><span id="amsCurrentTempF">0</span><span id="amsCurrentTempSymbolsF"><sup>°</sup>F</span>
+            </h4>
+            <h4 class="finePrint">
+              <b>Max: <span id="amsTargetTempC">0</span><span id="amsTargetTempSymbolsC"><sup>°</sup>C</b></span> <span style="color:grey;"><span id="amsTargetTempF">0</span><span id="amsTargetTempSymbolsF"><sup>°</sup>F</span></span>
+            </h4>
+          </div>
+        </div>
+
+        <div class="humidity-container">
+          <div class="progress-segment">
+            <div id="humidity1" class="humidity-item green-common"></div>
+            <div id="humidity2" class="humidity-item green-common"></div>
+            <div id="humidity3" class="humidity-item green-common"></div>
+            <div id="humidity4" class="humidity-item green-common"></div>
+            <div id="humidity5" class="humidity-item "></div>
+          </div>
+          <div class="ams-type-remaining">
+            <h4 class="finePrint">Humidity <span id="humidityPercent" class="fade" style="font-weight:400"></span></h4>
+            <h4 id="humidityLevelText" class="finePrint">Low</h4>
+          </div>
+          <div id="dryingStatus" class="ams-type-remaining" style="display:none">
+            <h4 class="finePrint" style="color:#FFCC41">Drying</h4>
+            <h4 id="dryingDetail" class="finePrint" style="color:#FFCC41"></h4>
+          </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+    </div>
+    <script src="AMS_temp_script.js"></script>
+  </body>
+</html>

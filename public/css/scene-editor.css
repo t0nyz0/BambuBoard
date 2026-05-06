@@ -1,0 +1,240 @@
+.editor-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.editor-toolbar .group { display: flex; gap: var(--space-2); align-items: center; }
+.editor-toolbar .spacer { flex: 1; }
+.editor-toolbar select.input { width: auto; min-width: 200px; }
+
+.canvas-shell {
+  background: #000;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-4);
+  min-height: 540px;
+}
+
+/* The wrapper takes the visual (post-scale) layout box so flex centering
+   actually centers the visible canvas in the shell. The inner .scene-canvas
+   stays 1920×1080 in coordinate space and uses transform: scale() to fit. */
+.scene-canvas-wrap {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden; /* clip post-scale extent (defensive — items are inside 1920×1080) */
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 32px rgba(0,0,0,.6);
+}
+
+.scene-canvas {
+  position: relative;
+  /* Pure black — what OBS shows for "no source" / transparent regions.
+     Any background coloration comes from the actual Color Source rendered
+     as the bottom-most scene item, matching OBS compositing exactly. */
+  background: #000;
+  transform-origin: top left;
+}
+
+.scene-item {
+  position: absolute;
+  outline: 1px dashed transparent;
+  transition: outline-color 100ms;
+}
+.scene-item:hover { outline-color: rgba(255,255,255,.25); }
+.scene-item.selected { outline: 2px solid var(--color-accent); }
+.scene-item.locked { pointer-events: none; }
+.scene-item.item-hidden { opacity: 0.35; }
+
+.scene-item .body {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;  /* clip the natural-size iframe to the rendered tile box */
+}
+.scene-item iframe {
+  border: 0;
+  display: block;
+  /* Width/height set inline at the source's natural size; transform: scale()
+     applied inline brings it to the rendered size. This matches OBS's
+     "browser paints at viewport size, scene transform scales output" pipeline. */
+  pointer-events: none; /* let drag handler claim clicks; widget still polls /data.json */
+}
+.scene-item.placeholder .body {
+  background: rgba(255,255,255,.05);
+  border: 1px dashed rgba(255,255,255,.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  gap: 4px;
+  font-size: 14px;
+}
+.scene-item.placeholder .body .pname { font-weight: 600; color: #ccc; }
+.scene-item.placeholder .body .ptype { font-size: 11px; opacity: .6; }
+
+.scene-item .label {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  background: var(--color-surface);
+  color: var(--color-text-dim);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.scene-item:hover .label, .scene-item.selected .label { opacity: 1; }
+
+.scene-item .resize-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  right: -7px;
+  bottom: -7px;
+  background: var(--color-accent);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.scene-item.selected .resize-handle, .scene-item:hover .resize-handle { opacity: 1; }
+.scene-item .move-handle {
+  position: absolute;
+  inset: 0;
+  cursor: move;
+}
+
+/* Floating inspector */
+.inspector {
+  position: fixed;
+  top: 120px;
+  right: 24px;
+  width: 300px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-2);
+  z-index: 100;
+  display: none;
+}
+.inspector.open { display: block; }
+.inspector h4 { margin: 0 0 var(--space-3); }
+.inspector .row { display: grid; grid-template-columns: 60px 1fr 1fr; gap: var(--space-2); margin-bottom: var(--space-2); align-items: center; }
+.inspector .row label { color: var(--color-text-dim); font-size: 12px; }
+.inspector input.input { padding: var(--space-1) var(--space-2); font-size: 12px; }
+.inspector hr { border: 0; border-top: 1px solid var(--color-border); margin: var(--space-3) 0; }
+.inspector .full { grid-column: 1 / -1; }
+
+.diff-preview {
+  font-size: 12px;
+  color: var(--color-text-dim);
+  margin-left: var(--space-3);
+}
+.diff-preview .modified { color: var(--color-warn); }
+
+/* Right slide-out widget drawer */
+.widget-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100vh;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -4px 0 24px rgba(0,0,0,.4);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 200ms ease;
+}
+.widget-drawer.open { transform: translateX(0); }
+.widget-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.widget-drawer-header h4 { margin: 0; }
+.widget-drawer-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+/* Individual widget tile in the drawer */
+.drawer-widget {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+  cursor: grab;
+  transition: background 120ms, border-color 120ms;
+  user-select: none;
+}
+.drawer-widget:hover {
+  background: var(--color-surface-2);
+  border-color: var(--color-accent);
+}
+.drawer-widget:active { cursor: grabbing; }
+.drawer-widget .dw-preview {
+  width: 80px;
+  height: 50px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #000;
+  position: relative;
+}
+.drawer-widget .dw-preview iframe {
+  border: 0;
+  width: 400px;
+  height: 250px;
+  transform: scale(0.2);
+  transform-origin: top left;
+  pointer-events: none;
+}
+.drawer-widget .dw-info { flex: 1; min-width: 0; }
+.drawer-widget .dw-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.drawer-widget .dw-size {
+  font-size: 11px;
+  color: var(--color-text-dim);
+}
+
+/* Canvas drop-target highlight */
+.scene-canvas.drag-over {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* When drawer is open, shift the inspector left so it doesn't overlap */
+.widget-drawer.open ~ .inspector.open {
+  right: 344px;
+}

@@ -1,0 +1,7 @@
+{
+  "name": "Chamber temperature",
+  "description": "Enclosed-chamber temperature (X1, X1C, H2D).",
+  "recommendedSize": { "w": 400, "h": 120 },
+  "tags": ["temperature"],
+  "requiresCap": "hasChamberTemp"
+}

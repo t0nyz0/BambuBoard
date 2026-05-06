@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <title>BambuBoard</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* Uniform height-fill chain — see /widgets/ams/index.html. bed-temp
+         uses the .grid > .column > .bed-title wrapper, so the chain has
+         extra steps. Result: card fills iframe edge-to-edge. */
+      html, body { height: 100%; margin: 0; }
+      body { background: transparent !important; }
+      .container { height: 100%; box-sizing: border-box; }
+      .bedcontainer { height: 100%; margin-top: 0; box-sizing: border-box; }
+      .grid.grid-gap-30 { height: 100%; }
+      .column.grid-gap-10 { height: 100%; display: flex; flex-direction: column; align-items: stretch; }
+      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; }
+    </style>
+    <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
     <meta http-equiv="refresh" content="28800" />
   </head>

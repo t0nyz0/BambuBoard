@@ -1,0 +1,1080 @@
+{
+  "name": "BambuBoard <VERSION>",
+  "groups": [],
+  "scene_order": [
+    {
+      "name": "Scene"
+    }
+  ],
+  "current_scene": "Scene",
+  "current_program_scene": "Scene",
+  "canvases": [],
+  "current_transition": "Cut",
+  "transition_duration": 300,
+  "transitions": [],
+  "quick_transitions": [
+    {
+      "name": "Cut",
+      "duration": 300,
+      "hotkeys": [],
+      "id": 1,
+      "fade_to_black": false
+    },
+    {
+      "name": "Fade",
+      "duration": 300,
+      "hotkeys": [],
+      "id": 2,
+      "fade_to_black": false
+    },
+    {
+      "name": "Fade",
+      "duration": 300,
+      "hotkeys": [],
+      "id": 3,
+      "fade_to_black": true
+    }
+  ],
+  "saved_projectors": [],
+  "preview_locked": false,
+  "scaling_enabled": false,
+  "scaling_level": -9,
+  "scaling_off_x": 0,
+  "scaling_off_y": 0,
+  "virtual-camera": {
+    "type2": 3
+  },
+  "resolution": {
+    "x": 1920,
+    "y": 1080
+  },
+  "migration_resolution": {
+    "x": 1920,
+    "y": 1080
+  },
+  "version": 2,
+  "sources": [
+    {
+      "prev_ver": 503316480,
+      "name": "Printer Camera",
+      "uuid": "440c7d78-cfaa-4d96-9666-ed664d8e302f",
+      "id": "ffmpeg_source",
+      "versioned_id": "ffmpeg_source",
+      "settings": {
+        "local_file": "",
+        "input": "rtsps://bblp:<ACCESS_CODE>@<PRINTER_IP>:322/streaming/live/1",
+        "is_local_file": false,
+        "restart_on_activate": true,
+        "hw_decode": true,
+        "clear_on_media_end": false,
+        "width": 1920,
+        "height": 1080
+      },
+      "enabled": true,
+      "volume": 1,
+      "balance": 0.5,
+      "mixers": 255,
+      "monitoring_type": 0,
+      "muted": true,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "AMS Temp",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/ams-temp/index.html",
+        "width": 700,
+        "height": 200,
+        "css": "body {margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "AMS Trays",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/ams/index.html",
+        "width": 390,
+        "height": 540,
+        "css": "body { margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "ams-temp-2",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/ams-temp-2/index.html",
+        "width": 700,
+        "height": 200,
+        "css": "body {margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "ams2",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/ams2/index.html",
+        "width": 390,
+        "height": 540,
+        "css": "body { margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Bed Temperature",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/bed-temp/index.html",
+        "width": 650,
+        "height": 130,
+        "css": "body {margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Chamber Temp",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/chamber-temp/index.html",
+        "width": 700,
+        "height": 120,
+        "css": "body {margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Color Source",
+      "id": "color_source",
+      "versioned_id": "color_source_v3",
+      "settings": {
+        "color": 4280953386
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Fans",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/fans/index.html",
+        "width": 800,
+        "height": 218,
+        "fps": 60,
+        "fps_custom": true,
+        "css": "body { margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "logo",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "https://eu-trademark.s3.amazonaws.com/019117180",
+        "width": 500,
+        "height": 161,
+        "css": "body { border-radius:15px; background: rgb(0 0 0 / 95%); margin: 0px auto; overflow: hidden; font-size: 28px; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Model Image",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/model-image/index.html",
+        "width": 512,
+        "height": 550,
+        "css": "body {background: rgb(0 0 0 / 80%); margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Notes",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/notes/index.html",
+        "width": 1500,
+        "height": 60,
+        "fps_custom": true,
+        "css": "body { border-radius:15px; background: rgb(0 0 0 / 95%); margin: 0px auto; overflow: hidden; font-size: 28px; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Nozzle temp 2",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/nozzle-temp-2/index.html",
+        "width": 390,
+        "height": 140,
+        "css": "body {  margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Nozzle Temperature",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/nozzle-temp/index.html",
+        "width": 390,
+        "height": 140,
+        "css": "body {  margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Print Progress",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/print-info/index.html",
+        "width": 800,
+        "height": 310,
+        "css": "body { margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Printer Info",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/printer-info/index.html",
+        "width": 400,
+        "height": 280,
+        "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }\n\n.bedcontainer {\n    margin-top: 5px;\n}\n\n.bed-title {\n    padding: 10px 15px;\n}"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Profile",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/profile-info/index.html",
+        "width": 400,
+        "height": 315,
+        "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "progress bar",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/progress-info/index.html",
+        "width": 1920,
+        "height": 100,
+        "css": "body { margin: 0px auto; overflow: hidden; }"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Scene",
+      "id": "scene",
+      "versioned_id": "scene",
+      "settings": {
+        "custom_size": false,
+        "id_counter": 35,
+        "items": [
+          {
+            "name": "Color Source",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 14,
+            "pos": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Profile",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 28,
+            "pos": {
+              "x": 398,
+              "y": 99
+            },
+            "scale": {
+              "x": 0.6575000286102295,
+              "y": 0.6571428775787354
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Printer Camera",
+            "pos": {
+              "x": 420,
+              "y": 99
+            },
+            "scale": {
+              "x": 0.8687499761581421,
+              "y": 0.8685185313224792
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "align": 5,
+            "rot": 0,
+            "visible": true,
+            "locked": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "blend_type": "normal",
+            "blend_method": "default",
+            "scale_filter": "bicubic",
+            "show_transition": {
+              "id": "fade_transition",
+              "name": "Fade",
+              "duration": 300
+            },
+            "hide_transition": {
+              "id": "fade_transition",
+              "name": "Fade",
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Printer Info",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 10,
+            "pos": {
+              "x": 398,
+              "y": 845.9999942779541
+            },
+            "scale": {
+              "x": 0.6575000286102295,
+              "y": 0.6571428775787354
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "progress bar",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 13,
+            "pos": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": {
+              "x": 1,
+              "y": 1
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Print Progress",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 12,
+            "pos": {
+              "x": -4,
+              "y": 91
+            },
+            "scale": {
+              "x": 1,
+              "y": 1
+            },
+            "bounds": {
+              "x": 395,
+              "y": 152
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Version",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 29,
+            "pos": {
+              "x": 1690,
+              "y": 987.5
+            },
+            "scale": {
+              "x": 0.8517241477966309,
+              "y": 0.8500000238418579
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Notes",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 16,
+            "pos": {
+              "x": 398,
+              "y": 1030
+            },
+            "scale": {
+              "x": 1,
+              "y": 1
+            },
+            "bounds": {
+              "x": 1522,
+              "y": 57
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Model Image",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 6,
+            "pos": {
+              "x": 1601,
+              "y": 100
+            },
+            "scale": {
+              "x": 0.623046875,
+              "y": 0.6236363649368286
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "logo",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 35,
+            "pos": {
+              "x": 1706,
+              "y": 0
+            },
+            "scale": {
+              "x": 0.42800000309944153,
+              "y": 0.4285714328289032
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "multiply"
+          },
+          {
+            "name": "ams2",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 32,
+            "pos": {
+              "x": 194,
+              "y": 692
+            },
+            "scale": {
+              "x": 0.50733,
+              "y": 0.50733
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "AMS Trays",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 4,
+            "pos": {
+              "x": -4,
+              "y": 692
+            },
+            "scale": {
+              "x": 0.50733,
+              "y": 0.50733
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Fans",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 11,
+            "pos": {
+              "x": -4,
+              "y": 969
+            },
+            "scale": {
+              "x": 0.4946,
+              "y": 0.4946
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Nozzle temp 2",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 34,
+            "pos": {
+              "x": -4,
+              "y": 618
+            },
+            "scale": {
+              "x": 0.50733,
+              "y": 0.50733
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Nozzle Temperature",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 7,
+            "pos": {
+              "x": 194,
+              "y": 618
+            },
+            "scale": {
+              "x": 0.50733,
+              "y": 0.50733
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "ams-temp-2",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 33,
+            "pos": {
+              "x": -6,
+              "y": 501
+            },
+            "scale": {
+              "x": 0.5699999928474426,
+              "y": 0.5699999928474426
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "AMS Temp",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 24,
+            "pos": {
+              "x": -5,
+              "y": 384
+            },
+            "scale": {
+              "x": 0.5685714483261108,
+              "y": 0.5699999928474426
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Bed Temperature",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 5,
+            "pos": {
+              "x": -6,
+              "y": 301
+            },
+            "scale": {
+              "x": 0.6138461828231812,
+              "y": 0.6153846383094788
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          },
+          {
+            "name": "Chamber Temp",
+            "visible": true,
+            "locked": false,
+            "rot": 0,
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 8,
+            "pos": {
+              "x": -5,
+              "y": 230
+            },
+            "scale": {
+              "x": 0.5671428442001343,
+              "y": 0.5666666626930237
+            },
+            "bounds": {
+              "x": 0,
+              "y": 0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal"
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Version",
+      "id": "browser_source",
+      "versioned_id": "browser_source",
+      "settings": {
+        "url": "http://<HOST>/widgets/version/index.html",
+        "width": 290,
+        "height": 50,
+        "css": "body {background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden;}\n\n.version {\nmargin:0px;\npadding:0px:\n  text-align: left;\n  color: #b3b1b1;\n}"
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    }
+  ]
+}

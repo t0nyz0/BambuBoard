@@ -1,0 +1,6 @@
+{
+  "name": "Progress",
+  "description": "Print progress bar with status text and percentage.",
+  "recommendedSize": { "w": 600, "h": 80 },
+  "tags": ["progress", "status"]
+}

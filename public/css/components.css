@@ -1,0 +1,332 @@
+/* Top nav */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.04) 100%),
+    var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: var(--radius-md);
+  transition: background 150ms ease;
+  text-decoration: none;
+}
+.nav-brand:hover { background: var(--color-surface-2); text-decoration: none; }
+.nav-brand .bb-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Logo mark — gradient-filled stacked print layers + status dot.
+   Bigger and more colorful than v1 so it actually stands out in the nav. */
+.nav-brand .bb-logo {
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+.nav-brand .bb-logo-status {
+  fill: var(--color-text-muted);
+  transition: fill 200ms ease;
+}
+/* Connection-state coloring for the status dot. The pulse animation only runs
+   when actively online so the nav doubles as an at-a-glance status indicator. */
+.nav-brand.is-online  .bb-logo-status { fill: var(--color-ok); animation: bb-logo-pulse 1.8s ease-in-out infinite; }
+.nav-brand.is-offline .bb-logo-status { fill: var(--color-warn); }
+.nav-brand.is-unknown .bb-logo-status { fill: var(--color-text-muted); }
+@keyframes bb-logo-pulse {
+  0%, 100% { opacity: 1;   filter: drop-shadow(0 0 0 transparent); }
+  50%      { opacity: 0.75; filter: drop-shadow(0 0 6px var(--color-ok)); }
+}
+
+/* Wordmark — heavier weight, tighter tracking, richer gradient text-clip.
+   Designed to read as a confident product name rather than a placeholder. */
+.nav-brand .bb-logo-text {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  background: linear-gradient(180deg, #ffffff 0%, #b8d8b6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1;
+}
+
+/* Back-compat: pages that still use <span class="dot"> directly without the
+   surrounding nav-brand context (e.g. inline status indicators) get the
+   original simple green dot. */
+.nav-brand > .dot,
+.dot:not(.bb-logo-status) {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent);
+  display: inline-block;
+}
+.nav-links { display: flex; gap: var(--space-2); }
+.nav-link {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-dim);
+  font-weight: 500;
+  transition: all 150ms ease;
+}
+.nav-link:hover { background: var(--color-surface-2); color: var(--color-text); text-decoration: none; }
+.nav-link.active { background: var(--color-surface-2); color: var(--color-text); border-bottom: 2px solid var(--color-accent); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.nav-spacer { flex: 1; }
+.nav-meta { display: flex; gap: var(--space-2); align-items: center; color: var(--color-text-dim); font-size: 13px; }
+
+/* Page container */
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-5);
+}
+.page-narrow { max-width: 720px; }
+
+/* Cards — borrow the dashboard widget aesthetic: subtle inset highlight at
+   the top edge, slightly stronger shadow, soft inner gradient. Keeps the
+   workflow pages feeling visually connected to the OBS overlay widgets. */
+.card {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(0,0,0,0.04) 100%),
+    var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 1px 2px rgba(0,0,0,0.25),
+    0 4px 12px rgba(0,0,0,0.18);
+}
+.card + .card { margin-top: var(--space-4); }
+.card-title { margin: 0 0 var(--space-4) 0; font-size: 15px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.card-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.card-row + .card-row { margin-top: var(--space-3); }
+
+/* Buttons — same subtle inset-highlight treatment as cards, makes them feel
+   tactile and at home alongside the dashboard widget styling. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.04) 100%),
+    var(--color-surface-2);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+.btn:hover { background: var(--color-border); }
+.btn-primary {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(0,0,0,0.08) 100%),
+    var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(81,163,79,0.3);
+}
+.btn-primary:hover { background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.06)), #4a9347; border-color: #4a9347; }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--color-text-dim); box-shadow: none; }
+.btn-ghost:hover { background: var(--color-surface-2); color: var(--color-text); }
+.btn-danger { color: var(--color-error); border-color: var(--color-error); }
+.btn-danger:hover { background: var(--color-error); color: #fff; }
+.btn:disabled, .btn[disabled] { opacity: .5; cursor: not-allowed; box-shadow: none; }
+.btn-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Inputs */
+.input, .select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  transition: border-color 150ms ease;
+}
+.input:focus, .select:focus { outline: none; border-color: var(--color-accent); }
+.input-row { display: flex; align-items: center; gap: var(--space-2); }
+label.field { display: block; margin-bottom: var(--space-3); }
+label.field > span { display: block; margin-bottom: var(--space-1); color: var(--color-text-dim); font-size: 13px; }
+
+/* Toggle switch */
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--color-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 150ms ease;
+  display: inline-block;
+  vertical-align: middle;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 150ms ease;
+}
+.toggle.on { background: var(--color-accent); }
+.toggle.on::after { transform: translateX(16px); }
+
+/* Pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: 10rem;
+  background: var(--color-surface-2);
+  color: var(--color-text-dim);
+  font-size: 12px;
+  font-weight: 500;
+}
+.pill::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pill-ok    { color: var(--color-ok);    background: rgba(81,163,79,.12); }
+.pill-warn  { color: var(--color-warn);  background: rgba(226,160,74,.12); }
+.pill-error { color: var(--color-error); background: rgba(229,84,84,.12); }
+.pill-info  { color: var(--color-accent-2); background: rgba(74,144,226,.12); }
+.pill-cloud { color: #a78bfa; background: rgba(167,139,250,.12); }
+
+/* Toasts */
+.toast-host { position: fixed; bottom: var(--space-5); right: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); z-index: 100; pointer-events: none; }
+.toast {
+  pointer-events: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  font-size: 13px;
+  min-width: 240px;
+  max-width: 360px;
+  animation: toast-in 200ms ease;
+}
+.toast.error { border-left-color: var(--color-error); }
+.toast.warn { border-left-color: var(--color-warn); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Empty / loading states */
+.empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-dim);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface) 0%, var(--color-surface-2) 50%, var(--color-surface) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Section headings */
+.section-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: var(--space-6) 0 var(--space-3) 0;
+}
+.section-header h2 { margin: 0; }
+.section-header .section-meta { color: var(--color-text-dim); font-size: 13px; }
+
+/* Workflow stepper — sits below the top nav on Setup / Layout / Export pages.
+   Shows the 4-step setup flow with the active step highlighted, completed
+   steps marked with a check, and locked steps grayed out. */
+.bb-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 12px 24px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.06) 100%),
+    var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), 0 1px 4px rgba(0,0,0,0.18);
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  flex-wrap: wrap;
+}
+.bb-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--color-text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 120ms, background 120ms;
+  white-space: nowrap;
+}
+.bb-step:hover { color: var(--color-text); background: var(--color-surface-2); }
+.bb-step.is-active { color: var(--color-text); }
+.bb-step.is-active .bb-step-circle {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(81,163,79,0.18);
+}
+.bb-step.is-complete .bb-step-circle {
+  background: rgba(81,163,79,.15);
+  color: var(--color-ok);
+  border-color: var(--color-ok);
+}
+.bb-step.is-locked {
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.bb-step-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-dim);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+.bb-step-label { font-size: 13px; }
+.bb-step-connector {
+  display: inline-block;
+  width: 32px;
+  height: 1.5px;
+  background: var(--color-border);
+  margin: 0 4px;
+  transition: background 120ms;
+}
+.bb-step-connector.is-complete { background: var(--color-ok); }

@@ -1,44 +1,38 @@
-// BambuBoard
-// TZ | 11/20/23
+// BambuBoard — AMS Tray widget
+// Supports ?ams=N parameter: 0–3 (default 0)
 
-//-------------------------------------------------------------------------------------------------------------
-const protocol = window.location.protocol; // 'http:' or 'https:'
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
+const AMS_INDEX = parseInt(new URLSearchParams(location.search).get('ams') || '0', 10);
+
+const protocol = window.location.protocol;
+const serverURL = window.location.hostname;
 const serverPort = window.location.port;
-//-------------------------------------------------------------------------------------------------------------
-
-let currentState = "OFF";
-let modelImage = "";
-const consoleLogging = false;
-let tempSetting = "Fahrenheit"; 
-let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
+
+let currentState = 'OFF';
+const consoleLogging = false;
+let settings = {};
 
 async function loadSettings() {
   try {
-      const response = await fetch(fullServerURL + '/settings');
-      if (response.ok) {
-          const data = await response.json();
-          tempSetting = data;
-      } 
+    const response = await fetch(fullServerURL + '/settings');
+    if (response.ok) settings = await response.json();
   } catch (error) {
-      console.error('Error loading settings:', error);
+    console.error('Error loading settings:', error);
   }
 }
 
 loadSettings();
 
 async function retrieveData() {
-  const response = await fetch(fullServerURL + "/data.json");
-
+  const response = await fetch(fullServerURL + '/data.json');
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
 
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
+  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
     currentState = telemetryObject.print.gcode_state;
     telemetryObject = telemetryObject.print;
   } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
+    telemetryObject = 'Incomplete';
   } else {
     telemetryObject = null;
   }
@@ -46,446 +40,208 @@ async function retrieveData() {
   return telemetryObject;
 }
 
+// Update a single tray's UI elements.
+function updateTray(trayIdx, tray) {
+  const n = trayIdx + 1; // 1-based for element IDs
+  const color = tray.tray_color || '';
+  const material = tray.tray_sub_brands || '';
+  const filType = tray.tray_type || '';
+  const uid = tray.tag_uid || '';
+  const remain = tray.remain;
+
+  // Detect empty tray: no filament type and no color means nothing is loaded.
+  const isEmpty = !filType && !color;
+
+  // Tag the parent .element so CSS can hide the progress bar on empty rows
+  // (no phantom horizontal line under "Empty").
+  const $element = $(`#tray${n}Color`).closest('.element');
+
+  if (isEmpty) {
+    $element.addClass('tray-empty');
+    $(`#tray${n}Color`).css('background-color', 'rgba(100,100,100,0.3)');
+    $(`#tray${n}Material`).text('Empty').css('opacity', '0.4');
+    $(`#tray${n}Type`).text('');
+    $(`#tray${n}Remaining`).text('');
+    $(`#tray${n}ProgressBar`).width(0).css('background-color', 'transparent');
+    return;
+  }
+
+  // Loaded tray — show filament info.
+  $element.removeClass('tray-empty');
+  $(`#tray${n}Material`).css('opacity', '1');
+
+  // Color swatch
+  if (color) {
+    $(`#tray${n}Color`).css('background-color', '#' + color);
+  }
+
+  // Material name
+  $(`#tray${n}Material`).text(material || filType || 'Unknown');
+
+  // Type label (brand + filament type)
+  // uid empty = manual/external, uid all-zeros = generic/3rd-party, uid valid = Bambu RFID
+  let typeLabel = '';
+  if (!uid || uid === '0000000000000000') {
+    typeLabel = filType;
+  } else {
+    typeLabel = 'Bambu • ' + filType;
+  }
+  $(`#tray${n}Type`).text(typeLabel);
+
+  // Remaining percentage
+  const parentWidth = $(`#tray${n}ProgressBarParent`).width();
+  if (remain == null || remain < 0) {
+    // Unknown remaining (RFID tag present but no data, or non-Bambu filament)
+    $(`#tray${n}Remaining`).text('');
+    $(`#tray${n}ProgressBar`).width(0).css('background-color', 'grey');
+  } else if (remain <= 2) {
+    $(`#tray${n}Remaining`).text('LOW');
+    $(`#tray${n}ProgressBar`).width((remain * parentWidth) / 100).css('background-color', 'red');
+  } else {
+    $(`#tray${n}Remaining`).text(remain + '%');
+    const barWidth = (Math.max(0, remain) * parentWidth) / 100;
+    $(`#tray${n}ProgressBar`).width(barWidth);
+
+    if (remain >= 20) {
+      $(`#tray${n}ProgressBar`).css('background-color', '#51a34f');
+    } else if (remain > 10) {
+      $(`#tray${n}ProgressBar`).css('background-color', 'yellow');
+    } else {
+      $(`#tray${n}ProgressBar`).css('background-color', 'red');
+    }
+  }
+
+  if (currentState !== 'RUNNING') {
+    $(`#tray${n}ProgressBar`).css('background-color', 'grey');
+  }
+}
+
 async function updateAMS(telemetryObject) {
-  /// AMS
+  try {
+    const amsUnit = telemetryObject.ams.ams[AMS_INDEX];
+    if (!amsUnit || !amsUnit.tray) return;
 
-  // Tray 1
-
-  var tray1Color = telemetryObject.ams.ams[0].tray[0].tray_color;
-  var tray1Material = telemetryObject.ams.ams[0].tray[0].tray_sub_brands;
-  var tray1FilamentType = telemetryObject.ams.ams[0].tray[0].tray_type;
-  var tray1Type = "";
-  var tray1UID = telemetryObject.ams.ams[0].tray[0].tag_uid;
-  var tray1Remaining = telemetryObject.ams.ams[0].tray[0].remain;
-
-  if (!tray1Remaining) {
-    $("#tray1Remaining").text("0%");
-    $("#tray1ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray1FilamentType) {
-      tray1FilamentType = "";
+    // Update all 4 trays.
+    for (let i = 0; i < 4; i++) {
+      updateTray(i, amsUnit.tray[i] || {});
     }
 
-    log(tray1Color);
-    $("#tray1Color").css("background-color", "#" + tray1Color);
-    $("#tray1Material").text(tray1Material);
+    // AMS Humidity
+    const amsHumidity = amsUnit.humidity;
 
-    if (!tray1UID) {
-      tray1Type = tray1FilamentType;
-    } else if (tray1UID === "0000000000000000") {
-      tray1Type = "";
+    $('#humidity1, #humidity2, #humidity3, #humidity4, #humidity5').css('background', 'gray');
+
+    if (amsHumidity === '5') {
+      $('#humidity1').css('background', '#51a34f');
+      $('#humidityLevelText').text('Low');
+    } else if (amsHumidity === '4') {
+      $('#humidity1, #humidity2').css('background', '#51a34f');
+      $('#humidityLevelText').text('Low');
+    } else if (amsHumidity === '3') {
+      $('#humidity1, #humidity2, #humidity3').css('background', 'yellow');
+      $('#humidityLevelText').text('Ok');
+    } else if (amsHumidity === '2') {
+      $('#humidity1, #humidity2, #humidity3, #humidity4').css('background', 'red');
+      $('#humidityLevelText').text('High');
+    } else if (amsHumidity === '1') {
+      $('#humidity1, #humidity2, #humidity3, #humidity4, #humidity5').css('background', 'red');
+      $('#humidityLevelText').text('High');
+    }
+
+    // AMS Temperature
+    const amsTemp = amsUnit.temp || 0;
+    const amsTempPercentage = Math.min((amsTemp / 60) * 100, 100);
+
+    $('#amsTargetTempC').text('60');
+    $('#amsTargetTempF').text(140);
+
+    const amsCurrentTempF = parseFloat(((amsTemp * 9) / 5 + 32).toFixed(1));
+    $('#amsCurrentTempF').text(amsCurrentTempF);
+    $('#amsCurrentTempC').text(amsTemp);
+
+    const progressWidth = $('#amsProgressBarParent').width();
+    $('#amsProgressBar').width((amsTempPercentage * progressWidth) / 100);
+
+    const ts = settings.BambuBoard_tempSetting;
+    if (ts === 'Fahrenheit') {
+      $('#amsTargetTempSymbolsF, #amsCurrentTempSymbolsF, #amsTargetTempF, #amsCurrentTempF').show();
+      $('#amsCurrentTempC, #amsTargetTempSymbolsC, #amsCurrentTempSymbolsC, #amsTargetTempC').hide();
+    } else if (ts === 'Celsius') {
+      $('#amsTargetTempSymbolsF, #amsCurrentTempSymbolsF, #amsTargetTempF, #amsCurrentTempF').hide();
+      $('#amsCurrentTempC, #amsTargetTempSymbolsC, #amsCurrentTempSymbolsC, #amsTargetTempC').show();
     } else {
-      tray1Type = "Bambu • " + tray1FilamentType;
+      $('#amsTargetTempSymbolsF, #amsCurrentTempSymbolsF, #amsTargetTempF, #amsCurrentTempF').show();
+      $('#amsCurrentTempC, #amsTargetTempSymbolsC, #amsCurrentTempSymbolsC, #amsTargetTempC').show();
     }
 
-    $("#tray1Type").text(tray1Type);
-    $("#tray1Remaining").text(tray1Remaining + "%");
-    let tray1ProgressBarParent = $("#tray1ProgressBarParent").width();
-    if (tray1Remaining < 0) {
-      tray1Remaining = 0;
-    }
-    $("#tray1ProgressBar").width(
-      (tray1Remaining * tray1ProgressBarParent) / 100
-    );
-
-    if (tray1Remaining >= 20) {
-      $("#tray1ProgressBar").css("background-color", "#51a34f");
-    } else if (tray1Remaining > 10) {
-      $("#tray1ProgressBar").css("background-color", "yellow");
-    } else if (tray1Remaining > 2) {
-      $("#tray1ProgressBar").css("background-color", "red");
-    } else if (tray1Remaining === -1) {
-      $("#tray1Remaining").text("Unknown");
-      $("#tray1ProgressBar").css("background-color", "grey");
+    if (amsTempPercentage > 90) {
+      $('#amsProgressBar').css('background-color', 'red');
+    } else if (amsTempPercentage > 70) {
+      $('#amsProgressBar').css('background-color', 'yellow');
     } else {
-      $("#tray1Remaining").text("LOW");
-      $("#tray1ProgressBar").css("background-color", "red");
+      $('#amsProgressBar').css('background-color', '#51a34f');
     }
 
-    if (currentState !== "RUNNING") {
-      $("#tray1ProgressBar").css("background-color", "grey");
-    }
-  }
-  // Tray 2
+    // AMS active tray — dual/quad-AMS aware.
+    const THIS_AMS_INDEX = AMS_INDEX;
+    const active = window.getActiveAmsTray
+      ? window.getActiveAmsTray({ print: telemetryObject })
+      : { amsIndex: 255, trayIndex: 255 };
 
-  var tray2Color = telemetryObject.ams.ams[0].tray[1].tray_color;
-  var tray2Material = telemetryObject.ams.ams[0].tray[1].tray_sub_brands;
-  var tray2FilamentType = telemetryObject.ams.ams[0].tray[1].tray_type;
-  var tray2Type = "";
-  var tray2UID = telemetryObject.ams.ams[0].tray[1].tag_uid;
-  var tray2Remaining = telemetryObject.ams.ams[0].tray[1].remain;
+    $('#tray1Active, #tray2Active, #tray3Active, #tray4Active').hide();
+    const activeColor = currentState === 'RUNNING' ? '#51a34f' : 'grey';
+    $('#tray1Active, #tray2Active, #tray3Active, #tray4Active').css('background-color', activeColor);
 
-  if (!tray2Remaining) {
-    $("#tray2Remaining").text("0%");
-    $("#tray2ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray2FilamentType) {
-      tray2FilamentType = "";
+    if (active.amsIndex === THIS_AMS_INDEX) {
+      if (active.trayIndex === 0) $('#tray1Active').show();
+      else if (active.trayIndex === 1) $('#tray2Active').show();
+      else if (active.trayIndex === 2) $('#tray3Active').show();
+      else if (active.trayIndex === 3) $('#tray4Active').show();
     }
 
-    log(tray2Color);
-    $("#tray2Color").css("background-color", "#" + tray2Color);
-    $("#tray2Material").text(tray2Material);
-
-    if (!tray2UID) {
-      tray2Type = tray2FilamentType;
-    } else if (tray2UID === "0000000000000000") {
-      tray2Type = "" + tray2FilamentType;
-    } else {
-      tray2Type = "Bambu • " + tray2FilamentType;
-    }
-
-    $("#tray2Type").text(tray2Type);
-    $("#tray2Remaining").text(tray2Remaining + "%");
-    let tray2ProgressBarParent = $("#tray2ProgressBarParent").width();
-    if (tray2Remaining < 0) {
-      tray2Remaining = 0;
-    }
-    $("#tray2ProgressBar").width(
-      (tray2Remaining * tray2ProgressBarParent) / 100
-    );
-
-    if (tray2Remaining >= 20) {
-      $("#tray2ProgressBar").css("background-color", "#51a34f");
-    } else if (tray2Remaining > 10) {
-      $("#tray2ProgressBar").css("background-color", "yellow");
-    } else if (tray2Remaining > 2) {
-      $("#tray2ProgressBar").css("background-color", "red");
-    } else if (tray2Remaining === -1) {
-      $("#tray2Remaining").text("Unknown");
-      $("#tray2ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray2Remaining").text("LOW");
-      $("#tray2ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray2ProgressBar").css("background-color", "grey");
-    }
-  }
-
-  // Tray 3
-
-  var tray3Color = telemetryObject.ams.ams[0].tray[2].tray_color;
-  var tray3Material = telemetryObject.ams.ams[0].tray[2].tray_sub_brands;
-  var tray3FilamentType = telemetryObject.ams.ams[0].tray[2].tray_type;
-  var tray3Type = "";
-  var tray3UID = telemetryObject.ams.ams[0].tray[2].tag_uid;
-  var tray3Remaining = telemetryObject.ams.ams[0].tray[2].remain;
-
-  // Does not exist
-  if (!tray3Remaining) {
-    $("#tray3Remaining").text("0%");
-    $("#tray3ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray3FilamentType) {
-      tray3FilamentType = "";
-    }
-
-    log(tray3Color);
-    $("#tray3Color").css("background-color", "#" + tray3Color);
-    $("#tray3Material").text(tray3Material);
-
-    if (!tray3UID) {
-      tray3Type = tray3FilamentType;
-    } else if (tray3UID === "0000000000000000") {
-      tray3Type = "" + tray3FilamentType;
-    } else {
-      tray3Type = "Bambu • " + tray3FilamentType;
-    }
-
-    $("#tray3Type").text(tray3Type);
-    $("#tray3Remaining").text(tray3Remaining + "%");
-    let tray3ProgressBarParent = $("#tray3ProgressBarParent").width();
-    if (tray3Remaining < 0) {
-      tray3Remaining = 0;
-    }
-    $("#tray3ProgressBar").width(
-      (tray3Remaining * tray3ProgressBarParent) / 100
-    );
-
-    if (tray3Remaining >= 20) {
-      $("#tray3ProgressBar").css("background-color", "#51a34f");
-    } else if (tray3Remaining > 10) {
-      $("#tray3ProgressBar").css("background-color", "yellow");
-    } else if (tray3Remaining > 2) {
-      $("#tray3ProgressBar").css("background-color", "red");
-    } else if (tray3Remaining === -1) {
-      $("#tray3Remaining").text("Unknown");
-      $("#tray3ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray3Remaining").text("LOW");
-      $("#tray3ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray3ProgressBar").css("background-color", "grey");
-    }
-  }
-  // Tray 4
-
-  var tray4Color = telemetryObject.ams.ams[0].tray[3].tray_color;
-  var tray4Material = telemetryObject.ams.ams[0].tray[3].tray_sub_brands;
-  var tray4FilamentType = telemetryObject.ams.ams[0].tray[3].tray_type;
-  var tray4Type = "";
-  var tray4UID = telemetryObject.ams.ams[0].tray[3].tag_uid;
-  var tray4Remaining = telemetryObject.ams.ams[0].tray[3].remain;
-
-  if (!tray4Remaining) {
-    $("#tray4Remaining").text("0%");
-    $("#tray4ProgressBar").css("background-color", "grey");
-  } else {
-    if (!tray4FilamentType) {
-      tray4FilamentType = "";
-    }
-
-    log(tray4Color);
-    $("#tray4Color").css("background-color", "#" + tray4Color);
-    $("#tray4Material").text(tray4Material);
-
-    if (!tray4UID) {
-      tray4Type = tray4FilamentType;
-    } else if (tray4UID === "0000000000000000") {
-      tray4Type = "" + tray4FilamentType;
-    } else {
-      tray4Type = "Bambu • " + tray4FilamentType;
-    }
-
-    $("#tray4Type").text(tray4Type);
-    $("#tray4Remaining").text(tray4Remaining + "%");
-    let tray4ProgressBarParent = $("#tray4ProgressBarParent").width();
-    if (tray4Remaining < 0) {
-      tray4Remaining = 0;
-    }
-    $("#tray4ProgressBar").width(
-      (tray4Remaining * tray4ProgressBarParent) / 100
-    );
-
-    if (tray4Remaining >= 20) {
-      $("#tray4ProgressBar").css("background-color", "#51a34f");
-    } else if (tray4Remaining > 10) {
-      $("#tray4ProgressBar").css("background-color", "yellow");
-    } else if (tray4Remaining > 2) {
-      $("#tray4ProgressBar").css("background-color", "red");
-    } else if (tray4Remaining === -1) {
-      $("#tray4Remaining").text("Unknown");
-      $("#tray4ProgressBar").css("background-color", "grey");
-    } else {
-      $("#tray4Remaining").text("LOW");
-      $("#tray4ProgressBar").css("background-color", "red");
-    }
-
-    if (currentState !== "RUNNING") {
-      $("#tray4ProgressBar").css("background-color", "grey");
-    }
-  }
-
-  // AMS Humidity
-  let amsHumidity = telemetryObject.ams.ams[0].humidity;
-  //let amsHumidity = "1";
-
-  $("#humidity1").css("background", "gray");
-  $("#humidity2").css("background", "gray");
-  $("#humidity3").css("background", "gray");
-  $("#humidity4").css("background", "gray");
-  $("#humidity5").css("background", "gray");
-
-  if (amsHumidity === "5"){
-    // One green bar
-    $("#humidity1").css("background", "#51a34f");
-    $("#humidityLevelText").text("Low");
-  } else if (amsHumidity === "4"){
-    // Two green bar
-    $("#humidity1").css("background", "#51a34f");
-    $("#humidity2").css("background", "#51a34f");
-    $("#humidityLevelText").text("Low");
-  } else if (amsHumidity === "3"){
-    // 3 green bar
-    $("#humidity1").css("background", "yellow");
-    $("#humidity2").css("background", "yellow");
-    $("#humidity3").css("background", "yellow");
-    $("#humidityLevelText").text("Ok");
-  } else if (amsHumidity === "2"){
-    // 4 green bar
-    $("#humidity1").css("background", "red");
-    $("#humidity2").css("background", "red");
-    $("#humidity3").css("background", "red");
-    $("#humidity4").css("background", "red");
-
-    $("#humidityLevelText").text("High");
-  } else if (amsHumidity === "1"){
-    // 5 green bar
-    $("#humidity1").css("background", "red");
-    $("#humidity2").css("background", "red");
-    $("#humidity3").css("background", "red");
-    $("#humidity4").css("background", "red");
-    $("#humidity5").css("background", "red");
-    $("#humidityLevelText").text("High");
-  }
-
-  // AMS Temp
-let amsTargetTemp = 140;
-let amsTempPercentage = 1;
-// ams Target Temp
-
-amsTempPercentage = (telemetryObject.ams.ams[0].temp / 60) * 100;
-
-log("amsTargetTemp = " + amsTargetTemp);
-log("amsTempPercentage = " + amsTempPercentage);
-
-if (amsTempPercentage > 100) {
-  log(
-    "ams percentage over 100, adjusting..." + nozzleTempPercentage
-  );
-  amsTempPercentage = 100;
-}
-
-// Set target temp in UI
-$("#amsTargetTempC").text("60");
-$("#amsTargetTempF").text(amsTargetTemp);
-
-// Set current temp in UI
-var amsCurrentTemp = (telemetryObject.ams.ams[0].temp * 9) / 5 + 32;
-amsCurrentTemp = parseFloat(amsCurrentTemp.toFixed(1));
-$("#amsCurrentTempF").text(amsCurrentTemp);
-$("#amsCurrentTempC").text(telemetryObject.ams.ams[0].temp);
-
-log("amsCurrentTemp = " + amsCurrentTemp);
-let progressamsParentWidth = $("#amsProgressBarParent").width();
-
-log("progressamsParentWidth = " + progressamsParentWidth);
-$("#amsProgressBar").width(
-  (amsTempPercentage * progressamsParentWidth) / 100
-);
-
-if (amsTargetTemp === "OFF") {
-  $("#amsProgressBar").css("background-color", "grey");
-
-
-  $("#amsTargetTempC").hide();
-  $("#amsTargetTempSymbolsF").hide();
-  $("#amsTargetTempSymbolsC").hide();
-} else {
-  if (tempSetting === "Fahrenheit")
-  {
-    $("#amsTargetTempSymbolsF").show();
-    $("#amsCurrentTempSymbolsF").show();
-    $("#amsTargetTempF").show();
-    $("#amsCurrentTempF").show();
-
-    $("#amsCurrentTempC").hide();
-    $("#amsTargetTempSymbolsC").hide();
-    $("#amsCurrentTempSymbolsC").hide();
-    $("#amsTargetTempC").hide();
-  }
-  else if (tempSetting === "Celsius")
-  {
-    $("#amsTargetTempSymbolsF").hide();
-    $("#amsCurrentTempSymbolsF").hide();
-    $("#amsTargetTempF").hide();
-    $("#amsCurrentTempF").hide();
-
-    $("#amsCurrentTempC").show();
-    $("#amsTargetTempSymbolsC").show();
-    $("#amsCurrentTempSymbolsC").show();
-    $("#amsTargetTempC").show();
-  }
-  else if (tempSetting === "Both")
-  {
-    $("#amsTargetTempSymbolsF").show();
-    $("#amsCurrentTempSymbolsF").show();
-    $("#amsTargetTempF").show();
-    $("#amsCurrentTempF").show();
-
-    $("#amsCurrentTempC").show();
-    $("#amsTargetTempSymbolsC").show();
-    $("#amsCurrentTempSymbolsC").show();
-    $("#amsTargetTempC").show();
-  }
-
-  if (amsTempPercentage > 90) {
-    $("#amsProgressBar").css("background-color", "red");
-  } else if (amsTempPercentage > 70) {
-    $("#amsProgressBar").css("background-color", "yellow");
-  } else {
-    $("#amsProgressBar").css("background-color", "#51a34f");
-  }
-}
-
-
-  // AMS active
-  var amsActiveTrayValue = telemetryObject.ams.tray_now;
-  log("AMS Active tray: " + amsActiveTrayValue);
-
-  $("#tray1Active").hide();
-  $("#tray2Active").hide();
-  $("#tray3Active").hide();
-  $("#tray4Active").hide();
-
-  if (currentState !== "RUNNING") {
-    $("#tray1Active").css("background-color", "grey");
-    $("#tray2Active").css("background-color", "grey");
-    $("#tray3Active").css("background-color", "grey");
-    $("#tray4Active").css("background-color", "grey");
-  } else {
-    $("#tray1Active").css("background-color", "#51a34f");
-    $("#tray2Active").css("background-color", "#51a34f");
-    $("#tray3Active").css("background-color", "#51a34f");
-    $("#tray4Active").css("background-color", "#51a34f");
-  }
-
-  if (amsActiveTrayValue === null) {
-  } else if (amsActiveTrayValue === 255) {
-  } else if (amsActiveTrayValue === "0") {
-    $("#tray1Active").show();
-  } else if (amsActiveTrayValue === "1") {
-    $("#tray2Active").show();
-  } else if (amsActiveTrayValue === "2") {
-    $("#tray3Active").show();
-  } else if (amsActiveTrayValue === "3") {
-    $("#tray4Active").show();
+    // Filament change target indicator.
+    $('#tray1Target, #tray2Target, #tray3Target, #tray4Target').hide();
+    try {
+      const trayTar = parseInt(telemetryObject.ams.tray_tar, 10);
+      const trayNow = parseInt(telemetryObject.ams.tray_now, 10);
+      const stgCur = telemetryObject.stg_cur;
+      const isChanging = !isNaN(trayTar) && trayTar !== 255 && trayTar !== trayNow;
+      if (isChanging) {
+        const tarAmsUnit = trayTar >= 128 ? (trayTar - 128) : (trayTar >> 2);
+        const tarTraySlot = trayTar >= 128 ? 0 : (trayTar & 0x3);
+        if (tarAmsUnit === THIS_AMS_INDEX) {
+          $(`#tray${tarTraySlot + 1}Target`).show();
+        }
+      }
+    } catch (_) {}
+  } catch (error) {
+    console.error('Error:', error);
   }
 }
 
 function disableUI() {
-  $("#tray1ProgressBar").css("background-color", "grey");
-  $("#tray2ProgressBar").css("background-color", "grey");
-  $("#tray3ProgressBar").css("background-color", "grey");
-  $("#tray4ProgressBar").css("background-color", "grey");
-  $("#tray1Active").hide();
-  $("#tray2Active").hide();
-  $("#tray3Active").hide();
-  $("#tray4Active").hide();
-  $("#tray1Active").css("background-color", "grey");
-  $("#tray2Active").css("background-color", "grey");
-  $("#tray3Active").css("background-color", "grey");
-  $("#tray4Active").css("background-color", "grey");
+  for (let i = 1; i <= 4; i++) {
+    $(`#tray${i}ProgressBar`).css('background-color', 'grey');
+    $(`#tray${i}Active`).hide().css('background-color', 'grey');
+    $(`#tray${i}Target`).hide();
+  }
 }
 
 function log(logText) {
-  if (consoleLogging) {
-    console.log(logText);
-  }
+  if (consoleLogging) console.log(logText);
 }
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
-// Call the updateLog function to fetch and parse the data
 setInterval(async () => {
   try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateAMS(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
+    const telemetryObject = await retrieveData();
+    if (telemetryObject != null && telemetryObject !== 'Incomplete') {
+      await updateAMS(telemetryObject);
+    } else if (telemetryObject == null) {
       disableUI();
     }
   } catch (error) {
-    //console.error(error);
     await sleep(1000);
   }
 }, 1000);

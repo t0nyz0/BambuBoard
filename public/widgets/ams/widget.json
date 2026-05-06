@@ -1,0 +1,15 @@
+{
+  "name": "AMS",
+  "description": "Filament tray status. Multi-AMS support: append ?ams=0|1|2|3 to target a specific AMS unit (defaults to AMS #1).",
+  "recommendedSize": { "w": 800, "h": 200 },
+  "tags": ["filament", "ams"],
+  "params": {
+    "ams": { "type": "number", "default": 0, "description": "AMS unit index (0–3)" }
+  },
+  "bindings": [
+    { "id": "amsUnit",  "label": "AMS unit object",     "default": "$.print.ams.ams[0]",          "type": "object",
+      "hint": "Point at any AMS unit by index. e.g. $.print.ams.ams[4] for the 5th unit on a 5-AMS Hub setup." },
+    { "id": "humidity", "label": "Humidity (1–5 raw)",  "default": "$.print.ams.ams[0].humidity", "type": "string" },
+    { "id": "amsTemp",  "label": "Unit temperature °C", "default": "$.print.ams.ams[0].temp",     "type": "number" }
+  ]
+}

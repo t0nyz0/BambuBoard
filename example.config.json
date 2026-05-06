@@ -4,24 +4,13 @@
   "BambuBoard_displayFanPercentages": false,
   "BambuBoard_displayFanIcons": true,
   "BambuBoard_logging": false,
-  "printers": [
-    {
-      "id": "printer1",
-      "name": "X1 Carbon",
-      "url": "10.0.0.1",
-      "port": "8883",
-      "serialNumber": "FILL_THIS_OUT",
-      "accessCode": "FILL_THIS_OUT",
-      "type": "X1"
-    },
-    {
-      "id": "printer2", 
-      "name": "P1P",
-      "url": "10.0.0.2",
-      "port": "8883",
-      "serialNumber": "FILL_THIS_OUT",
-      "accessCode": "FILL_THIS_OUT",
-      "type": "P1P"
-    }
-  ]
+  "cloudAuth": { "enabled": false },
+  "printer": {
+    "name": "My Printer",
+    "url": "10.0.0.1",
+    "port": "8883",
+    "serialNumber": "FILL_THIS_OUT",
+    "accessCode": "FILL_THIS_OUT",
+    "type": "X1"
+  }
 }

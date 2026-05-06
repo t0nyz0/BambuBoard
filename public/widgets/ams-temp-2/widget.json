@@ -1,0 +1,7 @@
+{
+  "name": "AMS #2 humidity",
+  "description": "Humidity / temperature for the second AMS unit (H2D only).",
+  "recommendedSize": { "w": 400, "h": 120 },
+  "tags": ["humidity", "ams", "h2d"],
+  "requiresCap": "hasDualAMS"
+}

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BambuBoard | AMS</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* AMS widget — fills the OBS iframe height, distributes 4 tray rows
+         evenly (flex: 1 each), and matches the card width of the nozzle
+         widget above pixel-for-pixel.
+
+         The align-items: stretch on .column is CRITICAL: styles.css has
+         .column { align-items: center } which has no effect on default block
+         layout, but as soon as we make .column a flex container it kicks in
+         and would shrink-wrap the bed-title to its content width. Stretch
+         forces it to fill width like the nozzle widget. */
+      html, body { height: 100%; margin: 0; }
+      /* See comments in /widgets/ams/index.html — same coordinated pair
+         (tight container margins + transparent body) so AMS #1 and #2
+         render cleanly side-by-side regardless of iframe overlap. */
+      body { background: transparent !important; }
+      /* Mirror of /widgets/ams/ — left margin 5px (inner edge, close to
+         AMS #1's right edge), right margin 15px (outer edge, matches the
+         full-width widget right edge above). */
+      .container { margin-left: 5px; margin-right: 15px; }
+      .container, .bedcontainer { height: 100%; box-sizing: border-box; }
+      .bedcontainer { margin-top: 0; }
+      .grid.grid-gap-30 { height: 100%; }
+      .column.grid-gap-10 {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .bed-title {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+        min-height: 0;
+        padding-top: 12px !important;
+        padding-bottom: 4px !important;
+      }
+      .partTitle { flex-shrink: 0; margin-bottom: 8px; }
+
+      /* The 4 tray rows fill the remaining space evenly with flex: 1 each.
+         No min-height — that caused overflow. Flex distribution mathematically
+         guarantees they all fit.
+         Extra padding-top/bottom here pushes the trays away from the title
+         and the card edge so the bottom tray has clear breathing room. */
+      .ams-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding-top: 8px !important;
+        padding-bottom: 24px !important;
+      }
+      .ams-container .element {
+        flex: 1;
+        min-height: 0;
+        padding: 0;
+        align-content: center;
+      }
+      .ams-container .dot-content {
+        padding-bottom: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .ams-container .element.tray-empty .progress-wrapper { visibility: hidden; }
+    </style>
+    <script src="../_customizer.js"></script>
+    <script src="../_amsActive.js"></script>
+    <script src="../../assets/js/jquery-3.6.0.min.js"></script>
+    <meta http-equiv="refresh" content="28800" />
+  </head>
+
+  <link rel="stylesheet" href="../../assets/css/material-symbols.css" />
+  <body>
+    <div class="container">
+      <div class="bedcontainer">
+        <div class="grid grid-gap-30">
+          <div class="column grid-gap-10">
+            <div class="bed-title">
+              <h2 class="partTitle">AMS #2</h2>
+
+              <div class="ams-container">
+                <div class="element">
+                  <span id="tray1Color" class="dot" style="background-color: grey"></span>
+                  <div class="dot-content">
+                    <div class="flex">
+                      <h3 id="tray1Material" class="material">Inactive</h3>
+                      <span id="tray1Active" class="badge-active" style="display: none">active</span>
+                      <span id="tray1Target" class="badge-target" style="display: none">target</span>
+                    </div>
+                    <div class="ams-type-remaining">
+                      <h4 id="tray1Type" class="finePrint"></h4>
+                      <h4 id="tray1Remaining" class="finePrint">0%</h4>
+                    </div>
+                    <div class="progress-wrapper">
+                      <div id="tray1ProgressBarParent" class="progress">
+                        <div id="tray1ProgressBar" class="progress-bar" style="width: 0px; background-color: #51a34f"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="element">
+                  <span id="tray2Color" class="dot" style="background-color: grey"></span>
+                  <div class="dot-content">
+                    <div class="flex">
+                      <h3 id="tray2Material" class="material">Inactive</h3>
+                      <span id="tray2Active" class="badge-active" style="display: none">active</span>
+                      <span id="tray2Target" class="badge-target" style="display: none">target</span>
+                    </div>
+                    <div class="ams-type-remaining">
+                      <h4 id="tray2Type" class="finePrint"></h4>
+                      <h4 id="tray2Remaining" class="finePrint">0%</h4>
+                    </div>
+                    <div class="progress-wrapper">
+                      <div id="tray2ProgressBarParent" class="progress">
+                        <div id="tray2ProgressBar" class="progress-bar" style="width: 0px; background-color: #51a34f"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="element">
+                  <span id="tray3Color" class="dot" style="background-color: grey"></span>
+                  <div class="dot-content">
+                    <div class="flex">
+                      <h3 id="tray3Material" class="material">Inactive</h3>
+                      <span id="tray3Active" class="badge-active" style="display: none">active</span>
+                      <span id="tray3Target" class="badge-target" style="display: none">target</span>
+                    </div>
+                    <div class="ams-type-remaining">
+                      <h4 id="tray3Type" class="finePrint"></h4>
+                      <h4 id="tray3Remaining" class="finePrint">0%</h4>
+                    </div>
+                    <div class="progress-wrapper">
+                      <div id="tray3ProgressBarParent" class="progress">
+                        <div id="tray3ProgressBar" class="progress-bar" style="width: 0px; background-color: #51a34f"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="element">
+                  <span id="tray4Color" class="dot" style="background-color: grey"></span>
+                  <div class="dot-content">
+                    <div class="flex">
+                      <h3 id="tray4Material" class="material">Inactive</h3>
+                      <span id="tray4Active" class="badge-active" style="display: none">active</span>
+                      <span id="tray4Target" class="badge-target" style="display: none">target</span>
+                    </div>
+                    <div class="ams-type-remaining">
+                      <h4 id="tray4Type" class="finePrint"></h4>
+                      <h4 id="tray4Remaining" class="finePrint">0%</h4>
+                    </div>
+                    <div class="progress-wrapper">
+                      <div id="tray4ProgressBarParent" class="progress">
+                        <div id="tray4ProgressBar" class="progress-bar" style="width: 0px; background-color: #51a34f"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="AMS_script.js"></script>
+  </body>
+</html>
