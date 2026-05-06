@@ -27,6 +27,17 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
     res.json({ ...safe, _meta: { firstRun: !c.printer || c.printer.serialNumber === 'FILL_THIS_OUT' } });
   });
 
+  // Return the actual saved LAN access code so the setup page can pre-fill
+  // the editable field (lets the user inspect / replace it without re-typing).
+  // Same-origin local-server trust boundary — same as /auth/token.
+  router.get('/printer-credentials', (req, res) => {
+    const c = getConfig();
+    const ac = c.printer?.accessCode;
+    res.json({
+      accessCode: (ac && ac !== 'FILL_THIS_OUT') ? ac : '',
+    });
+  });
+
   router.put('/settings', async (req, res) => {
     try {
       const incoming = req.body || {};

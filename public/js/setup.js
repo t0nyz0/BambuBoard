@@ -22,7 +22,21 @@
   document.getElementById('p-url').value = cfg.printer?.url || '';
   document.getElementById('p-port').value = cfg.printer?.port || '8883';
   document.getElementById('p-sn').value = cfg.printer?.serialNumber === 'FILL_THIS_OUT' ? '' : (cfg.printer?.serialNumber || '');
-  document.getElementById('p-ac-status').textContent = cfg.printer?.accessCodeSet ? 'A code is saved. Leave blank to keep it.' : 'Required.';
+  // Pre-fill the LAN access code from the dedicated credentials endpoint so
+  // the user can view (Show button) / edit it without re-typing. The /api/settings
+  // response strips this for safety; /api/printer-credentials returns it
+  // explicitly for the setup form.
+  try {
+    const creds = await fetch('/api/printer-credentials').then(r => r.json());
+    if (creds && creds.accessCode) {
+      document.getElementById('p-ac').value = creds.accessCode;
+      document.getElementById('p-ac-status').textContent = 'Saved — click Show to reveal, or edit to replace.';
+    } else {
+      document.getElementById('p-ac-status').textContent = 'Required.';
+    }
+  } catch (_) {
+    document.getElementById('p-ac-status').textContent = cfg.printer?.accessCodeSet ? 'A code is saved (could not load).' : 'Required.';
+  }
   document.getElementById('temp').value = cfg.BambuBoard_tempSetting || 'Both';
   toggle('fan-pct', !!cfg.BambuBoard_displayFanPercentages);
   toggle('fan-icons', cfg.BambuBoard_displayFanIcons !== false);
