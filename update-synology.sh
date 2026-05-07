@@ -17,6 +17,11 @@
 
 set -e
 
+# Re-exec under sudo if not already root (Synology's docker socket is root-only)
+if [ "$(id -u)" -ne 0 ]; then
+  exec sudo "$0" "$@"
+fi
+
 IMAGE="ghcr.io/t0nyz0/bambuboard:latest"
 CONTAINER="bambuboard"
 VOLUME="bambuboard-data"
