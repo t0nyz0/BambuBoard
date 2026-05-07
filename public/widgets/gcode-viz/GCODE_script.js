@@ -367,7 +367,11 @@ function updateTrail() {
 // dramatically.
 const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
-const myExtras = [printPlate, nozzleAmbient, nozzleKey, nozzleFill, trailLine, nozzleGroup];
+// Plate intentionally omitted — when the widget composites over the live
+// camera feed in OBS, the real print bed already shows through the
+// transparent canvas. A virtual plate would just dim it. Construction is
+// kept above so it's a one-line tweak to add it back.
+const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, trailLine, nozzleGroup];
 
 function fullRebuild() {
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
