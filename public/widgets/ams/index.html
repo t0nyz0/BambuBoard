@@ -173,14 +173,15 @@
         transition: background 0.2s, box-shadow 0.2s;
       }
       .ams-container .element:last-child { border-bottom: none; }
-      /* Active tray — subtle green wash + bold left-edge accent bar. The
-         accent is the primary visual cue (stands out at any size); the
-         wash adds just enough tint to confirm it without making the row
-         feel like a separate card. JS toggles `.tray-active`. */
+      /* Active tray — same green-tinted-card treatment as the active-nozzle
+         widget so the two card types read consistently across the dashboard:
+         subtle green wash + full green inset border + soft inset glow.
+         JS toggles `.tray-active`. */
       .ams-container .element.tray-active {
-        background: rgba(81, 163, 79, 0.08);
-        box-shadow: inset 3px 0 0 #51a34f;
-        padding-left: 12px;
+        background: rgba(81, 163, 79, 0.10);
+        box-shadow: 0 0 0 1px rgba(81, 163, 79, 0.55) inset,
+                    0 0 0 2px rgba(81, 163, 79, 0.20) inset;
+        border-radius: 4px;
       }
       .ams-container .dot-content {
         padding-bottom: 0;
