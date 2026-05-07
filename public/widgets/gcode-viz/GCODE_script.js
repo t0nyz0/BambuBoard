@@ -667,9 +667,20 @@ function orbitTick() {
 requestAnimationFrame(orbitTick);
 
 async function tick() {
+  let data;
   try {
     const res = await fetch('/data.json', { cache: 'no-store' });
-    const data = await res.json();
+    const text = await res.text();
+    // Empty/partial body happens when MQTT rewrites data.json mid-poll —
+    // benign, just skip this tick. Same for non-JSON content.
+    if (!text || !text.trim()) return;
+    try { data = JSON.parse(text); }
+    catch (_) { return; }
+  } catch (_) {
+    // Network blip — also skip silently; the 800ms loop will retry.
+    return;
+  }
+  try {
     const print = (data && data.print) || {};
     const taskId = print.task_id || print.subtask_id;
     const plateIdx = print.plate_idx || print.plate_id || 1;
