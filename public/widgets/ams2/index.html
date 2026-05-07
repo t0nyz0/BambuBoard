@@ -45,19 +45,24 @@
       .ams-drying-status {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        margin-left: 10px;
-        padding: 3px .75em 3px .55em;
+        gap: 7px;
+        margin-left: 12px;
+        padding: 4px .85em 4px .65em;
         background: rgba(226, 160, 74, 0.22);
         color: #f0b35e;
         border: 1px solid rgba(226, 160, 74, 0.6);
         border-radius: 10rem;
-        font-size: 0.7em;
+        font-size: 0.78em;
         font-weight: 700;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.04em;
         white-space: nowrap;
         vertical-align: middle;
         animation: drying-breathe 2.4s ease-in-out infinite;
+      }
+      .ams-drying-status .drying-label {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 800;
       }
       @keyframes drying-breathe {
         0%, 100% {

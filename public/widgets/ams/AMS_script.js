@@ -278,9 +278,14 @@ function updateDryingStatus(amsUnit) {
         + '</g>'
         + '<circle cx="0" cy="0" r="6"/>'
         + '</svg>';
-      $pill.html(svg + '<span class="drying-text"></span>');
+      $pill.html(
+        svg
+        + '<span class="drying-label">Drying</span>'
+        + '<span class="drying-text"></span>'
+      );
     }
-    $pill.children('.drying-text').text(text);
+    // Numbers part — temp + remaining time, prefixed with separator.
+    $pill.children('.drying-text').text('· ' + text);
     $pill.show();
   } else {
     $pill.hide();
