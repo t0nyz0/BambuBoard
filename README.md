@@ -26,7 +26,7 @@ Live print stats overlays designed for streamers — drop a scene file into OBS 
 BambuBoard started as a dashboard for OBS browser-source widgets. Over time v2 grew into a full multi-printer management app — useful, but a different product. **v3.0 returns BambuBoard to its core:** a polished single-printer dashboard built around streaming overlays, with a guided setup flow, a visual scene-layout editor, and one-click export to OBS.
 
 - **Want streaming widgets, a clean overlay, and quick OBS import?** You're in the right place.
-- **Want multi-printer fleet management?** Stay on **v2.x** — see the [v2 branch](https://github.com/t0nyz0/BambuBoard/tree/v2). v3 is intentionally single-printer.
+- **Want multi-printer fleet management?** Stay on **v2.x** — checkout the [`v2.0.1` tag](https://github.com/t0nyz0/BambuBoard/tree/v2.0.1) (`git checkout v2.0.1`) or pull the matching Docker image: `ghcr.io/t0nyz0/bambuboard:2.0.1`. v3 is intentionally single-printer.
 
 Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widget customizations) carries over. The major addition in v3 is the **scene editor** — drag widgets around an OBS-canvas-sized preview, then save & export the scene JSON in one click.
 
@@ -260,7 +260,7 @@ All assets (jQuery, Material Symbols, fonts) are bundled locally — no external
 The first boot of v3 detects and migrates two legacy config shapes:
 
 - **Old single-printer H2D fork** (flat `BambuBoard_printerURL` etc.) → new `printer` object with `type: "H2D"`.
-- **Old multi-printer BambuBoard v2** (`printers[]` array) → first printer is kept; the rest are dropped with a warning. **Multi-printer is not supported in v3** — for that, stay on v2.x.
+- **Old multi-printer BambuBoard v2** (`printers[]` array) → first printer is kept; the rest are dropped with a warning. **Multi-printer is not supported in v3** — for that, use the [v2.0.1 release](https://github.com/t0nyz0/BambuBoard/tree/v2.0.1) or `ghcr.io/t0nyz0/bambuboard:2.0.1`.
 
 Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriting. Legacy runtime files (`accessToken.json`, `note.json`, `public/data.json`) at the repo root are auto-moved into `data/` on first boot.
 
