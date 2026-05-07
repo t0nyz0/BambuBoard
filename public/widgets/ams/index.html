@@ -176,12 +176,19 @@
       /* Active tray — same green-tinted-card treatment as the active-nozzle
          widget so the two card types read consistently across the dashboard:
          subtle green wash + full green inset border + soft inset glow.
-         JS toggles `.tray-active`. */
+         The negative inline margin + matching padding makes the highlight
+         extend wider than the content, so the inner percentage / progress
+         bar don't read as crowded against the green border. JS toggles
+         `.tray-active`. */
       .ams-container .element.tray-active {
         background: rgba(81, 163, 79, 0.10);
         box-shadow: 0 0 0 1px rgba(81, 163, 79, 0.55) inset,
                     0 0 0 2px rgba(81, 163, 79, 0.20) inset;
         border-radius: 4px;
+        margin-left: -10px;
+        margin-right: -10px;
+        padding-left: 10px;
+        padding-right: 10px;
       }
       .ams-container .dot-content {
         padding-bottom: 0;
