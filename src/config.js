@@ -3,8 +3,12 @@ const fsp = fs.promises;
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const CONFIG_PATH = path.join(ROOT, 'config.json');
 const DATA_DIR = path.join(ROOT, 'data');
+// Config lives inside data/ so it persists when the data directory is
+// mounted as a Docker volume. Legacy root-level config.json is migrated
+// automatically on first run (see migrateConfigToData below).
+const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
+const LEGACY_CONFIG_PATH = path.join(ROOT, 'config.json');
 
 const DEFAULTS = {
   BambuBoard_httpPort: 8080,
@@ -26,7 +30,7 @@ const DEFAULTS = {
 function backupConfig(reason) {
   if (!fs.existsSync(CONFIG_PATH)) return null;
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const dest = path.join(ROOT, `config.json.pre-merge-${reason}-${ts}.bak`);
+  const dest = path.join(DATA_DIR, `config.json.pre-merge-${reason}-${ts}.bak`);
   fs.copyFileSync(CONFIG_PATH, dest);
   return dest;
 }
@@ -75,6 +79,14 @@ function migrateLegacyMultiPrinter(config) {
   };
 }
 
+function migrateConfigToData() {
+  if (fs.existsSync(LEGACY_CONFIG_PATH) && !fs.existsSync(CONFIG_PATH)) {
+    fs.copyFileSync(LEGACY_CONFIG_PATH, CONFIG_PATH);
+    fs.unlinkSync(LEGACY_CONFIG_PATH);
+    console.log('Migrated config.json → data/config.json');
+  }
+}
+
 function migrateLegacyDataFiles() {
   const candidates = [
     [path.join(ROOT, 'accessToken.json'), path.join(DATA_DIR, 'accessToken.json')],
@@ -111,6 +123,7 @@ function applyEnvOverrides(config) {
 
 function load() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  migrateConfigToData();
   migrateLegacyDataFiles();
 
   let raw = {};

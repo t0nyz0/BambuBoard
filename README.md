@@ -83,7 +83,6 @@ A single command. Multi-arch image (works on x86, Apple Silicon, Raspberry Pi):
 ```bash
 docker run -d --name bambuboard -p 8080:8080 \
   -v $(pwd)/data:/usr/src/app/data \
-  -v $(pwd)/config.json:/usr/src/app/config.json \
   ghcr.io/t0nyz0/bambuboard:latest
 ```
 
