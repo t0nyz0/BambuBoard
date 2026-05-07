@@ -12,7 +12,7 @@ import * as THREE from '../../vendor/three.module.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
-const ROTATE_DEG_PER_SEC = 6; // ~60s per full revolution
+const ROTATE_DEG_PER_SEC = 2.0; // ~180s per full revolution — calm, not disorienting
 // Nozzle simulation speed multiplier vs real gcode feedrate. 1.0 = realtime.
 // Print speeds are typically 100–300 mm/s, so realtime feels right.
 const NOZZLE_SPEED_FACTOR = 1.0;
@@ -699,10 +699,13 @@ function advanceTo(layerNum) {
 let orbitStart = performance.now();
 let orbitRadius = 0;
 let orbitHeight = 0;
-let orbitTarget = new THREE.Vector3(0, 0, 0);   // current (smoothed) lookAt
-let bboxCenter  = new THREE.Vector3(0, 0, 0);   // print bbox center anchor
-const NOZZLE_FOLLOW_BIAS = 0.65;                // 0 = print center, 1 = exact nozzle
-const TARGET_LERP        = 0.04;                // per-frame approach rate (~0.4 s time-constant @60fps)
+let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
+let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
+let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
+let smoothedNozzleInit = false;
+const NOZZLE_FOLLOW_BIAS = 0.55;                // 0 = print center, 1 = exact nozzle
+const NOZZLE_SMOOTH_LERP = 0.006;               // EMA rate for the nozzle position itself — kills perimeter twitch
+const TARGET_LERP        = 0.018;               // per-frame approach for the camera target — slow & seamless
 const _scratchDesired    = new THREE.Vector3();
 
 function autoFitCamera() {
@@ -779,15 +782,26 @@ function orbitTick() {
       lastTheta = theta;
     }
 
-    // Smooth pursuit: if the nozzle is visible (printer extruding or in
-    // verify/scrub mode), the camera target gradually moves toward a
-    // nozzle-biased point so the active extrusion stays roughly centered.
-    // Otherwise it settles back on the print bbox anchor. Low per-frame
-    // lerp rate keeps the motion seamless — never jerky.
+    // Two-stage smoothing so the camera doesn't get jerked around by the
+    // nozzle's fast perimeter motion:
+    //   1) smoothedNozzle is an exponential moving average of the actual
+    //      nozzle position. Tiny lerp rate (NOZZLE_SMOOTH_LERP) means
+    //      individual perimeter twitches are filtered out — what survives is
+    //      the slow drift of the print's center-of-activity.
+    //   2) orbitTarget then lerps toward a bbox/smoothedNozzle blend at
+    //      TARGET_LERP. The result is a calm follow that frames the active
+    //      area without ever feeling like it's chasing.
     if (nozzleGroup.visible) {
-      _scratchDesired.copy(bboxCenter).lerp(nozzleGroup.position, NOZZLE_FOLLOW_BIAS);
+      if (!smoothedNozzleInit) {
+        smoothedNozzle.copy(nozzleGroup.position);
+        smoothedNozzleInit = true;
+      } else {
+        smoothedNozzle.lerp(nozzleGroup.position, NOZZLE_SMOOTH_LERP);
+      }
+      _scratchDesired.copy(bboxCenter).lerp(smoothedNozzle, NOZZLE_FOLLOW_BIAS);
     } else {
       _scratchDesired.copy(bboxCenter);
+      smoothedNozzleInit = false; // re-seed when the nozzle reappears
     }
     orbitTarget.lerp(_scratchDesired, TARGET_LERP);
 
