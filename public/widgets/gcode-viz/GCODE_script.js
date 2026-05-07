@@ -17,9 +17,10 @@ const ROTATE_DEG_PER_SEC = 2.0; // ~180s per full revolution — calm, not disor
 // Print speeds are typically 100–300 mm/s, so realtime feels right.
 const NOZZLE_SPEED_FACTOR = 1.0;
 // Hot-extrusion trail: how long a freshly-deposited segment glows before
-// fading to the cold print color, and the geometry buffer cap.
-const TRAIL_SECONDS = 35;
-const TRAIL_MAX_POINTS = 2000; // ~17 s of motion at print speed, plenty visible
+// fading to the cold print color, and the geometry buffer cap. Long window
+// keeps a generous "still hot" plateau visible while the print progresses.
+const TRAIL_SECONDS = 70;
+const TRAIL_MAX_POINTS = 4000; // ~33 s of motion at typical print speeds
 const TRAIL_BREAK_DIST = 25;   // mm jump that splits the trail (e.g. layer change)
 
 const params = new URLSearchParams(location.search);
