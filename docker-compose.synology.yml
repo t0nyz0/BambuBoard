@@ -1,7 +1,7 @@
 # BambuBoard — Synology NAS docker-compose
 #
 # Uses host networking (required for MQTT/RTSP to reach the printer on the
-# local network without extra NAT config) and a named volume so settings,
+# local network without extra NAT config) and a bind mount so settings,
 # cached gcode, and saved scenes persist across container updates.
 #
 # Usage:
@@ -17,7 +17,4 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - bambuboard-data:/usr/src/app/data
-
-volumes:
-  bambuboard-data:
+      - ~/bambuboard-data:/usr/src/app/data
