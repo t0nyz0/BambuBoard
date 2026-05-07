@@ -1,0 +1,23 @@
+# BambuBoard — Synology NAS docker-compose
+#
+# Uses host networking (required for MQTT/RTSP to reach the printer on the
+# local network without extra NAT config) and a named volume so settings,
+# cached gcode, and saved scenes persist across container updates.
+#
+# Usage:
+#   docker compose -f docker-compose.synology.yml pull
+#   docker compose -f docker-compose.synology.yml up -d
+#
+# Or copy this file to docker-compose.yml in your BambuBoard directory.
+
+services:
+  bambuboard:
+    image: ghcr.io/t0nyz0/bambuboard:latest
+    container_name: bambuboard
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - bambuboard-data:/usr/src/app/data
+
+volumes:
+  bambuboard-data:
