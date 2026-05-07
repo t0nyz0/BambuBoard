@@ -119,7 +119,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 700,
-        "height": 770,
+        "height": 760,
         "css": "body { margin: 0px auto; overflow: hidden; } .container { margin-left: 15px !important; margin-right: 15px !important; }"
       },
       "mixers": 255,
@@ -660,7 +660,7 @@
             "locked": false,
             "rot": 0.0,
             "pos": {
-              "x": 450.0,
+              "x": 430.0,
               "y": 91.0
             },
             "scale": {
@@ -699,8 +699,8 @@
             "locked": false,
             "rot": 0.0,
             "pos": {
-              "x": 450.0,
-              "y": 835.0
+              "x": 430.0,
+              "y": 775.0
             },
             "scale": {
               "x": 0.6575,
@@ -856,7 +856,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 939.0
+              "y": 940.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -895,7 +895,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 475.0
+              "y": 481.0
             },
             "scale": {
               "x": 0.6,
@@ -973,7 +973,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 373.0
+              "y": 379.0
             },
             "scale": {
               "x": 0.6000000238418579,
