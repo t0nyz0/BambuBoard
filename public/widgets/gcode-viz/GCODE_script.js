@@ -194,6 +194,8 @@ nozzleGroup.add(glowGroup);
   y += capH;
 }
 nozzleGroup.visible = false;
+nozzleGroup.renderOrder = 1000;
+nozzleGroup.traverse(c => { if (c.isMesh) c.renderOrder = 1000; });
 
 // Bambu-style print plate: matte slab with a slightly lighter rim. Sized to
 // the actual connected printer's bed. No surface grid lines — at our orbit
@@ -241,41 +243,30 @@ nozzleFill.position.set(-80, 60, -60);
 const nozzleRim = new THREE.DirectionalLight(0xffd2a0, 0.35);
 nozzleRim.position.set(-40, 30, 110);
 
-// Hot-extrusion trail: vertex-colored LineSegments drawn on top of the cold
-// gcode-preview toolpath. We append the nozzle's world position each frame
-// and emit one segment between consecutive extrusion samples — but skip the
-// segment whenever the nozzle teleports across a travel (jump=true), so
-// travel "bridges" never render. Color ramp on age: yellow-white fresh →
-// orange → red → cold filament color.
-// Buffer holds 2 vertices per potential segment.
-const trailGeo = new THREE.BufferGeometry();
-const trailPositions = new Float32Array(TRAIL_MAX_POINTS * 2 * 3);
-const trailColors    = new Float32Array(TRAIL_MAX_POINTS * 2 * 3);
-trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
-trailGeo.setAttribute('color',    new THREE.BufferAttribute(trailColors, 3));
-trailGeo.setDrawRange(0, 0);
-const trailMat = new THREE.LineBasicMaterial({
-  vertexColors: true, transparent: true,
+// Hot-extrusion trail: vertex-colored ribbon mesh drawn on top of the
+// toolpath with depthTest disabled so it's always visible.
+const trailMat = new THREE.MeshBasicMaterial({
+  vertexColors: true,
+  depthTest: false,
+  depthWrite: false,
+  side: THREE.DoubleSide,
 });
-const trailLine = new THREE.LineSegments(trailGeo, trailMat);
-// Stack multiple offset copies of the trail to simulate a thick line.
-// WebGL ignores linewidth on most GPUs (always 1px), so we duplicate
-// the geometry at slight spatial offsets to get visible trail width.
-const trailStack = new THREE.Group();
-trailStack.add(trailLine);
-const S = 0.4;
-const TRAIL_OFFSETS = [
-  [0, S, 0], [0, -S, 0], [S, 0, 0], [-S, 0, 0],
-  [0, 0, S], [0, 0, -S],
-  [0, S*2, 0], [0, -S*2, 0], [S*2, 0, 0], [-S*2, 0, 0],
-  [0, 0, S*2], [0, 0, -S*2],
-  [S, S, 0], [-S, S, 0], [S, -S, 0], [-S, -S, 0],
-];
-for (const [dx, dy, dz] of TRAIL_OFFSETS) {
-  const clone = new THREE.LineSegments(trailGeo, trailMat);
-  clone.position.set(dx, dy, dz);
-  trailStack.add(clone);
-}
+// Trail rendered as a thin ribbon mesh (two triangles per segment) instead
+// of LineSegments. WebGL lines are always 1px which is invisible against
+// the dense toolpath wireframe. A ribbon with ~1mm height has real visual
+// volume that reads clearly even with white filament.
+const RIBBON_H = 0.15;  // half-height of ribbon in world units
+const trailIdxBuf = new Uint32Array(TRAIL_MAX_POINTS * 6);
+const trailRibbonPos = new Float32Array(TRAIL_MAX_POINTS * 4 * 3);
+const trailRibbonCol = new Float32Array(TRAIL_MAX_POINTS * 4 * 3);
+const trailGeoRibbon = new THREE.BufferGeometry();
+trailGeoRibbon.setAttribute('position', new THREE.BufferAttribute(trailRibbonPos, 3));
+trailGeoRibbon.setAttribute('color', new THREE.BufferAttribute(trailRibbonCol, 3));
+trailGeoRibbon.setIndex(new THREE.BufferAttribute(trailIdxBuf, 1));
+trailGeoRibbon.setDrawRange(0, 0);
+const trailLine = new THREE.Mesh(trailGeoRibbon, trailMat);
+trailLine.renderOrder = 999;
+trailLine.frustumCulled = false;
 const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true means start of a new run
 let lastTrailPos = null;
 let lastTrailSegIdx = -1;
@@ -287,19 +278,22 @@ function lerpColor(a, b, t) {
 // Trail color ramp: just-extruded filament is bright red, cools through
 // orange to green, then settles to the actual filament color.
 const COLOR_HOT  = [1.00, 0.05, 0.02]; // vivid red — just out of the nozzle
-const COLOR_MID  = [1.00, 0.45, 0.00]; // saturated orange — cooling
-const COLOR_WARM = [0.10, 0.95, 0.20]; // vivid green — almost set
+const COLOR_ORG  = [1.00, 0.45, 0.00]; // orange — cooling
+const COLOR_YEL  = [0.95, 0.85, 0.10]; // yellow — warm
+const COLOR_GRN  = [0.10, 0.85, 0.20]; // green — almost set
 let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
 
 function ageColor(age01) {
-  //   0.00..0.12  plateau at HOT (bright red)
-  //   0.12..0.35  HOT → MID    (red → orange)
-  //   0.35..0.65  MID → WARM   (orange → green)
-  //   0.65..1.00  WARM → COLD  (green → filament color)
-  if (age01 < 0.12) return COLOR_HOT.slice();
-  if (age01 < 0.35) return lerpColor(COLOR_HOT,  COLOR_MID,  (age01 - 0.12) / 0.23);
-  if (age01 < 0.65) return lerpColor(COLOR_MID,  COLOR_WARM, (age01 - 0.35) / 0.30);
-  return                   lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.65) / 0.35);
+  //   0.00..0.05  HOT (red) — brief flash right at the nozzle
+  //   0.05..0.20  HOT → ORG  (red → orange)
+  //   0.20..0.40  ORG → YEL  (orange → yellow)
+  //   0.40..0.70  YEL → GRN  (yellow → green)
+  //   0.70..1.00  GRN → COLD (green → filament color)
+  if (age01 < 0.05) return COLOR_HOT.slice();
+  if (age01 < 0.20) return lerpColor(COLOR_HOT, COLOR_ORG, (age01 - 0.05) / 0.15);
+  if (age01 < 0.40) return lerpColor(COLOR_ORG, COLOR_YEL, (age01 - 0.20) / 0.20);
+  if (age01 < 0.70) return lerpColor(COLOR_YEL, COLOR_GRN, (age01 - 0.40) / 0.30);
+  return                   lerpColor(COLOR_GRN, COLOR_COLD, (age01 - 0.70) / 0.30);
 }
 
 function updateTrail() {
@@ -308,16 +302,18 @@ function updateTrail() {
   // hot streaks don't hang on a finished print. During mid-print sub-stage
   // checks (stg_cur briefly nonzero) we just stop adding points — don't
   // wipe what we've built up.
-  if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') {
-    if (trailBuf.length) {
-      trailBuf.length = 0;
-      trailGeo.setDrawRange(0, 0);
+  if (!verifyLayers && !scrubActive) {
+    if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') {
+      if (trailBuf.length) {
+        trailBuf.length = 0;
+        trailGeoRibbon.setDrawRange(0, 0);
+      }
+      lastTrailPos = null;
+      return;
     }
-    lastTrailPos = null;
-    return;
-  }
-  if (isPausedForState()) {
-    return;
+    if (isPausedForState()) {
+      return;
+    }
   }
   const now = performance.now();
   const x = nozzleGroup.position.x;
@@ -362,29 +358,42 @@ function updateTrail() {
   }
   while (trailBuf.length > TRAIL_MAX_POINTS) trailBuf.shift();
 
-  // Build LineSegments: emit one (a, b) segment per consecutive non-jump
-  // pair. Travels (jump=true) and the very first sample don't produce a
-  // segment, so the trail has real gaps where the nozzle teleported across
-  // a travel — no faded "bridge" lines pretending to be filament.
+  // Build ribbon mesh: each segment is a quad (2 triangles) offset
+  // perpendicular to the path in the XZ plane so the ribbon lies flat
+  // on the print surface — visible from the side camera angle.
   let segCount = 0;
   for (let i = 1; i < trailBuf.length; i++) {
     const b = trailBuf[i];
     if (b.jump) continue;
     const a = trailBuf[i - 1];
-    const off = segCount * 2 * 3;
-    trailPositions[off]     = a.x; trailPositions[off + 1] = a.y; trailPositions[off + 2] = a.z;
-    trailPositions[off + 3] = b.x; trailPositions[off + 4] = b.y; trailPositions[off + 5] = b.z;
+    const v = segCount * 4;   // 4 vertices per quad
+    const p = v * 3;
+    // Perpendicular offset in XZ plane (flat ribbon on the print surface)
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const px = (-dz / len) * RIBBON_H, pz = (dx / len) * RIBBON_H;
+    trailRibbonPos[p]      = a.x + px; trailRibbonPos[p + 1]  = a.y; trailRibbonPos[p + 2]  = a.z + pz;
+    trailRibbonPos[p + 3]  = a.x - px; trailRibbonPos[p + 4]  = a.y; trailRibbonPos[p + 5]  = a.z - pz;
+    trailRibbonPos[p + 6]  = b.x + px; trailRibbonPos[p + 7]  = b.y; trailRibbonPos[p + 8]  = b.z + pz;
+    trailRibbonPos[p + 9]  = b.x - px; trailRibbonPos[p + 10] = b.y; trailRibbonPos[p + 11] = b.z - pz;
     const ageA = (now - a.t) / 1000 / TRAIL_SECONDS;
     const ageB = (now - b.t) / 1000 / TRAIL_SECONDS;
     const cA = ageColor(Math.min(1, Math.max(0, ageA)));
     const cB = ageColor(Math.min(1, Math.max(0, ageB)));
-    trailColors[off]     = cA[0]; trailColors[off + 1] = cA[1]; trailColors[off + 2] = cA[2];
-    trailColors[off + 3] = cB[0]; trailColors[off + 4] = cB[1]; trailColors[off + 5] = cB[2];
+    trailRibbonCol[p]      = cA[0]; trailRibbonCol[p + 1]  = cA[1]; trailRibbonCol[p + 2]  = cA[2];
+    trailRibbonCol[p + 3]  = cA[0]; trailRibbonCol[p + 4]  = cA[1]; trailRibbonCol[p + 5]  = cA[2];
+    trailRibbonCol[p + 6]  = cB[0]; trailRibbonCol[p + 7]  = cB[1]; trailRibbonCol[p + 8]  = cB[2];
+    trailRibbonCol[p + 9]  = cB[0]; trailRibbonCol[p + 10] = cB[1]; trailRibbonCol[p + 11] = cB[2];
+    // Two triangles: (0,1,2) and (1,3,2)
+    const idx = segCount * 6;
+    trailIdxBuf[idx]     = v;     trailIdxBuf[idx + 1] = v + 1; trailIdxBuf[idx + 2] = v + 2;
+    trailIdxBuf[idx + 3] = v + 1; trailIdxBuf[idx + 4] = v + 3; trailIdxBuf[idx + 5] = v + 2;
     segCount++;
   }
-  trailGeo.setDrawRange(0, segCount * 2);
-  trailGeo.attributes.position.needsUpdate = true;
-  trailGeo.attributes.color.needsUpdate = true;
+  trailGeoRibbon.setDrawRange(0, segCount * 6);
+  trailGeoRibbon.attributes.position.needsUpdate = true;
+  trailGeoRibbon.attributes.color.needsUpdate = true;
+  trailGeoRibbon.index.needsUpdate = true;
 }
 // gcode-preview's render() rebuilds the entire toolpath geometry (parses
 // commands up to endLayer, creates a fresh group, and clears the scene).
@@ -395,7 +404,7 @@ function updateTrail() {
 // dramatically.
 const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
-const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailStack, nozzleGroup, printPlate];
+const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
@@ -897,9 +906,9 @@ let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
 let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
 let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
 let smoothedNozzleInit = false;
-const NOZZLE_FOLLOW_BIAS = 0.55;                // 0 = print center, 1 = exact nozzle
-const NOZZLE_SMOOTH_LERP = 0.006;               // EMA rate for the nozzle position itself — kills perimeter twitch
-const TARGET_LERP        = 0.018;               // per-frame approach for the camera target — slow & seamless
+const NOZZLE_FOLLOW_BIAS = 0.55;
+const NOZZLE_SMOOTH_LERP = 0.006;
+const TARGET_LERP        = 0.018;
 const _scratchDesired    = new THREE.Vector3();
 
 function autoFitCamera() {
@@ -956,15 +965,6 @@ function orbitTick() {
     }
     const theta = ORBIT_THETA_FIXED;
 
-    // Two-stage smoothing so the camera doesn't get jerked around by the
-    // nozzle's fast perimeter motion:
-    //   1) smoothedNozzle is an exponential moving average of the actual
-    //      nozzle position. Tiny lerp rate (NOZZLE_SMOOTH_LERP) means
-    //      individual perimeter twitches are filtered out — what survives is
-    //      the slow drift of the print's center-of-activity.
-    //   2) orbitTarget then lerps toward a bbox/smoothedNozzle blend at
-    //      TARGET_LERP. The result is a calm follow that frames the active
-    //      area without ever feeling like it's chasing.
     if (nozzleGroup.visible) {
       if (!smoothedNozzleInit) {
         smoothedNozzle.copy(nozzleGroup.position);
@@ -975,7 +975,7 @@ function orbitTick() {
       _scratchDesired.copy(bboxCenter).lerp(smoothedNozzle, NOZZLE_FOLLOW_BIAS);
     } else {
       _scratchDesired.copy(bboxCenter);
-      smoothedNozzleInit = false; // re-seed when the nozzle reappears
+      smoothedNozzleInit = false;
     }
     orbitTarget.lerp(_scratchDesired, TARGET_LERP);
 
@@ -1028,9 +1028,15 @@ async function tick() {
     //      even when mc_print_stage is already 2
     // Preview = RUNNING but still in a sub-stage — show the full model
     // statically so the user sees what's coming.
-    const isActivePrint = state === 'RUNNING' && layerNum > 0 && subStage === 0;
-    const isPreviewState = state === 'RUNNING' && !isActivePrint;
-    const isHoldState   = state === 'PAUSED' || state === 'FINISH';
+    const mcPctRaw = Number(print.mc_percent) || 0;
+    const mcRemain = Number(print.mc_remaining_time) || 0;
+    // Treat as effectively finished when >=99% and 0 min remaining — the
+    // printer is just scraping/purging the nozzle, no longer extruding on
+    // the model. Show the completed print instead of animating cleanup moves.
+    const isEffectivelyDone = state === 'RUNNING' && mcPctRaw >= 99 && mcRemain <= 0;
+    const isActivePrint = state === 'RUNNING' && layerNum > 0 && subStage === 0 && !isEffectivelyDone;
+    const isPreviewState = state === 'RUNNING' && !isActivePrint && !isEffectivelyDone;
+    const isHoldState   = state === 'PAUSED' || state === 'FINISH' || isEffectivelyDone;
 
     if (!taskId || (!isActivePrint && !isPreviewState && !isHoldState)) {
       if (currentTaskKey) {
@@ -1147,18 +1153,33 @@ if (debug && debugBar) {
     if (playTimer) { clearInterval(playTimer); playTimer = null; }
     if (on) {
       scrubActive = true;
+      // Walk the nozzle through each layer's full path before advancing.
+      const cap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
+      if (!scrubLayer) scrubLayer = 1;
+      advanceTo(scrubLayer);
+      setNozzleLayer(scrubLayer);
+      setLabel(scrubLayer, cap);
       playTimer = setInterval(() => {
-        if (totalLayers <= 0) return;
-        const cap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
-        scrubLayer = scrubLayer >= cap ? 1 : scrubLayer + 1;
-        scrubEl.value = String(scrubLayer);
-        if (verifyLayers) {
+        if (totalLayers <= 0 || activeLayerIdx < 0) return;
+        const lp = layerPaths[activeLayerIdx];
+        if (!lp || lp.total === 0) {
+          // Empty layer — skip immediately
+          scrubLayer = scrubLayer >= cap ? 1 : scrubLayer + 1;
+          scrubEl.value = String(scrubLayer);
+          advanceTo(scrubLayer);
           setNozzleLayer(scrubLayer);
           setLabel(scrubLayer, cap);
-        } else {
-          advanceTo(scrubLayer);
+          return;
         }
-      }, Math.max(20, 1000 / PLAY_LAYERS_PER_SEC));
+        const elapsed = (performance.now() - layerStartTime) / 1000;
+        if (elapsed >= lp.total) {
+          scrubLayer = scrubLayer >= cap ? 1 : scrubLayer + 1;
+          scrubEl.value = String(scrubLayer);
+          advanceTo(scrubLayer);
+          setNozzleLayer(scrubLayer);
+          setLabel(scrubLayer, cap);
+        }
+      }, 100);
     }
   }
 
