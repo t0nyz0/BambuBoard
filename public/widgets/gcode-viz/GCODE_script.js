@@ -29,7 +29,7 @@ const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer cha
 // Delay (seconds) between what the printer is actually doing and what the
 // nozzle animation shows. Lets the visualization trail behind the real
 // print so the nozzle doesn't appear to jump ahead during MQTT sync jitter.
-const REPLAY_DELAY_S = 20;
+const REPLAY_DELAY_S = 25;
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -286,14 +286,19 @@ function ageColor(age01) {
 
 function updateTrail() {
   if (activeLayerIdx < 0) return;
-  // While paused (FINISH/IDLE) clear the trail so we don't leave hot streaks
-  // hanging on a finished print.
-  if (isPausedForState()) {
+  // When the print is truly done (FINISH/IDLE/FAILED), clear the trail so
+  // hot streaks don't hang on a finished print. During mid-print sub-stage
+  // checks (stg_cur briefly nonzero) we just stop adding points — don't
+  // wipe what we've built up.
+  if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') {
     if (trailBuf.length) {
       trailBuf.length = 0;
       trailGeo.setDrawRange(0, 0);
     }
     lastTrailPos = null;
+    return;
+  }
+  if (isPausedForState()) {
     return;
   }
   const now = performance.now();
