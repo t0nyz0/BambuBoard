@@ -1,0 +1,6 @@
+{
+  "slug": "default-h2d-2k",
+  "label": "Default — H2D (2K / 1440p)",
+  "description": "Working OBS scene tuned for the H2D's dual nozzles, dual AMS units, and the live gcode-toolpath widget. 2560×1440 canvas — ideal for 1440p streaming or recording.",
+  "recommendedTypes": ["H2D"]
+}
