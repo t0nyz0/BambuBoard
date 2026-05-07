@@ -12,11 +12,11 @@ import * as THREE from '../../vendor/three.module.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
-// Fixed 3/4-view orbit angle (radians). The camera no longer rotates around
-// the print — it just sits at this angle and lets the smoothed nozzle-follow
-// keep the active extrusion centered. Less disorienting than constant
-// rotation, and the parallax from the follow already conveys 3D-ness.
-const ORBIT_THETA_FIXED = Math.PI / 5;          // ~36°, gentle front-right 3/4 view
+// Fixed view angle around the print (radians). Rotated 90° from the previous
+// front-right view so the camera is looking from the same direction as the
+// H2D's internal chamber camera does in the live feed — same prints, same
+// orientation across both views.
+const ORBIT_THETA_FIXED = Math.PI / 5 + Math.PI / 2; // was π/5; +90°
 // Nozzle simulation speed multiplier vs real gcode feedrate. 1.0 = realtime.
 // Print speeds are typically 100–300 mm/s, so realtime feels right.
 const NOZZLE_SPEED_FACTOR = 1.0;
