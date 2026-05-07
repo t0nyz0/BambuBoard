@@ -245,6 +245,7 @@ function updateDryingStatus(amsUnit) {
   const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
   const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
   const $pill = $('#dryingStatusPill');
+  const $row = $pill.closest('.ams-drying-row');
   if (dryTime > 0) {
     const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
@@ -273,8 +274,10 @@ function updateDryingStatus(amsUnit) {
     }
     $pill.children('.drying-text').text('· ' + text);
     $pill.show();
+    $row.show();
   } else {
     $pill.hide();
+    $row.hide();
   }
 }
 

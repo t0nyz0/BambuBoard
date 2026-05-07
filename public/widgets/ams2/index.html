@@ -42,21 +42,21 @@
          narrow (~198px rendered), so we keep the text short and use
          nowrap + small font to keep it on one line. Wraps to its own
          line below the title only if absolutely necessary. */
+      /* Drying status on its own row below title — see ams/index.html. */
+      .ams-drying-row { flex-shrink: 0; margin-bottom: 12px; }
       .ams-drying-status {
         display: inline-flex;
         align-items: center;
         gap: 7px;
-        margin-left: 12px;
         padding: 4px .85em 4px .65em;
         background: rgba(226, 160, 74, 0.22);
         color: #f0b35e;
         border: 1px solid rgba(226, 160, 74, 0.6);
         border-radius: 10rem;
-        font-size: 0.78em;
+        font-size: 0.85em;
         font-weight: 700;
         letter-spacing: 0.04em;
         white-space: nowrap;
-        vertical-align: middle;
         animation: drying-breathe 2.4s ease-in-out infinite;
       }
       .ams-drying-status .drying-label {
@@ -172,10 +172,10 @@
         <div class="grid grid-gap-30">
           <div class="column grid-gap-10">
             <div class="bed-title">
-              <h2 class="partTitle">
-                AMS #2
-                <span id="dryingStatusPill" class="ams-drying-status" style="display:none"></span>
-              </h2>
+              <h2 class="partTitle">AMS #2</h2>
+              <div class="ams-drying-row" style="display:none">
+                <span id="dryingStatusPill" class="ams-drying-status"></span>
+              </div>
 
               <!-- Header: AMS chamber temp + Current/Max + humidity bar -->
               <div class="ams-header">

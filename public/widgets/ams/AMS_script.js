@@ -253,19 +253,18 @@ function updateDryingStatus(amsUnit) {
   const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
   const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
   const $pill = $('#dryingStatusPill');
+  const $row = $pill.closest('.ams-drying-row');
   if (dryTime > 0) {
     const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
     parts.push(formatDryMinutes(dryTime));
-    // Skip the word "Drying" — the amber pill + spinning fan icon already
-    // signal what's happening, and the AMS card is too narrow to fit it.
     const text = parts.join(' · ');
 
-    // Build the icon + text container ONCE. Subsequent ticks only
-    // update the text node — replacing the pill's innerHTML every poll
-    // restarts the CSS rotation animation every second, which makes
-    // the fan visibly stutter / reset. Inline SVG with viewBox centered
-    // on (0,0) so rotation pivots on the geometric center.
+    // Build the icon + label + text container ONCE. Subsequent ticks
+    // only update the text node — replacing innerHTML every poll
+    // restarts the CSS animation every second, making the fan stutter.
+    // Inline SVG with viewBox centered on (0,0) so rotation pivots on
+    // the geometric center.
     if (!$pill.children('.drying-fan').length) {
       const svg =
         '<svg class="drying-fan" viewBox="-50 -50 100 100" aria-hidden="true">'
@@ -287,8 +286,10 @@ function updateDryingStatus(amsUnit) {
     // Numbers part — temp + remaining time, prefixed with separator.
     $pill.children('.drying-text').text('· ' + text);
     $pill.show();
+    $row.show();
   } else {
     $pill.hide();
+    $row.hide();
   }
 }
 
