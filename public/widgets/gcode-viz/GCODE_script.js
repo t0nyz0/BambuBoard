@@ -12,11 +12,10 @@ import * as THREE from '../../vendor/three.module.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
-// Fixed view angle around the print (radians). Rotated 90° from the previous
-// front-right view so the camera is looking from the same direction as the
-// H2D's internal chamber camera does in the live feed — same prints, same
+// Fixed view angle around the print (radians). Aimed to match the direction
+// the H2D's chamber camera looks at the bed — same prints, same left/right
 // orientation across both views.
-const ORBIT_THETA_FIXED = Math.PI / 5 + Math.PI / 2; // was π/5; +90°
+const ORBIT_THETA_FIXED = Math.PI * 1.7;        // ~306° / -54° — looks from the opposite side of the bed vs the previous take
 // Nozzle simulation speed multiplier vs real gcode feedrate. 1.0 = realtime.
 // Print speeds are typically 100–300 mm/s, so realtime feels right.
 const NOZZLE_SPEED_FACTOR = 1.0;
