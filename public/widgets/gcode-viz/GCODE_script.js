@@ -100,37 +100,40 @@ let y = 0;
 
 // Hot glow at the print-contact point: a tight bright core plus a softer
 // larger halo, both AdditiveBlending so they read as light rather than
-// painted color. The nozzle metal stays silver — the glow is its own thing.
+// painted color. Wrapped in a sub-group so we can toggle visibility cleanly
+// when the printer isn't actively extruding (PAUSED).
+const glowGroup = new THREE.Group();
 {
   const glowY = 0.4 * SCALE;
-  // Inner core — small, very bright.
-  const coreGeo = new THREE.SphereGeometry(0.3 * SCALE, 16, 12);
+  // Inner core — small, bright but dialed back from the prior take.
+  const coreGeo = new THREE.SphereGeometry(0.28 * SCALE, 16, 12);
   coreGeo.translate(0, glowY, 0);
   const coreMat = new THREE.MeshBasicMaterial({
-    color: 0xfff0c0,                  // near-white center for that "incandescent" feel
-    transparent: true, opacity: 0.95,
+    color: 0xfff0c0,
+    transparent: true, opacity: 0.65,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  nozzleGroup.add(new THREE.Mesh(coreGeo, coreMat));
-  // Outer halo — larger, faint orange, fades out with low opacity.
-  const haloGeo = new THREE.SphereGeometry(1.1 * SCALE, 20, 16);
+  glowGroup.add(new THREE.Mesh(coreGeo, coreMat));
+  // Inner halo — softer and smaller than before.
+  const haloGeo = new THREE.SphereGeometry(0.95 * SCALE, 20, 16);
   haloGeo.translate(0, glowY, 0);
   const haloMat = new THREE.MeshBasicMaterial({
     color: 0xff5a18,
-    transparent: true, opacity: 0.22,
+    transparent: true, opacity: 0.13,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  nozzleGroup.add(new THREE.Mesh(haloGeo, haloMat));
-  // Wider, even fainter outer halo for extra falloff.
-  const halo2Geo = new THREE.SphereGeometry(2.0 * SCALE, 20, 16);
+  glowGroup.add(new THREE.Mesh(haloGeo, haloMat));
+  // Outer halo — barely visible falloff.
+  const halo2Geo = new THREE.SphereGeometry(1.7 * SCALE, 20, 16);
   halo2Geo.translate(0, glowY, 0);
   const halo2Mat = new THREE.MeshBasicMaterial({
     color: 0xff3608,
-    transparent: true, opacity: 0.08,
+    transparent: true, opacity: 0.05,
     blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  nozzleGroup.add(new THREE.Mesh(halo2Geo, halo2Mat));
+  glowGroup.add(new THREE.Mesh(halo2Geo, halo2Mat));
 }
+nozzleGroup.add(glowGroup);
 
 // Silver aluminum heatbreak block — uniform cuboid, no taper.
 {
@@ -498,6 +501,13 @@ function updateNozzlePosition() {
     nozzleGroup.visible = false;
     return;
   }
+  // Glow is only on when the printer is actually extruding. PAUSED keeps the
+  // nozzle visible (so you can see where it is) but kills the glow since no
+  // hot filament is coming out. Verify/scrub modes leave the glow on so the
+  // visualization still reads as "active" while testing.
+  glowGroup.visible = (verifyLayers || scrubActive)
+    ? true
+    : (lastGcodeState === 'RUNNING');
   let elapsed;
   if (pathHoldFraction !== null) {
     const total = layerPaths[activeLayerIdx]?.total || 0;
