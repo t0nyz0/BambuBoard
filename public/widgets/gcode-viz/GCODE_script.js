@@ -255,9 +255,27 @@ trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
 trailGeo.setAttribute('color',    new THREE.BufferAttribute(trailColors, 3));
 trailGeo.setDrawRange(0, 0);
 const trailMat = new THREE.LineBasicMaterial({
-  vertexColors: true, transparent: true, linewidth: 2,
+  vertexColors: true, transparent: true,
 });
 const trailLine = new THREE.LineSegments(trailGeo, trailMat);
+// Stack multiple offset copies of the trail to simulate a thick line.
+// WebGL ignores linewidth on most GPUs (always 1px), so we duplicate
+// the geometry at slight spatial offsets to get visible trail width.
+const trailStack = new THREE.Group();
+trailStack.add(trailLine);
+const S = 0.4;
+const TRAIL_OFFSETS = [
+  [0, S, 0], [0, -S, 0], [S, 0, 0], [-S, 0, 0],
+  [0, 0, S], [0, 0, -S],
+  [0, S*2, 0], [0, -S*2, 0], [S*2, 0, 0], [-S*2, 0, 0],
+  [0, 0, S*2], [0, 0, -S*2],
+  [S, S, 0], [-S, S, 0], [S, -S, 0], [-S, -S, 0],
+];
+for (const [dx, dy, dz] of TRAIL_OFFSETS) {
+  const clone = new THREE.LineSegments(trailGeo, trailMat);
+  clone.position.set(dx, dy, dz);
+  trailStack.add(clone);
+}
 const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true means start of a new run
 let lastTrailPos = null;
 let lastTrailSegIdx = -1;
@@ -268,9 +286,9 @@ function lerpColor(a, b, t) {
 }
 // Trail color ramp: just-extruded filament is bright red, cools through
 // orange to green, then settles to the actual filament color.
-const COLOR_HOT  = [1.00, 0.15, 0.08]; // bright red — just out of the nozzle
-const COLOR_MID  = [1.00, 0.55, 0.10]; // orange — cooling
-const COLOR_WARM = [0.20, 0.85, 0.30]; // green — almost set
+const COLOR_HOT  = [1.00, 0.05, 0.02]; // vivid red — just out of the nozzle
+const COLOR_MID  = [1.00, 0.45, 0.00]; // saturated orange — cooling
+const COLOR_WARM = [0.10, 0.95, 0.20]; // vivid green — almost set
 let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
 
 function ageColor(age01) {
@@ -377,7 +395,7 @@ function updateTrail() {
 // dramatically.
 const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
-const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
+const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailStack, nozzleGroup, printPlate];
 
 function fullRebuild() {
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
