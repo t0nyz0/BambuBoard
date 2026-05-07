@@ -902,6 +902,8 @@ function advanceTo(layerNum) {
 // supplies all the visual interest.
 let orbitRadius = 0;
 let orbitHeight = 0;
+let orbitRadiusBase = 0;  // radius computed by autoFit (before finish zoom)
+let orbitHeightBase = 0;
 let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
 let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
 let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
@@ -936,8 +938,10 @@ function autoFitCamera() {
   const cxg = (minX + maxX) / 2, cyg = (minY + maxY) / 2;
   const sz = (cumZ[Math.min(cap, cumZ.length) - 1] || 0);
   const footprint = Math.hypot(sx, sy);
-  orbitRadius = Math.max(60, footprint * 0.65 + 35);
-  orbitHeight = Math.max(30, sz + footprint * 0.15);
+  orbitRadiusBase = Math.max(60, footprint * 0.65 + 35);
+  orbitHeightBase = Math.max(30, sz + footprint * 0.15);
+  orbitRadius = orbitRadiusBase;
+  orbitHeight = orbitHeightBase;
   // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
   bboxCenter.set(
     cxg - buildCenter.x,
@@ -964,6 +968,14 @@ function orbitTick() {
       if (orbitRadius === 0) { orbitRadius = 100; orbitHeight = 45; }
     }
     const theta = ORBIT_THETA_FIXED;
+
+    // When finished, zoom out to show the full model; while printing,
+    // use the tighter nozzle-follow framing.
+    const isFinished = isPausedForState() && !verifyLayers && !scrubActive;
+    const goalRadius = isFinished ? orbitRadiusBase * 1.6 : orbitRadiusBase;
+    const goalHeight = isFinished ? orbitHeightBase * 1.4 : orbitHeightBase;
+    orbitRadius += (goalRadius - orbitRadius) * 0.02;
+    orbitHeight += (goalHeight - orbitHeight) * 0.02;
 
     if (nozzleGroup.visible) {
       if (!smoothedNozzleInit) {
