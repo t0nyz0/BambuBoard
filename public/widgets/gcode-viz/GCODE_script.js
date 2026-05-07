@@ -18,9 +18,10 @@ const ROTATE_DEG_PER_SEC = 2.0; // ~180s per full revolution — calm, not disor
 const NOZZLE_SPEED_FACTOR = 1.0;
 // Hot-extrusion trail: how long a freshly-deposited segment glows before
 // fading to the cold print color, and the geometry buffer cap. Long window
-// keeps a generous "still hot" plateau visible while the print progresses.
-const TRAIL_SECONDS = 70;
-const TRAIL_MAX_POINTS = 4000; // ~33 s of motion at typical print speeds
+// + wide cooling bands so the red→orange→yellow→cold gradient is actually
+// visible across the trail rather than red-dominating up front.
+const TRAIL_SECONDS = 90;
+const TRAIL_MAX_POINTS = 5500; // covers ~75 s of motion at typical print speeds
 const TRAIL_BREAK_DIST = 25;   // mm jump that splits the trail (e.g. layer change)
 
 const params = new URLSearchParams(location.search);
@@ -246,16 +247,17 @@ const COLOR_WARM = [1.00, 0.85, 0.30]; // yellow — almost set
 let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
 
 function ageColor(age01) {
-  // Lines stay in the hot/bright phase roughly twice as long as before, then
-  // cool quickly through orange and red into the cold filament tone.
-  //   0..0.50   plateau at HOT (no fade for the first half of the trail)
-  //   0.50..0.70 HOT → MID  (yellow-white to orange)
-  //   0.70..0.85 MID → WARM (orange to deep red)
-  //   0.85..1.00 WARM → COLD (deep red to filament color)
-  if (age01 < 0.50) return COLOR_HOT.slice();
-  if (age01 < 0.70) return lerpColor(COLOR_HOT,  COLOR_MID,  (age01 - 0.50) / 0.20);
-  if (age01 < 0.85) return lerpColor(COLOR_MID,  COLOR_WARM, (age01 - 0.70) / 0.15);
-  return                 lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.85) / 0.15);
+  // Short red plateau so the very freshest stuff still reads as bright red,
+  // then a wide red→orange→yellow→cold ramp so the gradient progression is
+  // actually visible across the trail's length.
+  //   0.00..0.15  plateau at HOT (red — just out of the nozzle)
+  //   0.15..0.40  HOT → MID    (red → orange)
+  //   0.40..0.70  MID → WARM   (orange → yellow)
+  //   0.70..1.00  WARM → COLD  (yellow → filament color)
+  if (age01 < 0.15) return COLOR_HOT.slice();
+  if (age01 < 0.40) return lerpColor(COLOR_HOT,  COLOR_MID,  (age01 - 0.15) / 0.25);
+  if (age01 < 0.70) return lerpColor(COLOR_MID,  COLOR_WARM, (age01 - 0.40) / 0.30);
+  return                 lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.70) / 0.30);
 }
 
 function updateTrail() {
