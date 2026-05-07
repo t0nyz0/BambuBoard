@@ -693,11 +693,17 @@ function advanceTo(layerNum) {
 
 // Slow camera orbit — runs continuously while a job is loaded. Radius/height
 // auto-fit to the loaded print's bounding box so small prints fill the frame
-// and big prints don't get clipped.
+// and big prints don't get clipped. orbitTarget is smoothed each frame: the
+// camera lazily pursues the nozzle so it stays visually centered, falling
+// back to the print bbox center when the printer isn't extruding.
 let orbitStart = performance.now();
 let orbitRadius = 0;
 let orbitHeight = 0;
-let orbitTarget = new THREE.Vector3(0, 0, 0);
+let orbitTarget = new THREE.Vector3(0, 0, 0);   // current (smoothed) lookAt
+let bboxCenter  = new THREE.Vector3(0, 0, 0);   // print bbox center anchor
+const NOZZLE_FOLLOW_BIAS = 0.65;                // 0 = print center, 1 = exact nozzle
+const TARGET_LERP        = 0.04;                // per-frame approach rate (~0.4 s time-constant @60fps)
+const _scratchDesired    = new THREE.Vector3();
 
 function autoFitCamera() {
   // Compute bbox of just the "real" model extrusions, ignoring Bambu's prep
@@ -726,12 +732,15 @@ function autoFitCamera() {
   const footprint = Math.hypot(sx, sy);
   orbitRadius = Math.max(120, footprint * 1.4 + 100);
   orbitHeight = Math.max(90, sz + footprint * 0.7);
-  // Map gcode (cxg, cyg, sz/2) to three world coords for the camera target.
-  orbitTarget = new THREE.Vector3(
+  // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
+  bboxCenter.set(
     cxg - buildCenter.x,
     sz / 2,
     buildCenter.y - cyg,
   );
+  // Snap the smoothed target to the new anchor on first frame so we don't
+  // start orbiting around (0,0,0) and lerp-pan into place.
+  orbitTarget.copy(bboxCenter);
 }
 
 // Latched orbit angle so a paused widget freezes at whatever angle it was
@@ -769,6 +778,19 @@ function orbitTick() {
       theta = t * (ROTATE_DEG_PER_SEC * Math.PI / 180);
       lastTheta = theta;
     }
+
+    // Smooth pursuit: if the nozzle is visible (printer extruding or in
+    // verify/scrub mode), the camera target gradually moves toward a
+    // nozzle-biased point so the active extrusion stays roughly centered.
+    // Otherwise it settles back on the print bbox anchor. Low per-frame
+    // lerp rate keeps the motion seamless — never jerky.
+    if (nozzleGroup.visible) {
+      _scratchDesired.copy(bboxCenter).lerp(nozzleGroup.position, NOZZLE_FOLLOW_BIAS);
+    } else {
+      _scratchDesired.copy(bboxCenter);
+    }
+    orbitTarget.lerp(_scratchDesired, TARGET_LERP);
+
     preview.camera.position.set(
       orbitTarget.x + Math.sin(theta) * orbitRadius,
       orbitTarget.y + orbitHeight,
