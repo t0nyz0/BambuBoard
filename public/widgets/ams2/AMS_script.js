@@ -115,9 +115,10 @@ function updateTray(trayIdx, tray) {
   }
 
   if (currentState !== 'RUNNING') {
-    // Off state: swatch + progress bar both grey. Drying pill stays colorful
-    // since drying can run independently of an active print.
-    $(`#tray${n}Color`).css('background-color', 'rgba(120,120,120,0.45)');
+    // Off state: only the progress bar (filament-remaining) goes grey to
+    // signal inactivity. The color swatch always reflects the loaded
+    // filament's actual color — there is no "disabled" state for it. The
+    // empty-tray case is handled in the isEmpty branch above.
     $(`#tray${n}ProgressBar`).css('background-color', 'grey');
   }
 }
