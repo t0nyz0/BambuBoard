@@ -246,10 +246,15 @@ function updateDryingStatus(amsUnit) {
   const dryTemp = parseInt((amsUnit.dry_setting || {}).dry_temperature, 10);
   const $pill = $('#dryingStatusPill');
   if (dryTime > 0) {
-    const parts = ['Drying'];
+    const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
     parts.push(formatDryMinutes(dryTime));
-    $pill.text(parts.join(' · ')).show();
+    const text = `Drying · ${parts.join(' · ')}`;
+    $pill
+      .html('<span class="drying-fan material-symbols-outlined">toys_fan</span>'
+            + '<span class="drying-text"></span>')
+      .find('.drying-text').text(text).end()
+      .show();
   } else {
     $pill.hide();
   }

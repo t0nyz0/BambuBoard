@@ -43,18 +43,44 @@
          nowrap + small font to keep it on one line. Wraps to its own
          line below the title only if absolutely necessary. */
       .ams-drying-status {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         margin-left: 10px;
-        padding: 3px .7em 3px;
-        background: rgba(226, 160, 74, 0.20);
+        padding: 3px .75em 3px .55em;
+        background: rgba(226, 160, 74, 0.22);
         color: #f0b35e;
-        border: 1px solid rgba(226, 160, 74, 0.55);
+        border: 1px solid rgba(226, 160, 74, 0.6);
         border-radius: 10rem;
-        font-size: 0.62em;
+        font-size: 0.7em;
         font-weight: 700;
         letter-spacing: 0.02em;
         white-space: nowrap;
         vertical-align: middle;
+        animation: drying-breathe 2.4s ease-in-out infinite;
+      }
+      /* Soft pulse — gives a sign of life without the alarm-y feel of a
+         high-contrast pulse. Just nudges the border + bg alpha. */
+      @keyframes drying-breathe {
+        0%, 100% {
+          background: rgba(226, 160, 74, 0.18);
+          border-color: rgba(226, 160, 74, 0.5);
+        }
+        50% {
+          background: rgba(226, 160, 74, 0.28);
+          border-color: rgba(226, 160, 74, 0.75);
+        }
+      }
+      /* Tiny fan icon inside the pill — confirms the AMS dryer fan is
+         actively running. Spins continuously while the pill is visible. */
+      .ams-drying-status .drying-fan {
+        font-size: 1.05em;
+        line-height: 1;
+        animation: drying-fan-spin 1.8s linear infinite;
+      }
+      @keyframes drying-fan-spin {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
       }
 
       /* Header section — temp progress + Current/Max + humidity bars.
