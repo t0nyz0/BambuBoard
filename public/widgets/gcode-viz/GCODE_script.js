@@ -689,6 +689,12 @@ let scrubLayer = 0;
 let playing = false;
 let playTimer = null;
 let lastGcodeState = null;   // most recent gcode_state from MQTT
+// MQTT sync state for the within-layer animation. We re-anchor only when
+// fresh mc_percent or layer_num data arrives — between ticks the animation
+// runs free at gcode-real speed (using gcode F values), so it stays smooth
+// instead of jittering on the 1% mc_percent integer steps.
+let mcPercentLastSeen = null;
+let mqttSyncedLayer = null;
 // In production (no ?debug / ?layers), pause all motion when the printer
 // isn't actively printing. The toolpath stays on screen as a finished snapshot.
 function isPausedForState() {
@@ -781,6 +787,8 @@ function clearScene() {
   lastTrailSegIdx = -1;
   lastTrailLayerIdx = -1;
   smoothedNozzleInit = false;
+  mcPercentLastSeen = null;                 // force a fresh sync on next tick
+  mqttSyncedLayer = null;
   orbitRadius = 0;                          // re-fit on next orbit tick
   fastTick();                               // commit the empty state to the GPU
 }
@@ -1019,23 +1027,47 @@ async function tick() {
       : modelToParsed(layerNum);
     advanceTo(target);
 
-    // Sync the within-layer animation to mc_percent ONLY when the math lands
-    // cleanly within the current layer's duration. mc_percent counts heating
-    // / prep / cooldown toward total time, while our gcode time is extrusion-
-    // only — so early in a print mc_percent overshoots, which would clamp
-    // the nozzle to the end of the layer and freeze it. When out of band,
-    // let the natural realtime animation loop through the layer instead;
-    // it's close enough.
+    // Sync the within-layer animation to MQTT progress so the simulated
+    // nozzle tracks the real one as closely as the data allows.
+    //
+    // Strategy:
+    //   • layer_num is the source of truth for which layer we're on.
+    //     advanceTo() above already handles that.
+    //   • mc_percent is integer (1% resolution), so a naive sync re-anchors
+    //     on every 800 ms tick and visibly jitters as percent ticks. We
+    //     re-anchor ONLY when (a) the layer just changed, or (b)
+    //     mc_percent advanced. Between ticks the animation runs free at
+    //     gcode-real speed (using actual F values from the gcode), which
+    //     is naturally close to printer reality.
+    //   • Re-anchor with a smooth lerp toward the MQTT-implied
+    //     layerStartTime instead of snapping. Over a few ticks we converge
+    //     without visible jumps.
+    //   • Skip the sync when math falls outside the current layer's
+    //     duration (mc_percent overshooting during heating/prep/cooldown
+    //     phases — gcode time is extrusion-only and doesn't include those).
     if (state === 'RUNNING' && totalGcodeTime > 0 && activeLayerIdx >= 0) {
       const mcPct = Number(print.mc_percent);
-      if (Number.isFinite(mcPct)) {
+      const layerJustChanged = (mqttSyncedLayer !== activeLayerIdx);
+      const pctAdvanced = (mcPct !== mcPercentLastSeen);
+      if (Number.isFinite(mcPct) && (layerJustChanged || pctAdvanced)) {
         const targetT = (mcPct / 100) * totalGcodeTime;
         const layerStartT = cumLayerTime[activeLayerIdx] || 0;
         const layerDur = layerPaths[activeLayerIdx]?.total || 0;
         const rel = targetT - layerStartT;
         if (rel >= 0 && rel <= layerDur) {
-          layerStartTime = performance.now() - rel * 1000;
+          const desiredStart = performance.now() - rel * 1000;
+          // On layer change snap directly (we just got here, no smoothing
+          // needed). Mid-layer lerp 35% toward the new anchor so a
+          // ±20 s drift settles over a handful of mc_percent ticks rather
+          // than snapping the cursor.
+          if (layerJustChanged) {
+            layerStartTime = desiredStart;
+          } else {
+            layerStartTime += (desiredStart - layerStartTime) * 0.35;
+          }
+          mqttSyncedLayer = activeLayerIdx;
         }
+        mcPercentLastSeen = mcPct;
       }
     }
   } catch (e) {
