@@ -263,10 +263,24 @@ function updateDryingStatus(amsUnit) {
     // Skip the word "Drying" — the amber pill + spinning fan icon already
     // signal what's happening, and the AMS card is too narrow to fit the
     // word without forcing the pill to wrap to a second line.
+    //
+    // Inline SVG fan (5 ellipse blades around 0,0) — viewBox centered on
+    // origin guarantees rotation around the geometric center. Beats
+    // material-symbols' toys_fan glyph which has asymmetric internal
+    // padding and wobbles when rotated inline.
     const text = parts.join(' · ');
+    const svg = '<svg class="drying-fan" viewBox="-50 -50 100 100" fill="currentColor" aria-hidden="true">'
+              + '<g>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(72)"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(144)"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(216)"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(288)"/>'
+              + '</g>'
+              + '<circle cx="0" cy="0" r="6"/>'
+              + '</svg>';
     $pill
-      .html('<span class="drying-fan material-symbols-outlined">toys_fan</span>'
-            + '<span class="drying-text"></span>')
+      .html(svg + '<span class="drying-text"></span>')
       .find('.drying-text').text(text).end()
       .show();
   } else {

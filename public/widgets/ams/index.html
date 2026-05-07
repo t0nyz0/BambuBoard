@@ -72,16 +72,15 @@
         }
       }
       /* Tiny fan icon inside the pill — confirms the AMS dryer fan is
-         actively running. inline-block + explicit transform-origin keeps
-         the rotation anchored on the icon's geometric center; without
-         that the material-symbols glyph wobbles around its baseline. */
+         actively running. Inline SVG with viewBox centered on (0,0) so
+         rotation is exactly around the geometric center — no wobble,
+         unlike the material-symbols glyph which has asymmetric padding. */
       .ams-drying-status .drying-fan {
         display: inline-block;
-        font-size: 1.1em;
-        line-height: 1;
-        transform-origin: 50% 50%;
-        will-change: transform;
-        animation: drying-fan-spin 2s linear infinite;
+        width: 1.1em;
+        height: 1.1em;
+        vertical-align: -0.15em;
+        animation: drying-fan-spin 2.4s linear infinite;
       }
       @keyframes drying-fan-spin {
         from { transform: rotate(0deg); }

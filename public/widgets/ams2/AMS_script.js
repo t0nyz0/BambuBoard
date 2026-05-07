@@ -249,11 +249,21 @@ function updateDryingStatus(amsUnit) {
     const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
     parts.push(formatDryMinutes(dryTime));
-    // See ams/AMS_script.js — drop "Drying" prefix to fit on one line.
+    // See ams/AMS_script.js — drop "Drying" prefix + inline SVG fan
+    // for clean center-anchored rotation (no wobble).
     const text = parts.join(' · ');
+    const svg = '<svg class="drying-fan" viewBox="-50 -50 100 100" fill="currentColor" aria-hidden="true">'
+              + '<g>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(72)"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(144)"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(216)"/>'
+              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(288)"/>'
+              + '</g>'
+              + '<circle cx="0" cy="0" r="6"/>'
+              + '</svg>';
     $pill
-      .html('<span class="drying-fan material-symbols-outlined">toys_fan</span>'
-            + '<span class="drying-text"></span>')
+      .html(svg + '<span class="drying-text"></span>')
       .find('.drying-text').text(text).end()
       .show();
   } else {
