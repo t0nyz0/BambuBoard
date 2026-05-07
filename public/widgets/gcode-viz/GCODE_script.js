@@ -23,8 +23,8 @@ const NOZZLE_SPEED_FACTOR = 1.0;
 // fading to the cold print color, and the geometry buffer cap. Long window
 // + wide cooling bands so the red→orange→yellow→cold gradient is actually
 // visible across the trail rather than red-dominating up front.
-const TRAIL_SECONDS = 180;
-const TRAIL_MAX_POINTS = 11000; // covers ~150 s of motion at typical print speeds
+const TRAIL_SECONDS = 144;
+const TRAIL_MAX_POINTS = 8800;
 const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer change)
 // Delay (seconds) between what the printer is actually doing and what the
 // nozzle animation shows. Lets the visualization trail behind the real
@@ -266,27 +266,22 @@ let lastTrailLayerIdx = -1;
 function lerpColor(a, b, t) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
-// Trail color ramp uses the ember/lava mental model: just-extruded filament
-// is bright RED (still glowing hot), then cools through orange to yellow,
-// then settles to the actual filament color. Order is red → orange →
-// yellow → cold.
-const COLOR_HOT  = [1.00, 0.18, 0.10]; // bright red — just out of the nozzle
-const COLOR_MID  = [1.00, 0.50, 0.18]; // orange — cooling
-const COLOR_WARM = [1.00, 0.85, 0.30]; // yellow — almost set
+// Trail color ramp: just-extruded filament is bright red, cools through
+// orange to green, then settles to the actual filament color.
+const COLOR_HOT  = [1.00, 0.15, 0.08]; // bright red — just out of the nozzle
+const COLOR_MID  = [1.00, 0.55, 0.10]; // orange — cooling
+const COLOR_WARM = [0.20, 0.85, 0.30]; // green — almost set
 let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
 
 function ageColor(age01) {
-  // Short red plateau so the very freshest stuff still reads as bright red,
-  // then a wide red→orange→yellow→cold ramp so the gradient progression is
-  // actually visible across the trail's length.
-  //   0.00..0.15  plateau at HOT (red — just out of the nozzle)
-  //   0.15..0.40  HOT → MID    (red → orange)
-  //   0.40..0.70  MID → WARM   (orange → yellow)
-  //   0.70..1.00  WARM → COLD  (yellow → filament color)
-  if (age01 < 0.15) return COLOR_HOT.slice();
-  if (age01 < 0.40) return lerpColor(COLOR_HOT,  COLOR_MID,  (age01 - 0.15) / 0.25);
-  if (age01 < 0.70) return lerpColor(COLOR_MID,  COLOR_WARM, (age01 - 0.40) / 0.30);
-  return                 lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.70) / 0.30);
+  //   0.00..0.12  plateau at HOT (bright red)
+  //   0.12..0.35  HOT → MID    (red → orange)
+  //   0.35..0.65  MID → WARM   (orange → green)
+  //   0.65..1.00  WARM → COLD  (green → filament color)
+  if (age01 < 0.12) return COLOR_HOT.slice();
+  if (age01 < 0.35) return lerpColor(COLOR_HOT,  COLOR_MID,  (age01 - 0.12) / 0.23);
+  if (age01 < 0.65) return lerpColor(COLOR_MID,  COLOR_WARM, (age01 - 0.35) / 0.30);
+  return                   lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.65) / 0.35);
 }
 
 function updateTrail() {
@@ -909,8 +904,8 @@ function autoFitCamera() {
   const cxg = (minX + maxX) / 2, cyg = (minY + maxY) / 2;
   const sz = (cumZ[Math.min(cap, cumZ.length) - 1] || 0);
   const footprint = Math.hypot(sx, sy);
-  orbitRadius = Math.max(80, footprint * 0.85 + 50);
-  orbitHeight = Math.max(55, sz + footprint * 0.35);
+  orbitRadius = Math.max(60, footprint * 0.65 + 35);
+  orbitHeight = Math.max(30, sz + footprint * 0.15);
   // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
   bboxCenter.set(
     cxg - buildCenter.x,
@@ -934,7 +929,7 @@ function orbitTick() {
   if (preview.camera) {
     if (orbitRadius === 0) {
       autoFitCamera();
-      if (orbitRadius === 0) { orbitRadius = 130; orbitHeight = 80; }
+      if (orbitRadius === 0) { orbitRadius = 100; orbitHeight = 45; }
     }
     const theta = ORBIT_THETA_FIXED;
 

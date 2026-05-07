@@ -1434,7 +1434,13 @@ async function refreshSavedScenes (selectSlug) {
 async function onDownload () {
   if (!state.original) return window.toast('Nothing loaded', 'error');
   const out = applyChangesToCollection();
-  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  // Substitute <HOST> with the current server so the downloaded JSON has
+  // real URLs that OBS can load — the /raw endpoint deliberately leaves
+  // <HOST> as a placeholder for the editor, but downloads must be concrete.
+  const host = window.location.host;
+  let json = JSON.stringify(out, null, 2);
+  json = json.replace(/<HOST>/g, host);
+  const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const fname = (state.original.name || 'bambuboard-scene').replace(/[^a-z0-9_\-]/gi, '_') + '.json';
