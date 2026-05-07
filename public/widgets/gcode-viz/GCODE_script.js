@@ -229,6 +229,8 @@ const trailMat = new THREE.LineBasicMaterial({
 const trailLine = new THREE.LineSegments(trailGeo, trailMat);
 const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true means start of a new run
 let lastTrailPos = null;
+let lastTrailSegIdx = -1;
+let lastTrailLayerIdx = -1;
 
 function lerpColor(a, b, t) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -267,14 +269,33 @@ function updateTrail() {
   if (lastTrailPos) {
     const d = Math.hypot(x - lastTrailPos.x, y - lastTrailPos.y, z - lastTrailPos.z);
     if (d > 0.05) {                    // moved enough to record
-      // Big jumps (layer change, scrub) → mark the new point as a break.
-      const jump = d > TRAIL_BREAK_DIST;
+      // A "jump" should break the trail. Detect it three ways:
+      //   1) Big distance (layer change, scrub teleport) — TRAIL_BREAK_DIST.
+      //   2) Layer changed since last sample.
+      //   3) The simulated nozzle skipped over a travel segment in the
+      //      parsed gcode between this frame and the last. Travels have
+      //      dur=0 so the time-based walker traverses them in zero animation
+      //      time — visually the nozzle teleports across them. Without this
+      //      check we'd connect both ends of the travel with a fake "trail".
+      let jump = (d > TRAIL_BREAK_DIST) || (activeLayerIdx !== lastTrailLayerIdx);
+      if (!jump && lastTrailSegIdx >= 0 && currentSegIdx >= 0 && currentSegIdx !== lastTrailSegIdx) {
+        const segs = layerPaths[activeLayerIdx]?.segs || [];
+        const lo = Math.min(lastTrailSegIdx, currentSegIdx);
+        const hi = Math.max(lastTrailSegIdx, currentSegIdx);
+        for (let k = lo + 1; k <= hi; k++) {
+          if (segs[k] && !segs[k].ext) { jump = true; break; }
+        }
+      }
       trailBuf.push({ x, y, z, t: now, jump });
       lastTrailPos = { x, y, z };
+      lastTrailSegIdx = currentSegIdx;
+      lastTrailLayerIdx = activeLayerIdx;
     }
   } else {
     trailBuf.push({ x, y, z, t: now, jump: true });
     lastTrailPos = { x, y, z };
+    lastTrailSegIdx = currentSegIdx;
+    lastTrailLayerIdx = activeLayerIdx;
   }
 
   // Drop expired points.
@@ -383,6 +404,11 @@ function recomputeCumZ() {
 let layerPaths = [];
 let activeLayerIdx = -1;
 let layerStartTime = 0;
+// Index of the segment the simulated nozzle is currently on within its
+// active layer's path. Set by nozzleXYAt(); used by updateTrail() to detect
+// when consecutive frames straddle a travel (so we don't draw a faux trail
+// line spanning the air gap).
+let currentSegIdx = -1;
 
 // Cumulative extrusion-time prefix sum across all layers. Used to map MQTT's
 // global `mc_percent` (0–100) into a (layer, within-layer-elapsed) pair so
@@ -469,8 +495,8 @@ function buildLayerPaths() {
 
 function nozzleXYAt(layerIdx, elapsedSec) {
   const p = layerPaths[layerIdx];
-  if (!p || p.segs.length === 0) return null;
-  if (p.total === 0) return { x: p.segs[0].bx, y: p.segs[0].by };
+  if (!p || p.segs.length === 0) { currentSegIdx = -1; return null; }
+  if (p.total === 0) { currentSegIdx = 0; return { x: p.segs[0].bx, y: p.segs[0].by }; }
   const targetT = elapsedSec % p.total;
   // Find the segment whose cumulative end-time crosses targetT. Travel
   // segments have dur=0 so they're skipped; we land on the start of the next
@@ -478,6 +504,7 @@ function nozzleXYAt(layerIdx, elapsedSec) {
   let i = 0;
   while (i < p.segs.length && p.cumTime[i + 1] < targetT) i++;
   if (i >= p.segs.length) i = p.segs.length - 1;
+  currentSegIdx = i;
   const s = p.segs[i];
   if (!s.ext || s.dur === 0) return { x: s.bx, y: s.by };
   const f = (targetT - p.cumTime[i]) / s.dur;
