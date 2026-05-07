@@ -199,10 +199,18 @@ const PLATE_W = bed.x, PLATE_D = bed.y;
 const printPlate = new THREE.Group();
 const plateSlabGeo = new THREE.BoxGeometry(PLATE_W, 0.6, PLATE_D);
 plateSlabGeo.translate(0, -0.3, 0);  // top face at y=0
-const plateSlabMat = new THREE.MeshBasicMaterial({ color: 0x0c0d10 }); // near-black neutral, no blue cast
+// Semi-transparent slab so the camera feed (or whatever sits behind the
+// widget) shows through the plate while the prints + nozzle stay opaque.
+const plateSlabMat = new THREE.MeshBasicMaterial({
+  color: 0x0c0d10, transparent: true, opacity: 0.5, depthWrite: false,
+});
 printPlate.add(new THREE.Mesh(plateSlabGeo, plateSlabMat));
 // Lighter rim around the edges (4 thin boxes).
-const rimMat = new THREE.MeshBasicMaterial({ color: 0x2c3038 }); // neutral charcoal, no blue cast
+// Rim — slightly lighter than the slab, also semi-transparent so the whole
+// plate composites uniformly over the background.
+const rimMat = new THREE.MeshBasicMaterial({
+  color: 0x2c3038, transparent: true, opacity: 0.5, depthWrite: false,
+});
 const rimT = 1.2, rimH = 0.2;
 const mkRim = (w, d, x, z) => {
   const g = new THREE.BoxGeometry(w, rimH, d);
