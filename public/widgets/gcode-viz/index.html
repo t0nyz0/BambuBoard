@@ -14,10 +14,29 @@
       html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent !important; }
       .gcode-stage { position: relative; width: 100vw; height: 100vh; background: transparent; }
       .gcode-stage canvas { display: block; width: 100% !important; height: 100% !important; background: transparent; }
+      /* Centered loading/error message — large enough to read at a glance
+         when the user is checking in on a new print. Default state is the
+         small bottom-of-canvas hint; .loading promotes it to a centered
+         pill so transitions between prints are visibly explained. */
       .gcode-overlay {
         position: absolute; inset: auto 0 8px 0;
         text-align: center; font-size: 12px; opacity: .7;
         pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.6);
+      }
+      .gcode-overlay.loading {
+        inset: 50% 0 auto 0; transform: translateY(-50%);
+        font-size: 16px; font-weight: 500; opacity: 1; letter-spacing: 0.3px;
+      }
+      .gcode-overlay.loading::before {
+        content: ''; display: inline-block; width: 10px; height: 10px;
+        margin-right: 8px; border-radius: 50%;
+        background: #ffd166; box-shadow: 0 0 10px 2px rgba(255,209,102,0.55);
+        animation: gcode-pulse 1.2s ease-in-out infinite;
+        vertical-align: middle;
+      }
+      @keyframes gcode-pulse {
+        0%,100% { opacity: 0.4; transform: scale(0.85); }
+        50%     { opacity: 1.0; transform: scale(1.10); }
       }
       .gcode-overlay.error { color: #f0a; opacity: 1; }
       .gcode-debug {

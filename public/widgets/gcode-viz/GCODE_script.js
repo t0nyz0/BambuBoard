@@ -720,9 +720,12 @@ function syncFilamentColor(print) {
   lastFilamentHex = hex;
 }
 
-function setOverlay(text, isError = false) {
+// kind: 'hint' (small bottom hint, default), 'loading' (centered pill with
+// pulsing dot), 'error' (small red bottom hint).
+function setOverlay(text, kind = 'hint') {
   overlay.textContent = text;
-  overlay.classList.toggle('error', !!isError);
+  overlay.classList.toggle('loading', kind === 'loading');
+  overlay.classList.toggle('error',   kind === 'error');
   overlay.style.display = text ? 'block' : 'none';
 }
 
@@ -730,12 +733,53 @@ function setLabel(layer, total) {
   if (labelEl) labelEl.textContent = `layer ${layer} / ${total}`;
 }
 
+// Wipe the rendered toolpath + animation state to a clean "no print loaded"
+// baseline. Called when a new task_id is detected so the old print's
+// geometry doesn't stay on screen while we fetch the new gcode (which can
+// take 1-2 s for a fresh print, longer if the printer hasn't written the
+// file to /cache/ yet and we have to retry).
+function clearScene() {
+  preview.processGCode('M83\n');           // seed parser with one no-op so layers[] empties
+  preview.endLayer = 0;
+  layerPaths = [];
+  cumZ = [];
+  cumLayerTime = [0];
+  totalGcodeTime = 0;
+  totalLayers = 0;
+  modelLayerOffset = 0;
+  activeLayerIdx = -1;
+  currentSegIdx = -1;
+  lastEndLayer = -1;
+  lastRenderedEndLayer = -1;
+  trailBuf.length = 0;
+  lastTrailPos = null;
+  lastTrailSegIdx = -1;
+  lastTrailLayerIdx = -1;
+  smoothedNozzleInit = false;
+  orbitRadius = 0;                          // re-fit on next orbit tick
+  fastTick();                               // commit the empty state to the GPU
+}
+
 async function loadGcode(taskKey) {
   inFlight = true;
-  setOverlay('loading toolpath…');
+  // Drop the previous print's geometry immediately so the user doesn't see
+  // it lingering while the new gcode fetches. The overlay then signals
+  // we're working on it.
+  clearScene();
+  setOverlay('Loading new print…', 'loading');
   try {
     const res = await fetch('/api/gcode/current', { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      // 502 typically means the printer hasn't written the new job's file
+      // to /cache/ yet (race between MQTT job_id update and the FTPS file
+      // being available). The next tick will retry automatically; show a
+      // friendlier message in the meantime.
+      const status = res.status;
+      const friendly = status === 502
+        ? 'Waiting for printer to publish gcode…'
+        : `Loading failed (HTTP ${status})`;
+      throw new Error(friendly);
+    }
     const text = await res.text();
     preview.processGCode(text);
     recomputeCumZ();
@@ -766,7 +810,10 @@ async function loadGcode(taskKey) {
     setOverlay('');
   } catch (e) {
     currentTaskKey = null;
-    setOverlay(`gcode fetch failed: ${e.message}`, true);
+    // Keep the loading style — we'll be retrying every poll cycle until the
+    // file shows up, so this is a "still working on it" state, not a
+    // permanent error. The pulsing dot signals activity.
+    setOverlay(e.message || 'Loading failed — retrying…', 'loading');
   } finally {
     inFlight = false;
   }
@@ -967,7 +1014,7 @@ async function tick() {
       }
     }
   } catch (e) {
-    setOverlay(`status poll failed: ${e.message}`, true);
+    setOverlay(`status poll failed: ${e.message}`, 'error');
   }
 }
 
