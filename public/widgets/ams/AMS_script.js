@@ -260,7 +260,10 @@ function updateDryingStatus(amsUnit) {
     // Build "🌀 Drying · 55° · 11h 43m" with a spinning fan icon to signal
     // the AMS dryer fan is actively running. Use .html() rather than .text()
     // so the icon span renders.
-    const text = `Drying · ${parts.join(' · ')}`;
+    // Skip the word "Drying" — the amber pill + spinning fan icon already
+    // signal what's happening, and the AMS card is too narrow to fit the
+    // word without forcing the pill to wrap to a second line.
+    const text = parts.join(' · ');
     $pill
       .html('<span class="drying-fan material-symbols-outlined">toys_fan</span>'
             + '<span class="drying-text"></span>')

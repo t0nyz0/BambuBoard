@@ -70,9 +70,12 @@
         }
       }
       .ams-drying-status .drying-fan {
-        font-size: 1.05em;
+        display: inline-block;
+        font-size: 1.1em;
         line-height: 1;
-        animation: drying-fan-spin 1.8s linear infinite;
+        transform-origin: 50% 50%;
+        will-change: transform;
+        animation: drying-fan-spin 2s linear infinite;
       }
       @keyframes drying-fan-spin {
         from { transform: rotate(0deg); }

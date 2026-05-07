@@ -72,11 +72,16 @@
         }
       }
       /* Tiny fan icon inside the pill — confirms the AMS dryer fan is
-         actively running. Spins continuously while the pill is visible. */
+         actively running. inline-block + explicit transform-origin keeps
+         the rotation anchored on the icon's geometric center; without
+         that the material-symbols glyph wobbles around its baseline. */
       .ams-drying-status .drying-fan {
-        font-size: 1.05em;
+        display: inline-block;
+        font-size: 1.1em;
         line-height: 1;
-        animation: drying-fan-spin 1.8s linear infinite;
+        transform-origin: 50% 50%;
+        will-change: transform;
+        animation: drying-fan-spin 2s linear infinite;
       }
       @keyframes drying-fan-spin {
         from { transform: rotate(0deg); }

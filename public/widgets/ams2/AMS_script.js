@@ -249,7 +249,8 @@ function updateDryingStatus(amsUnit) {
     const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
     parts.push(formatDryMinutes(dryTime));
-    const text = `Drying · ${parts.join(' · ')}`;
+    // See ams/AMS_script.js — drop "Drying" prefix to fit on one line.
+    const text = parts.join(' · ');
     $pill
       .html('<span class="drying-fan material-symbols-outlined">toys_fan</span>'
             + '<span class="drying-text"></span>')
