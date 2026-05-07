@@ -59,8 +59,8 @@ async function updateUI(telemetryObject) {
     }
 
     /// Chamber Temperature
-    let chamberTargetTempF = 140;
-    let chamberTargetTempC = 60;
+    let chamberTargetTempF = 200;
+    let chamberTargetTempC = 93;
     let chamberTempPercentage = 1;
 
     // Newer Bambu firmware (H2D) packs current+target into device.ctc.info.temp

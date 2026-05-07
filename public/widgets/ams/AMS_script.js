@@ -166,10 +166,10 @@ async function updateAMS(telemetryObject) {
 
     // AMS Temperature
     const amsTemp = amsUnit.temp || 0;
-    const amsTempPercentage = Math.min((amsTemp / 60) * 100, 100);
+    const amsTempPercentage = Math.min((amsTemp / 93) * 100, 100);
 
-    $('#amsTargetTempC').text('60');
-    $('#amsTargetTempF').text(140);
+    $('#amsTargetTempC').text('93');
+    $('#amsTargetTempF').text(200);
 
     const amsCurrentTempF = parseFloat(((amsTemp * 9) / 5 + 32).toFixed(1));
     $('#amsCurrentTempF').text(amsCurrentTempF);
