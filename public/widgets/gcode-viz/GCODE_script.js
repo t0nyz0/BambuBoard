@@ -142,22 +142,16 @@ let y = 0;
 }
 nozzleGroup.visible = false;
 
-// Bambu-style print plate: matte slab with subtle grid lines and a slightly
-// lighter rim, evoking the textured PEI build plate. Built as a small group
-// (slab + grid lines + rim) so it stays self-contained. Sized to the actual
-// connected printer's bed.
+// Bambu-style print plate: matte slab with a slightly lighter rim. Sized to
+// the actual connected printer's bed. No surface grid lines — at our orbit
+// camera speed thin lines moiré/jitter against subpixel rendering, and a
+// clean matte plate reads better as the build surface anyway.
 const PLATE_W = bed.x, PLATE_D = bed.y;
 const printPlate = new THREE.Group();
 const plateSlabGeo = new THREE.BoxGeometry(PLATE_W, 0.6, PLATE_D);
 plateSlabGeo.translate(0, -0.3, 0);  // top face at y=0
 const plateSlabMat = new THREE.MeshBasicMaterial({ color: 0x202329 });
 printPlate.add(new THREE.Mesh(plateSlabGeo, plateSlabMat));
-// Subtle Bambu-style gridlines on the plate top (25mm cells).
-const gridLines = new THREE.GridHelper(Math.max(PLATE_W, PLATE_D), 14, 0x3a4050, 0x3a4050);
-gridLines.position.y = 0.01;
-gridLines.material.transparent = true;
-gridLines.material.opacity = 0.35;
-printPlate.add(gridLines);
 // Lighter rim around the edges (4 thin boxes).
 const rimMat = new THREE.MeshBasicMaterial({ color: 0x4a505a });
 const rimT = 1.2, rimH = 0.2;
@@ -291,6 +285,16 @@ const myExtras = [printPlate, nozzleAmbient, nozzleKey, nozzleFill, trailLine, n
 function fullRebuild() {
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
   _origRender();
+  // gcode-preview also re-adds its bed grid (LineSegments at y=0) and the
+  // build-volume box edges (LineSegments around the bed). Both shimmer/
+  // moiré against the dark plate when the camera orbits — pull them out
+  // so we only show our matte plate. The actual toolpath geometry is
+  // inside a Group child, not a top-level LineSegments, so it's untouched.
+  const ours = new Set(myExtras);
+  for (let i = preview.scene.children.length - 1; i >= 0; i--) {
+    const c = preview.scene.children[i];
+    if (c.type === 'LineSegments' && !ours.has(c)) preview.scene.remove(c);
+  }
   for (const obj of myExtras) {
     if (!preview.scene.children.includes(obj)) preview.scene.add(obj);
   }
