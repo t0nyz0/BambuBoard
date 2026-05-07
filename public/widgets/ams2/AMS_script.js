@@ -249,15 +249,26 @@ function updateDryingStatus(amsUnit) {
     const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
     parts.push(formatDryMinutes(dryTime));
-    // See ams/AMS_script.js — fans-widget toys_fan pattern (no wobble).
     const text = parts.join(' · ');
-    const fan = '<span class="drying-fan-wrap">'
-              +   '<span class="drying-fan material-symbols-outlined">toys_fan</span>'
-              + '</span>';
-    $pill
-      .html(fan + '<span class="drying-text"></span>')
-      .find('.drying-text').text(text).end()
-      .show();
+
+    // See ams/AMS_script.js — build pill DOM once, then only update
+    // the text on subsequent ticks so the spin animation stays smooth.
+    if (!$pill.children('.drying-fan').length) {
+      const svg =
+        '<svg class="drying-fan" viewBox="-50 -50 100 100" aria-hidden="true">'
+        + '<g>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(72)"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(144)"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(216)"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(288)"/>'
+        + '</g>'
+        + '<circle cx="0" cy="0" r="6"/>'
+        + '</svg>';
+      $pill.html(svg + '<span class="drying-text"></span>');
+    }
+    $pill.children('.drying-text').text(text);
+    $pill.show();
   } else {
     $pill.hide();
   }

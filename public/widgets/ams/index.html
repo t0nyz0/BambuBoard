@@ -77,25 +77,24 @@
          translate(-50%, -50%) + rotate. The translate keeps the icon
          centered while the rotate happens, so it spins truly in place
          instead of wobbling around its baseline. */
-      .ams-drying-status .drying-fan-wrap {
-        display: inline-block;
-        position: relative;
-        width: 1.3em;
-        height: 1.3em;
-        vertical-align: -0.25em;
-      }
+      /* Inline SVG fan — viewBox centered on (0,0) so rotation is around
+         the geometric center of the visible blades. material-symbols
+         glyphs have asymmetric internal padding so they don't center
+         cleanly under pure CSS rotation. */
       .ams-drying-status .drying-fan {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        font-size: 1.3em;
-        line-height: 1;
+        display: inline-block;
+        width: 1.4em;
+        height: 1.4em;
+        vertical-align: -0.32em;
         color: #f0b35e;
+        fill: currentColor;
         animation: drying-fan-spin 2.4s linear infinite;
+        transform-origin: 50% 50%;
+        will-change: transform;
       }
       @keyframes drying-fan-spin {
-        from { transform: translate(-50%, -50%) rotate(0deg); }
-        to   { transform: translate(-50%, -50%) rotate(-360deg); }
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
       }
 
       /* Header section — temp progress + Current/Max + humidity bars.

@@ -257,25 +257,31 @@ function updateDryingStatus(amsUnit) {
     const parts = [];
     if (dryTemp > 0) parts.push(`${dryTemp}°`);
     parts.push(formatDryMinutes(dryTime));
-    // Build "🌀 Drying · 55° · 11h 43m" with a spinning fan icon to signal
-    // the AMS dryer fan is actively running. Use .html() rather than .text()
-    // so the icon span renders.
     // Skip the word "Drying" — the amber pill + spinning fan icon already
-    // signal what's happening, and the AMS card is too narrow to fit the
-    // word without forcing the pill to wrap to a second line.
-    //
-    // Use the same fan icon as the fans widget (toys_fan) wrapped in a
-    // sized box, with the icon absolutely positioned and rotated via
-    // translate(-50%, -50%) so it spins exactly in place. Pattern copied
-    // from /widgets/fans/index.html — proven not to wobble.
+    // signal what's happening, and the AMS card is too narrow to fit it.
     const text = parts.join(' · ');
-    const fan = '<span class="drying-fan-wrap">'
-              +   '<span class="drying-fan material-symbols-outlined">toys_fan</span>'
-              + '</span>';
-    $pill
-      .html(fan + '<span class="drying-text"></span>')
-      .find('.drying-text').text(text).end()
-      .show();
+
+    // Build the icon + text container ONCE. Subsequent ticks only
+    // update the text node — replacing the pill's innerHTML every poll
+    // restarts the CSS rotation animation every second, which makes
+    // the fan visibly stutter / reset. Inline SVG with viewBox centered
+    // on (0,0) so rotation pivots on the geometric center.
+    if (!$pill.children('.drying-fan').length) {
+      const svg =
+        '<svg class="drying-fan" viewBox="-50 -50 100 100" aria-hidden="true">'
+        + '<g>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(72)"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(144)"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(216)"/>'
+        +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(288)"/>'
+        + '</g>'
+        + '<circle cx="0" cy="0" r="6"/>'
+        + '</svg>';
+      $pill.html(svg + '<span class="drying-text"></span>');
+    }
+    $pill.children('.drying-text').text(text);
+    $pill.show();
   } else {
     $pill.hide();
   }
