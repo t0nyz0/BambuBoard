@@ -24,3 +24,5 @@ public/data_*.json
 .vscode/
 .idea/
 .claude/
+AGENTS.md
+CLAUDE.md
