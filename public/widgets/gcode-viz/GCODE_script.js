@@ -85,14 +85,7 @@ function metal(hex, spec = 0xffffff, shininess = 90) {
 function matte(hex) { return new THREE.MeshLambertMaterial({ color: hex }); }
 const matAlu   = metal(0xd2d6dc, 0xffffff, 110); // silver aluminum block
 const matSink  = matte(0x121418);                // matte black finned heatsink
-// Nozzle tip: dark base color but with a hot orange emissive component so
-// the very tip self-illuminates without depending on scene lighting. Reads
-// as "the metal here is glowing from being hot", subtle but legible.
-const matTip   = new THREE.MeshLambertMaterial({
-  color: 0x1a0e0a,
-  emissive: 0xff5520,
-  emissiveIntensity: 0.55,
-});
+const matTip   = metal(0xc9ced8, 0xffffff, 130); // polished steel tip — same family as the body
 
 let y = 0;
 
@@ -105,20 +98,38 @@ let y = 0;
   y += h;
 }
 
-// Hot glow at the print-contact point — small sphere with bright orange
-// MeshBasicMaterial + AdditiveBlending so it reads as a glowing dot rather
-// than a colored ball. Sits just below the cone tip's apex.
+// Hot glow at the print-contact point: a tight bright core plus a softer
+// larger halo, both AdditiveBlending so they read as light rather than
+// painted color. The nozzle metal stays silver — the glow is its own thing.
 {
-  const glowGeo = new THREE.SphereGeometry(0.5 * SCALE, 16, 12);
-  glowGeo.translate(0, 0.35 * SCALE, 0); // just above the print contact
-  const glowMat = new THREE.MeshBasicMaterial({
-    color: 0xff7a30,
-    transparent: true,
-    opacity: 0.85,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  const glowY = 0.4 * SCALE;
+  // Inner core — small, very bright.
+  const coreGeo = new THREE.SphereGeometry(0.3 * SCALE, 16, 12);
+  coreGeo.translate(0, glowY, 0);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xfff0c0,                  // near-white center for that "incandescent" feel
+    transparent: true, opacity: 0.95,
+    blending: THREE.AdditiveBlending, depthWrite: false,
   });
-  nozzleGroup.add(new THREE.Mesh(glowGeo, glowMat));
+  nozzleGroup.add(new THREE.Mesh(coreGeo, coreMat));
+  // Outer halo — larger, faint orange, fades out with low opacity.
+  const haloGeo = new THREE.SphereGeometry(1.1 * SCALE, 20, 16);
+  haloGeo.translate(0, glowY, 0);
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: 0xff5a18,
+    transparent: true, opacity: 0.22,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  nozzleGroup.add(new THREE.Mesh(haloGeo, haloMat));
+  // Wider, even fainter outer halo for extra falloff.
+  const halo2Geo = new THREE.SphereGeometry(2.0 * SCALE, 20, 16);
+  halo2Geo.translate(0, glowY, 0);
+  const halo2Mat = new THREE.MeshBasicMaterial({
+    color: 0xff3608,
+    transparent: true, opacity: 0.08,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  nozzleGroup.add(new THREE.Mesh(halo2Geo, halo2Mat));
 }
 
 // Silver aluminum heatbreak block — uniform cuboid, no taper.
