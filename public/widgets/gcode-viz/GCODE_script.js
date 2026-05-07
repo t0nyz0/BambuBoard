@@ -172,21 +172,24 @@ nozzleKey.position.set(80, 120, 60);
 const nozzleFill = new THREE.DirectionalLight(0xc8d4ff, 0.4);
 nozzleFill.position.set(-60, 40, -40);
 
-// Hot-extrusion trail: a vertex-colored line drawn on top of the cold gcode-
-// preview toolpath. We append the nozzle's world position each frame and
-// color each point by its age — yellow-white when fresh, fading through
-// orange/red to the cold print color, then to fully-faded.
+// Hot-extrusion trail: vertex-colored LineSegments drawn on top of the cold
+// gcode-preview toolpath. We append the nozzle's world position each frame
+// and emit one segment between consecutive extrusion samples — but skip the
+// segment whenever the nozzle teleports across a travel (jump=true), so
+// travel "bridges" never render. Color ramp on age: yellow-white fresh →
+// orange → red → cold filament color.
+// Buffer holds 2 vertices per potential segment.
 const trailGeo = new THREE.BufferGeometry();
-const trailPositions = new Float32Array(TRAIL_MAX_POINTS * 3);
-const trailColors    = new Float32Array(TRAIL_MAX_POINTS * 3);
+const trailPositions = new Float32Array(TRAIL_MAX_POINTS * 2 * 3);
+const trailColors    = new Float32Array(TRAIL_MAX_POINTS * 2 * 3);
 trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
 trailGeo.setAttribute('color',    new THREE.BufferAttribute(trailColors, 3));
 trailGeo.setDrawRange(0, 0);
 const trailMat = new THREE.LineBasicMaterial({
   vertexColors: true, transparent: true, linewidth: 2,
 });
-const trailLine = new THREE.Line(trailGeo, trailMat);
-const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true breaks the line
+const trailLine = new THREE.LineSegments(trailGeo, trailMat);
+const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true means start of a new run
 let lastTrailPos = null;
 
 function lerpColor(a, b, t) {
@@ -242,26 +245,27 @@ function updateTrail() {
   }
   while (trailBuf.length > TRAIL_MAX_POINTS) trailBuf.shift();
 
-  // Push positions/colors. We use a degenerate line break on "jump" points by
-  // setting the previous vertex's alpha-equivalent (color black, but threejs
-  // LineBasicMaterial doesn't take per-vertex alpha) — easiest cheat: set the
-  // color of jump points to fully-faded so the bridging segment is invisible.
-  const n = trailBuf.length;
-  for (let i = 0; i < n; i++) {
-    const p = trailBuf[i];
-    trailPositions[i * 3] = p.x;
-    trailPositions[i * 3 + 1] = p.y;
-    trailPositions[i * 3 + 2] = p.z;
-    const age = (now - p.t) / 1000 / TRAIL_SECONDS;
-    if (p.jump) {
-      // Hide the bridge by collapsing color to background-near-black.
-      trailColors[i * 3] = 0; trailColors[i * 3 + 1] = 0; trailColors[i * 3 + 2] = 0;
-    } else {
-      const c = ageColor(Math.min(1, Math.max(0, age)));
-      trailColors[i * 3] = c[0]; trailColors[i * 3 + 1] = c[1]; trailColors[i * 3 + 2] = c[2];
-    }
+  // Build LineSegments: emit one (a, b) segment per consecutive non-jump
+  // pair. Travels (jump=true) and the very first sample don't produce a
+  // segment, so the trail has real gaps where the nozzle teleported across
+  // a travel — no faded "bridge" lines pretending to be filament.
+  let segCount = 0;
+  for (let i = 1; i < trailBuf.length; i++) {
+    const b = trailBuf[i];
+    if (b.jump) continue;
+    const a = trailBuf[i - 1];
+    const off = segCount * 2 * 3;
+    trailPositions[off]     = a.x; trailPositions[off + 1] = a.y; trailPositions[off + 2] = a.z;
+    trailPositions[off + 3] = b.x; trailPositions[off + 4] = b.y; trailPositions[off + 5] = b.z;
+    const ageA = (now - a.t) / 1000 / TRAIL_SECONDS;
+    const ageB = (now - b.t) / 1000 / TRAIL_SECONDS;
+    const cA = ageColor(Math.min(1, Math.max(0, ageA)));
+    const cB = ageColor(Math.min(1, Math.max(0, ageB)));
+    trailColors[off]     = cA[0]; trailColors[off + 1] = cA[1]; trailColors[off + 2] = cA[2];
+    trailColors[off + 3] = cB[0]; trailColors[off + 4] = cB[1]; trailColors[off + 5] = cB[2];
+    segCount++;
   }
-  trailGeo.setDrawRange(0, n);
+  trailGeo.setDrawRange(0, segCount * 2);
   trailGeo.attributes.position.needsUpdate = true;
   trailGeo.attributes.color.needsUpdate = true;
 }
