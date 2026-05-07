@@ -194,11 +194,11 @@ async function updateAMS(telemetryObject) {
   }
 
   // AMS Temp
-let amsTargetTemp = 200;
+let amsTargetTemp = 180;
 let amsTempPercentage = 1;
 // ams Target Temp
 
-amsTempPercentage = (telemetryObject.ams.ams[AMS_INDEX].temp / 93) * 100;
+amsTempPercentage = (telemetryObject.ams.ams[AMS_INDEX].temp / 82) * 100;
 
 log("amsTargetTemp = " + amsTargetTemp);
 log("amsTempPercentage = " + amsTempPercentage);
@@ -211,7 +211,7 @@ if (amsTempPercentage > 100) {
 }
 
 // Set target temp in UI
-$("#amsTargetTempC").text("93");
+$("#amsTargetTempC").text("82");
 $("#amsTargetTempF").text(amsTargetTemp);
 
 // Set current temp in UI
