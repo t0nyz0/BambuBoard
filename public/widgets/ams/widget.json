@@ -1,15 +1,15 @@
 {
   "name": "AMS",
-  "description": "Combined AMS card: chamber temp + humidity bar + drying status (AMS 2 Pro / AMS HT) + 4 tray rows. Active tray gets a green left-edge accent. Multi-AMS: ?ams=0|1|2|3 (defaults to AMS #1).",
+  "description": "Combined AMS card: chamber temp + humidity bar + drying status (AMS 2 Pro / AMS HT) + 4 tray rows. Active tray gets a green left-edge accent. Defaults to AMS #1 (firmware id=1, which is the user-facing 'AMS #1' on H2D dual-AMS setups). Multi-AMS: ?ams=0|1|2|3.",
   "recommendedSize": { "w": 400, "h": 460 },
   "tags": ["filament", "ams"],
   "params": {
-    "ams": { "type": "number", "default": 0, "description": "AMS unit index (0–3)" }
+    "ams": { "type": "number", "default": 1, "description": "AMS unit index in MQTT array (0–3). Default 1 matches H2D's labeled 'AMS #1'." }
   },
   "bindings": [
-    { "id": "amsUnit",  "label": "AMS unit object",     "default": "$.print.ams.ams[0]",          "type": "object",
+    { "id": "amsUnit",  "label": "AMS unit object",     "default": "$.print.ams.ams[1]",          "type": "object",
       "hint": "Point at any AMS unit by index. e.g. $.print.ams.ams[4] for the 5th unit on a 5-AMS Hub setup." },
-    { "id": "humidity", "label": "Humidity (1–5 raw)",  "default": "$.print.ams.ams[0].humidity", "type": "string" },
-    { "id": "amsTemp",  "label": "Unit temperature °C", "default": "$.print.ams.ams[0].temp",     "type": "number" }
+    { "id": "humidity", "label": "Humidity (1–5 raw)",  "default": "$.print.ams.ams[1].humidity", "type": "string" },
+    { "id": "amsTemp",  "label": "Unit temperature °C", "default": "$.print.ams.ams[1].temp",     "type": "number" }
   ]
 }

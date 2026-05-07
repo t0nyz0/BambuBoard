@@ -78,10 +78,10 @@ function formatDryMinutes(mins) {
 async function updateAMS(telemetryObject) {
   /// AMS
 
-  updateHumidityExtras(telemetryObject.ams.ams[1]);
+  updateHumidityExtras(telemetryObject.ams.ams[0]);
 
   // AMS Humidity
-  let amsHumidity = telemetryObject.ams.ams[1].humidity;
+  let amsHumidity = telemetryObject.ams.ams[0].humidity;
 
   if (currentState !== "RUNNING")
   {
@@ -180,7 +180,7 @@ let amsTargetTemp = 140;
 let amsTempPercentage = 1;
 // ams Target Temp
 
-amsTempPercentage = (telemetryObject.ams.ams[1].temp / 60) * 100;
+amsTempPercentage = (telemetryObject.ams.ams[0].temp / 60) * 100;
 
 log("amsTargetTemp = " + amsTargetTemp);
 log("amsTempPercentage = " + amsTempPercentage);
@@ -197,10 +197,10 @@ $("#amsTargetTempC").text("60");
 $("#amsTargetTempF").text(amsTargetTemp);
 
 // Set current temp in UI
-var amsCurrentTemp = (telemetryObject.ams.ams[1].temp * 9) / 5 + 32;
+var amsCurrentTemp = (telemetryObject.ams.ams[0].temp * 9) / 5 + 32;
 amsCurrentTemp = parseFloat(amsCurrentTemp.toFixed(1));
 $("#amsCurrentTempF").text(amsCurrentTemp);
-$("#amsCurrentTempC").text(telemetryObject.ams.ams[1].temp);
+$("#amsCurrentTempC").text(telemetryObject.ams.ams[0].temp);
 
 log("amsCurrentTemp = " + amsCurrentTemp);
 let progressamsParentWidth = $("#amsProgressBarParent").width();
@@ -284,7 +284,7 @@ function disableUI() {
   $("#amsCurrentTempSymbolsF").hide();
   $("#amsCurrentTempSymbolsC").hide();
 
-  let amsHumidity = telemetryObject.ams.ams[1].humidity;
+  let amsHumidity = telemetryObject.ams.ams[0].humidity;
   //let amsHumidity = "1";
 
   $("#humidity1").css("background", "gray");

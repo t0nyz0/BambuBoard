@@ -1,6 +1,6 @@
 {
   "name": "AMS #2",
-  "description": "Combined AMS #2 card (H2D only): chamber temp + humidity + drying status + 4 tray rows. Same layout as the primary `ams` widget but reads `ams.ams[1]`.",
+  "description": "Combined AMS #2 card (H2D only): chamber temp + humidity + drying status + 4 tray rows. Same layout as the primary `ams` widget but reads `ams.ams[0]` (firmware id=0, which is the user-facing 'AMS #2' on H2D — Bambu's MQTT enumeration is reversed from the labeled hardware).",
   "recommendedSize": { "w": 400, "h": 460 },
   "tags": ["filament", "ams", "h2d"],
   "requiresCap": "hasDualAMS"

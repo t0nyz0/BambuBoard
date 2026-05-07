@@ -1,7 +1,11 @@
 // BambuBoard — AMS Tray widget
-// Supports ?ams=N parameter: 0–3 (default 0)
+// Supports ?ams=N parameter: 0–3. Default is 1 because Bambu's MQTT
+// enumeration on H2D + AMS Hub setups is reversed from the printer's
+// physical labels — id=1 corresponds to the user's labeled "AMS #1" unit.
+// Single-AMS printers (X1/P1/A1) only populate ams.ams[0]; pass `?ams=0` to
+// view that explicitly.
 
-const AMS_INDEX = parseInt(new URLSearchParams(location.search).get('ams') || '0', 10);
+const AMS_INDEX = parseInt(new URLSearchParams(location.search).get('ams') || '1', 10);
 
 const protocol = window.location.protocol;
 const serverURL = window.location.hostname;

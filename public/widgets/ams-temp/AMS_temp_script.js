@@ -20,7 +20,9 @@ const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 // OBS scenes; new scenes can simply add ?ams=1, ?ams=2, ?ams=3 to /widgets/ams/.
 const AMS_INDEX = (function () {
   const n = parseInt(new URLSearchParams(window.location.search).get('ams'), 10);
-  return Number.isFinite(n) && n >= 0 && n <= 3 ? n : 0;
+  // Default to 1 because H2D MQTT enumerates the user's "AMS #1" as id=1.
+  // Single-AMS printers can pass ?ams=0 to view that unit explicitly.
+  return Number.isFinite(n) && n >= 0 && n <= 3 ? n : 1;
 })();
 
 

@@ -1,8 +1,10 @@
 // BambuBoard — AMS Tray widget (AMS #2 — legacy back-compat)
-// Hardcoded to AMS index 1 for backward compatibility with existing OBS scenes.
-// New scenes should use /widgets/ams/?ams=1 instead.
+// On H2D, Bambu's MQTT enumeration is reversed from the user-facing labels:
+// the unit with firmware id=0 is what users label "AMS #2". So this widget
+// reads ams.ams[0] to display "AMS #2" content. The companion ams/ widget
+// reads ams.ams[1] for "AMS #1".
 
-const AMS_INDEX = 1;
+const AMS_INDEX = 0;
 
 const protocol = window.location.protocol;
 const serverURL = window.location.hostname;
