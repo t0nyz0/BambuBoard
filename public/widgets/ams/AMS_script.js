@@ -264,23 +264,16 @@ function updateDryingStatus(amsUnit) {
     // signal what's happening, and the AMS card is too narrow to fit the
     // word without forcing the pill to wrap to a second line.
     //
-    // Inline SVG fan (5 ellipse blades around 0,0) — viewBox centered on
-    // origin guarantees rotation around the geometric center. Beats
-    // material-symbols' toys_fan glyph which has asymmetric internal
-    // padding and wobbles when rotated inline.
+    // Use the same fan icon as the fans widget (toys_fan) wrapped in a
+    // sized box, with the icon absolutely positioned and rotated via
+    // translate(-50%, -50%) so it spins exactly in place. Pattern copied
+    // from /widgets/fans/index.html — proven not to wobble.
     const text = parts.join(' · ');
-    const svg = '<svg class="drying-fan" viewBox="-50 -50 100 100" fill="currentColor" aria-hidden="true">'
-              + '<g>'
-              +   '<ellipse cx="0" cy="-28" rx="11" ry="22"/>'
-              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(72)"/>'
-              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(144)"/>'
-              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(216)"/>'
-              +   '<ellipse cx="0" cy="-28" rx="11" ry="22" transform="rotate(288)"/>'
-              + '</g>'
-              + '<circle cx="0" cy="0" r="6"/>'
-              + '</svg>';
+    const fan = '<span class="drying-fan-wrap">'
+              +   '<span class="drying-fan material-symbols-outlined">toys_fan</span>'
+              + '</span>';
     $pill
-      .html(svg + '<span class="drying-text"></span>')
+      .html(fan + '<span class="drying-text"></span>')
       .find('.drying-text').text(text).end()
       .show();
   } else {

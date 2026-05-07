@@ -502,7 +502,7 @@
       "versioned_id": "browser_source",
       "settings": {
         "url": "http://<HOST>/widgets/profile-info/index.html",
-        "width": 390,
+        "width": 460,
         "height": 315,
         "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }"
       },

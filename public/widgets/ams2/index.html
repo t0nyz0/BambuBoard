@@ -69,16 +69,26 @@
           border-color: rgba(226, 160, 74, 0.75);
         }
       }
-      .ams-drying-status .drying-fan {
+      /* See ams/index.html — fans-widget pattern (wrapper + abs-positioned
+         icon with translate-rotate) so the icon spins truly in place. */
+      .ams-drying-status .drying-fan-wrap {
         display: inline-block;
+        position: relative;
         width: 1.1em;
         height: 1.1em;
-        vertical-align: -0.15em;
+        vertical-align: -0.18em;
+      }
+      .ams-drying-status .drying-fan {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        font-size: 1.05em;
+        line-height: 1;
         animation: drying-fan-spin 2.4s linear infinite;
       }
       @keyframes drying-fan-spin {
-        from { transform: rotate(0deg); }
-        to   { transform: rotate(360deg); }
+        from { transform: translate(-50%, -50%) rotate(0deg); }
+        to   { transform: translate(-50%, -50%) rotate(-360deg); }
       }
 
       /* Header section — temp progress + Current/Max + humidity bars.

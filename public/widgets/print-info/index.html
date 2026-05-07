@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <title>BambuBoard</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <style>
+      /* Height-fill chain — see /widgets/ams/index.html. Without this the
+         widget content sits at natural height and leaves dead space inside
+         a bounded iframe, which shows up as visible gap before the next
+         widget on the OBS canvas. */
+      html, body { height: 100%; margin: 0; }
+      body { background: transparent !important; }
+      .container { height: 100%; box-sizing: border-box; }
+      .bedcontainer { height: 100%; margin-top: 0; box-sizing: border-box; }
+      .bed-title {
+        height: 100%;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .bed-title .printDetailsContainer { width: 100%; }
+    </style>
     <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
     <meta http-equiv="refresh" content="28800" />

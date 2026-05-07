@@ -71,20 +71,30 @@
           border-color: rgba(226, 160, 74, 0.75);
         }
       }
-      /* Tiny fan icon inside the pill — confirms the AMS dryer fan is
-         actively running. Inline SVG with viewBox centered on (0,0) so
-         rotation is exactly around the geometric center — no wobble,
-         unlike the material-symbols glyph which has asymmetric padding. */
-      .ams-drying-status .drying-fan {
+      /* Tiny fan icon inside the pill — uses the same approach as the
+         fans widget (/widgets/fans/index.html): wrapper is the layout
+         box, icon is absolutely positioned dead-center and rotated via
+         translate(-50%, -50%) + rotate. The translate keeps the icon
+         centered while the rotate happens, so it spins truly in place
+         instead of wobbling around its baseline. */
+      .ams-drying-status .drying-fan-wrap {
         display: inline-block;
+        position: relative;
         width: 1.1em;
         height: 1.1em;
-        vertical-align: -0.15em;
+        vertical-align: -0.18em;
+      }
+      .ams-drying-status .drying-fan {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        font-size: 1.05em;
+        line-height: 1;
         animation: drying-fan-spin 2.4s linear infinite;
       }
       @keyframes drying-fan-spin {
-        from { transform: rotate(0deg); }
-        to   { transform: rotate(360deg); }
+        from { transform: translate(-50%, -50%) rotate(0deg); }
+        to   { transform: translate(-50%, -50%) rotate(-360deg); }
       }
 
       /* Header section — temp progress + Current/Max + humidity bars.
