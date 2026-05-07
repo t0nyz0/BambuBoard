@@ -120,7 +120,7 @@
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 700,
         "height": 770,
-        "css": "body { margin: 0px auto; overflow: hidden; }"
+        "css": "body { margin: 0px auto; overflow: hidden; } .container { margin-left: 15px !important; margin-right: 15px !important; }"
       },
       "mixers": 255,
       "sync": 0,
@@ -250,7 +250,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/fans/index.html",
         "width": 700,
-        "height": 180,
+        "height": 230,
         "fps": 60,
         "fps_custom": true,
         "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -397,7 +397,7 @@
         "url": "http://<HOST>/widgets/nozzle-temp/index.html?title=Nozzle",
         "width": 700,
         "height": 165,
-        "css": "body {  margin: 0px auto; overflow: hidden; }"
+        "css": "body {  margin: 0px auto; overflow: hidden; } .container { margin-left: 15px !important; margin-right: 15px !important; }"
       },
       "mixers": 255,
       "sync": 0,
@@ -660,7 +660,7 @@
             "locked": false,
             "rot": 0.0,
             "pos": {
-              "x": 404.0,
+              "x": 450.0,
               "y": 91.0
             },
             "scale": {
@@ -699,7 +699,7 @@
             "locked": false,
             "rot": 0.0,
             "pos": {
-              "x": 413.0000305175781,
+              "x": 450.0,
               "y": 835.0
             },
             "scale": {
@@ -790,7 +790,7 @@
             "bounds_crop": false,
             "bounds": {
               "x": 420.0,
-              "y": 155.0
+              "y": 125.0
             },
             "crop_left": 0,
             "crop_top": 0,
@@ -856,7 +856,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 970.0
+              "y": 939.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -895,7 +895,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 505.0
+              "y": 475.0
             },
             "scale": {
               "x": 0.6,
@@ -934,7 +934,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 322.0
+              "y": 292.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -973,7 +973,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 403.0
+              "y": 373.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -1012,7 +1012,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 247.0
+              "y": 217.0
             },
             "scale": {
               "x": 0.6000000238418579,
