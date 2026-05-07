@@ -26,6 +26,10 @@ const NOZZLE_SPEED_FACTOR = 1.0;
 const TRAIL_SECONDS = 180;
 const TRAIL_MAX_POINTS = 11000; // covers ~150 s of motion at typical print speeds
 const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer change)
+// Delay (seconds) between what the printer is actually doing and what the
+// nozzle animation shows. Lets the visualization trail behind the real
+// print so the nozzle doesn't appear to jump ahead during MQTT sync jitter.
+const REPLAY_DELAY_S = 20;
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -201,15 +205,15 @@ const plateSlabGeo = new THREE.BoxGeometry(PLATE_W, 0.6, PLATE_D);
 plateSlabGeo.translate(0, -0.3, 0);  // top face at y=0
 // Semi-transparent slab so the camera feed (or whatever sits behind the
 // widget) shows through the plate while the prints + nozzle stay opaque.
-const plateSlabMat = new THREE.MeshBasicMaterial({
-  color: 0x0c0d10, transparent: true, opacity: 0.5, depthWrite: false,
+const plateSlabMat = new THREE.MeshPhongMaterial({
+  color: 0x0c0d10,
 });
 printPlate.add(new THREE.Mesh(plateSlabGeo, plateSlabMat));
 // Lighter rim around the edges (4 thin boxes).
 // Rim — slightly lighter than the slab, also semi-transparent so the whole
 // plate composites uniformly over the background.
-const rimMat = new THREE.MeshBasicMaterial({
-  color: 0x2c3038, transparent: true, opacity: 0.5, depthWrite: false,
+const rimMat = new THREE.MeshPhongMaterial({
+  color: 0x2c3038,
 });
 const rimT = 1.2, rimH = 0.2;
 const mkRim = (w, d, x, z) => {
@@ -373,11 +377,7 @@ function updateTrail() {
 // dramatically.
 const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
-// Plate intentionally omitted — when the widget composites over the live
-// camera feed in OBS, the real print bed already shows through the
-// transparent canvas. A virtual plate would just dim it. Construction is
-// kept above so it's a one-line tweak to add it back.
-const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup];
+const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
@@ -689,6 +689,7 @@ let scrubLayer = 0;
 let playing = false;
 let playTimer = null;
 let lastGcodeState = null;   // most recent gcode_state from MQTT
+let lastPrintStage = 0;      // most recent mc_print_stage (0=idle, 1=prep, 2=printing)
 // MQTT sync state for the within-layer animation. We re-anchor only when
 // fresh mc_percent or layer_num data arrives — between ticks the animation
 // runs free at gcode-real speed (using gcode F values), so it stays smooth
@@ -699,7 +700,11 @@ let mqttSyncedLayer = null;
 // isn't actively printing. The toolpath stays on screen as a finished snapshot.
 function isPausedForState() {
   if (verifyLayers || scrubActive) return false;
-  return lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED';
+  if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') return true;
+  // Preview state: model is shown but printer is still calibrating — freeze
+  // the nozzle so it doesn't animate over the static preview.
+  if (lastGcodeState === 'RUNNING' && lastPrintStage < 2) return true;
+  return false;
 }
 
 // Pull the active filament color from MQTT — Bambu reports it as "RRGGBBAA"
@@ -992,22 +997,18 @@ async function tick() {
     const plateIdx = print.plate_idx || print.plate_id || 1;
     const state = print.gcode_state;
     const layerNum = Number(print.layer_num) || 0;
+    const printStage = Number(print.mc_print_stage) || 0;
     lastGcodeState = state;
-
-    // Only animate / fetch gcode when the printer is actually depositing
-    // material. Bambu reports gcode_state = 'RUNNING' during pre-print
-    // stages too (heatbed leveling, nozzle prime, foreign-object checks),
-    // so we additionally gate on layer_num > 0 — those checks all happen
-    // with layer_num still at 0, and the moment layer 1 actually starts
-    // depositing the layer counter ticks. PAUSED / FINISH count as "hold
-    // the last visible frame" states; everything else clears the scene.
-    const isActivePrint = state === 'RUNNING' && layerNum > 0;
+    lastPrintStage = printStage;
+    // Active print = printer is depositing material (RUNNING + layer started
+    // + past calibration). Preview = RUNNING but still calibrating — we show
+    // the full model as a static preview so the user sees what's coming.
+    const isActivePrint = state === 'RUNNING' && layerNum > 0 && printStage >= 2;
+    const isPreviewState = state === 'RUNNING' && !isActivePrint;
     const isHoldState   = state === 'PAUSED' || state === 'FINISH';
-    if (!taskId || (!isActivePrint && !isHoldState)) {
+
+    if (!taskId || (!isActivePrint && !isPreviewState && !isHoldState)) {
       if (currentTaskKey) {
-        // Print just left an active/hold state — drop the previous print's
-        // geometry now so we don't render it under "Preparing…" or while
-        // a new print spins up.
         clearScene();
         currentTaskKey = null;
         mcPercentLastSeen = null;
@@ -1032,39 +1033,29 @@ async function tick() {
       return;
     }
 
-    // While scrubbing/playing, the user owns the cursor.
-    if (scrubActive) return;
+    // Preview mode: gcode is loaded, show the full model statically while
+    // the printer calibrates / heats. No nozzle, no layer tracking — just
+    // the complete toolpath so the user sees what's about to print.
+    if (isPreviewState) {
+      if (lastEndLayer !== totalLayers && totalLayers > 0) {
+        advanceTo(totalLayers);
+        setOverlay('Preparing — preview loaded', 'loading');
+      }
+      return;
+    }
 
+    if (scrubActive) return;
     if (state === 'PAUSED') return;
 
-    // Translate Bambu's model-relative layer count (1-based, ignores prep)
-    // to the parser's index space. e.g. if the slicer emitted 3 prep layers
-    // before the first model layer, modelLayerOffset = 3, and Bambu
-    // layer_num=1 maps to parsed layer index 3 (1-based: 4).
     const modelToParsed = (n) => Math.min(totalLayers, n + modelLayerOffset);
     const target = state === 'FINISH'
       ? (Number(print.total_layer_num) ? modelToParsed(Number(print.total_layer_num)) : (layerNum || totalLayers))
       : modelToParsed(layerNum);
     advanceTo(target);
 
-    // Sync the within-layer animation to MQTT progress so the simulated
-    // nozzle tracks the real one as closely as the data allows.
-    //
-    // Strategy:
-    //   • layer_num is the source of truth for which layer we're on.
-    //     advanceTo() above already handles that.
-    //   • mc_percent is integer (1% resolution), so a naive sync re-anchors
-    //     on every 800 ms tick and visibly jitters as percent ticks. We
-    //     re-anchor ONLY when (a) the layer just changed, or (b)
-    //     mc_percent advanced. Between ticks the animation runs free at
-    //     gcode-real speed (using actual F values from the gcode), which
-    //     is naturally close to printer reality.
-    //   • Re-anchor with a smooth lerp toward the MQTT-implied
-    //     layerStartTime instead of snapping. Over a few ticks we converge
-    //     without visible jumps.
-    //   • Skip the sync when math falls outside the current layer's
-    //     duration (mc_percent overshooting during heating/prep/cooldown
-    //     phases — gcode time is extrusion-only and doesn't include those).
+    // Sync the within-layer nozzle animation to MQTT progress, with a
+    // configurable replay delay (REPLAY_DELAY_S) so the visualization
+    // trails behind the real printer.
     if (state === 'RUNNING' && totalGcodeTime > 0 && activeLayerIdx >= 0) {
       const mcPct = Number(print.mc_percent);
       const layerJustChanged = (mqttSyncedLayer !== activeLayerIdx);
@@ -1075,11 +1066,10 @@ async function tick() {
         const layerDur = layerPaths[activeLayerIdx]?.total || 0;
         const rel = targetT - layerStartT;
         if (rel >= 0 && rel <= layerDur) {
-          const desiredStart = performance.now() - rel * 1000;
-          // On layer change snap directly (we just got here, no smoothing
-          // needed). Mid-layer lerp 35% toward the new anchor so a
-          // ±20 s drift settles over a handful of mc_percent ticks rather
-          // than snapping the cursor.
+          // Offset by REPLAY_DELAY_S so the nozzle animation lags behind
+          // what the printer is actually doing.
+          const delayedRel = Math.max(0, rel - REPLAY_DELAY_S);
+          const desiredStart = performance.now() - delayedRel * 1000;
           if (layerJustChanged) {
             layerStartTime = desiredStart;
           } else {
