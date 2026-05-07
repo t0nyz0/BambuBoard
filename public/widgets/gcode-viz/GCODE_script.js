@@ -17,11 +17,10 @@ const ROTATE_DEG_PER_SEC = 6; // ~60s per full revolution
 // Print speeds are typically 100–300 mm/s, so realtime feels right.
 const NOZZLE_SPEED_FACTOR = 1.0;
 // Hot-extrusion trail: how long a freshly-deposited segment glows before
-// fading to the cold print color, and the geometry buffer cap. The buffer is
-// scaled so it can hold the full trail at ~60 fps without dropping points.
+// fading to the cold print color, and the geometry buffer cap.
 const TRAIL_SECONDS = 35;
-const TRAIL_MAX_POINTS = 3000;
-const TRAIL_BREAK_DIST = 25; // mm jump that splits the trail (e.g. layer change)
+const TRAIL_MAX_POINTS = 2000; // ~17 s of motion at print speed, plenty visible
+const TRAIL_BREAK_DIST = 25;   // mm jump that splits the trail (e.g. layer change)
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -86,7 +85,14 @@ function metal(hex, spec = 0xffffff, shininess = 90) {
 function matte(hex) { return new THREE.MeshLambertMaterial({ color: hex }); }
 const matAlu   = metal(0xd2d6dc, 0xffffff, 110); // silver aluminum block
 const matSink  = matte(0x121418);                // matte black finned heatsink
-const matTip   = matte(0x0a0c10);                // near-black nozzle tip
+// Nozzle tip: dark base color but with a hot orange emissive component so
+// the very tip self-illuminates without depending on scene lighting. Reads
+// as "the metal here is glowing from being hot", subtle but legible.
+const matTip   = new THREE.MeshLambertMaterial({
+  color: 0x1a0e0a,
+  emissive: 0xff5520,
+  emissiveIntensity: 0.55,
+});
 
 let y = 0;
 
@@ -97,6 +103,22 @@ let y = 0;
   g.translate(0, y + h / 2, 0);
   nozzleGroup.add(new THREE.Mesh(g, matTip));
   y += h;
+}
+
+// Hot glow at the print-contact point — small sphere with bright orange
+// MeshBasicMaterial + AdditiveBlending so it reads as a glowing dot rather
+// than a colored ball. Sits just below the cone tip's apex.
+{
+  const glowGeo = new THREE.SphereGeometry(0.5 * SCALE, 16, 12);
+  glowGeo.translate(0, 0.35 * SCALE, 0); // just above the print contact
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0xff7a30,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  nozzleGroup.add(new THREE.Mesh(glowGeo, glowMat));
 }
 
 // Silver aluminum heatbreak block — uniform cuboid, no taper.
@@ -697,6 +719,14 @@ function autoFitCamera() {
 let lastTheta = 0;
 let orbitFrozenAt = null; // performance.now() at which we paused
 function orbitTick() {
+  // Skip all work when the tab/iframe isn't visible (OBS preview hidden,
+  // user switched tabs, etc). RAF already throttles in this case but
+  // returning early avoids the full pipeline (camera math, nozzle update,
+  // trail rebuild, GPU draw) on the throttled ticks that do fire.
+  if (document.hidden) {
+    requestAnimationFrame(orbitTick);
+    return;
+  }
   if (preview.camera && totalLayers > 0) {
     if (orbitRadius === 0) {
       autoFitCamera();
