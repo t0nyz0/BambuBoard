@@ -926,7 +926,7 @@ function orbitTick() {
     requestAnimationFrame(orbitTick);
     return;
   }
-  if (preview.camera && totalLayers > 0) {
+  if (preview.camera) {
     if (orbitRadius === 0) {
       autoFitCamera();
       if (orbitRadius === 0) { orbitRadius = 190; orbitHeight = 130; }
@@ -994,9 +994,29 @@ async function tick() {
     const layerNum = Number(print.layer_num) || 0;
     lastGcodeState = state;
 
-    if (!taskId || state === 'IDLE') {
+    // Only animate / fetch gcode when the printer is actually depositing
+    // material. Bambu reports gcode_state = 'RUNNING' during pre-print
+    // stages too (heatbed leveling, nozzle prime, foreign-object checks),
+    // so we additionally gate on layer_num > 0 — those checks all happen
+    // with layer_num still at 0, and the moment layer 1 actually starts
+    // depositing the layer counter ticks. PAUSED / FINISH count as "hold
+    // the last visible frame" states; everything else clears the scene.
+    const isActivePrint = state === 'RUNNING' && layerNum > 0;
+    const isHoldState   = state === 'PAUSED' || state === 'FINISH';
+    if (!taskId || (!isActivePrint && !isHoldState)) {
       if (currentTaskKey) {
-        setOverlay('');
+        // Print just left an active/hold state — drop the previous print's
+        // geometry now so we don't render it under "Preparing…" or while
+        // a new print spins up.
+        clearScene();
+        currentTaskKey = null;
+        mcPercentLastSeen = null;
+        mqttSyncedLayer = null;
+      }
+      if (state === 'PREPARE' || state === 'SLICING') {
+        setOverlay('Preparing print…', 'loading');
+      } else if (state === 'FAILED') {
+        setOverlay('Print failed', 'error');
       } else {
         setOverlay('waiting for print…');
       }
