@@ -1353,10 +1353,26 @@ function applyChangesToCollection () {
   return clone;
 }
 
+// Server's SAFE_NAME regex is /^[a-zA-Z0-9_\-. ]{1,64}$/. Any other char
+// (most commonly `<` and `>` left over from unsubstituted `<VERSION>`
+// placeholders, or `/` `:` from user free-text) makes the save fail with
+// "invalid name". Replace disallowed chars with `_`, collapse runs, and
+// clamp to 64 chars so save flows always succeed.
+function sanitizeSceneName (raw) {
+  if (!raw) return '';
+  return String(raw)
+    .replace(/[^a-zA-Z0-9_\-. ]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_\s]+|[_\s]+$/g, '')
+    .slice(0, 64);
+}
+
 async function onSave () {
   if (!state.original) return window.toast('Nothing loaded', 'error');
-  const name = prompt('Save scene as:', '');
-  if (!name) return;
+  const raw = prompt('Save scene as:', '');
+  if (!raw) return;
+  const name = sanitizeSceneName(raw);
+  if (!name) return window.toast('Save failed: name had no usable characters', 'error');
   const out = applyChangesToCollection();
   const r = await fetch('/api/obs/scenes', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1384,7 +1400,10 @@ async function onDownload () {
 async function onSaveAndContinue () {
   if (!state.original) return window.toast('Nothing to save — load a template first', 'error');
   const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '');
-  const name = (state.original.name || 'MyScene') + '-' + stamp;
+  // Sanitize against the server's SAFE_NAME regex (no `<` `>` `:` etc).
+  // Older loaded templates may still have a literal `<VERSION>` baked
+  // into state.original.name and the server would 400 those.
+  const name = sanitizeSceneName((state.original.name || 'MyScene') + '-' + stamp);
   const out = applyChangesToCollection();
   try {
     const r = await fetch('/api/obs/scenes', {
