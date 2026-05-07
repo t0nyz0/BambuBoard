@@ -98,16 +98,20 @@
       }
 
       /* Header section — temp progress + Current/Max + humidity bars.
-         Takes natural height; trays beneath get the remaining space. */
-      .ams-header { flex-shrink: 0; margin-bottom: 14px; }
-      .ams-header .progress { height: 6px; }
+         Takes natural height; trays beneath get the remaining space.
+         Sized to feel proportionate to the trays, not cramped — bigger
+         temp + humidity bars, more vertical margin between rows. */
+      .ams-header { flex-shrink: 0; margin-bottom: 18px; }
+      .ams-header .progress { height: 10px; }
       .ams-header .temp-row {
         display: flex;
         justify-content: space-between;
-        margin: 4px 0 10px;
+        margin: 10px 0 14px;
       }
       .ams-header .temp-row h4 { margin: 0; }
       .ams-header .humidity-container { margin: 0; }
+      .ams-header .humidity-item { height: 12px; }
+      .ams-header .ams-type-remaining { margin-top: 6px; }
 
       /* Section divider between header and trays — small dim label with
          a faint top border so users see the visual break between
