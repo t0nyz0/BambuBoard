@@ -1,10 +1,23 @@
-# BambuBoard
+<div align="center">
 
-> **OBS dashboard widgets for Bambu Lab printers.** Live print stats overlays designed for streamers — drop a scene file into OBS Studio and you have a polished, real-time print dashboard on stream.
+# 🖨️ BambuBoard
 
-<p align="center">
-  <strong>Setup → Connect → Layout → Export.</strong> Four steps, signposted in the app.
-</p>
+**OBS dashboard widgets for Bambu Lab printers.**
+Live print stats overlays designed for streamers — drop a scene file into OBS Studio and you have a polished, real-time print dashboard on stream.
+
+<br>
+
+[![Version](https://img.shields.io/github/package-json/v/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/releases)
+[![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
+[![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
+[![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
+
+**Setup → Connect → Layout → Export.** Four steps, signposted in the app.
+
+[Quickstart](#quickstart--docker-recommended) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
+
+</div>
 
 ---
 
@@ -21,14 +34,45 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 ## Screenshots
 
-The 4-step workflow inside BambuBoard:
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>1. Setup</h4>
+      <p>Printer credentials, connection test, and optional Bambu Cloud sign-in.</p>
+      <a href="screenshots/SETUP-TAB.jpg"><img src="screenshots/SETUP-TAB.jpg" alt="Setup tab" width="100%"></a>
+    </td>
+    <td width="50%" valign="top">
+      <h4>2. Layout</h4>
+      <p>Visual scene editor with live widget previews on a 1920×1080 OBS canvas. Drag, resize, snap to grid.</p>
+      <a href="screenshots/LAYOUT-TAB.jpg"><img src="screenshots/LAYOUT-TAB.jpg" alt="Layout tab" width="100%"></a>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>3. Export</h4>
+      <p>One-click download of the OBS scene <code>.json</code> with step-by-step import instructions.</p>
+      <a href="screenshots/EXPORT-TAB.jpg"><img src="screenshots/EXPORT-TAB.jpg" alt="Export tab" width="100%"></a>
+    </td>
+    <td width="50%" valign="top">
+      <h4>4. Dashboard</h4>
+      <p>Live print monitor — bed, chamber, nozzles, AMS, fans, MakerWorld profile. Capability-driven.</p>
+      <a href="screenshots/DASHBOARD-TAB.jpg"><img src="screenshots/DASHBOARD-TAB.jpg" alt="Dashboard tab" width="100%"></a>
+    </td>
+  </tr>
+</table>
 
-| | |
-|---|---|
-| **1. Setup** — printer credentials + optional Bambu Cloud sign-in | **2. Layout** — visual scene editor with live widget previews on a 1920×1080 OBS canvas |
-| ![Setup tab](screenshots/SETUP-TAB.jpg) | ![Layout tab](screenshots/LAYOUT-TAB.jpg) |
-| **3. Export** — download the OBS scene `.json` and import instructions | **4. Dashboard** — live print monitor (separate from the workflow, open whenever) |
-| ![Export tab](screenshots/EXPORT-TAB.jpg) | ![Dashboard tab](screenshots/DASHBOARD-TAB.jpg) |
+---
+
+## ✨ Highlights
+
+- 🎬 **Drop-in OBS scene** — pre-built H2D and X1-family scene templates with widget positions, sizes, and themes already tuned for stream overlays. Download, import, done.
+- 🖱️ **Visual scene editor** — drag widgets onto a 1920×1080 (or 2K, 4K) preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry.
+- 🔌 **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
+- 🌡️ **AMS drying indicator** — `AMS 2 Pro` and `AMS HT` units get a live "DRYING · 60° · 11h" pill with an animated fan icon when actively heating filament.
+- 🎯 **Active tray + active nozzle highlights** — the currently-feeding filament tray and the currently-extruding nozzle get a green left-edge accent + soft tint while printing.
+- ☁️ **Bambu Cloud (optional)** — sign in via paste-token (Cloudflare-resilient) or email + verification code to populate MakerWorld profile + model image widgets.
+- 🌐 **LAN-only operation** — fully functional without any cloud dependency; all assets bundled locally (no CDN calls).
+- 🐳 **One-line Docker install** — multi-arch image (`amd64` / `arm64`) auto-published to GHCR. Works on x86, Apple Silicon, Raspberry Pi, Synology NAS.
 
 ---
 
@@ -241,10 +285,35 @@ BAMBUBOARD_LOGGING=true node src/server.js > /tmp/bb.log 2>&1 &
 tail -f /tmp/bb.log               # verbose MQTT trace
 ```
 
-For agent / contribution conventions, see [`AGENTS.md`](AGENTS.md).
+Useful npm scripts:
+
+| Script | What it does |
+|---|---|
+| `npm start` | Start the server on port 8080 (or `BAMBUBOARD_PORT`). |
+| `npm run build:widget-catalog` | Regenerate the widget catalog table in this README from each widget's `widget.json`. Run after adding/changing widgets. |
+
+---
+
+## Contributing
+
+Issues, bug reports, and pull requests are welcome — especially for printer models I don't own (P1P / P1S / A1 / A1 Mini / X1 / X1E). When filing a bug, a screenshot + the relevant chunk of `localhost:8080/data.json` makes triage 10× faster.
+
+---
+
+## Acknowledgements
+
+- [**ha-bambulab**](https://github.com/greghesp/ha-bambulab) — the Home Assistant integration BambuBoard's printer-detection logic, stage-code map, AMS drying-state model, and packed-temperature decoding are all ported / verified against. Thank you to that project's maintainers — they did the hard reverse-engineering work.
+- [**Bambu Lab**](https://bambulab.com/) — for making fantastic printers and an MQTT-friendly firmware.
+- [**OBS Studio**](https://obsproject.com/) — for the browser-source plugin that makes any of this possible.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE) © [t0nyz0](https://github.com/t0nyz0)
+
+<div align="center">
+
+If you found BambuBoard useful, a ⭐ on the repo helps others discover it.
+
+</div>
