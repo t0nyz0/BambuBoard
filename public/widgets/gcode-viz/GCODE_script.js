@@ -12,7 +12,11 @@ import * as THREE from '../../vendor/three.module.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
-const ROTATE_DEG_PER_SEC = 2.0; // ~180s per full revolution — calm, not disorienting
+// Fixed 3/4-view orbit angle (radians). The camera no longer rotates around
+// the print — it just sits at this angle and lets the smoothed nozzle-follow
+// keep the active extrusion centered. Less disorienting than constant
+// rotation, and the parallax from the follow already conveys 3D-ness.
+const ORBIT_THETA_FIXED = Math.PI / 5;          // ~36°, gentle front-right 3/4 view
 // Nozzle simulation speed multiplier vs real gcode feedrate. 1.0 = realtime.
 // Print speeds are typically 100–300 mm/s, so realtime feels right.
 const NOZZLE_SPEED_FACTOR = 1.0;
@@ -774,8 +778,9 @@ function advanceTo(layerNum) {
 // auto-fit to the loaded print's bounding box so small prints fill the frame
 // and big prints don't get clipped. orbitTarget is smoothed each frame: the
 // camera lazily pursues the nozzle so it stays visually centered, falling
-// back to the print bbox center when the printer isn't extruding.
-let orbitStart = performance.now();
+// back to the print bbox center when the printer isn't extruding. The view
+// angle around the print is fixed (no orbit rotation) — the smooth follow
+// supplies all the visual interest.
 let orbitRadius = 0;
 let orbitHeight = 0;
 let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
@@ -825,11 +830,6 @@ function autoFitCamera() {
   orbitTarget.copy(bboxCenter);
 }
 
-// Latched orbit angle so a paused widget freezes at whatever angle it was
-// last showing — instead of snapping back to theta=0 — and resumes from there
-// once the printer goes back to RUNNING.
-let lastTheta = 0;
-let orbitFrozenAt = null; // performance.now() at which we paused
 function orbitTick() {
   // Skip all work when the tab/iframe isn't visible (OBS preview hidden,
   // user switched tabs, etc). RAF already throttles in this case but
@@ -844,22 +844,7 @@ function orbitTick() {
       autoFitCamera();
       if (orbitRadius === 0) { orbitRadius = 190; orbitHeight = 130; }
     }
-    const paused = isPausedForState();
-    let theta;
-    if (paused) {
-      if (orbitFrozenAt === null) orbitFrozenAt = performance.now();
-      theta = lastTheta;
-    } else {
-      // Resuming from a paused stretch: shift orbitStart so theta picks up
-      // where it left off, no jump.
-      if (orbitFrozenAt !== null) {
-        orbitStart += (performance.now() - orbitFrozenAt);
-        orbitFrozenAt = null;
-      }
-      const t = (performance.now() - orbitStart) / 1000;
-      theta = t * (ROTATE_DEG_PER_SEC * Math.PI / 180);
-      lastTheta = theta;
-    }
+    const theta = ORBIT_THETA_FIXED;
 
     // Two-stage smoothing so the camera doesn't get jerked around by the
     // nozzle's fast perimeter motion:
