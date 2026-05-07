@@ -241,12 +241,16 @@ const COLOR_WARM = [0.85, 0.18, 0.30]; // deep red
 let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
 
 function ageColor(age01) {
-  // 0..0.25  hot → mid
-  // 0.25..0.6 mid → warm
-  // 0.6..1   warm → cold
-  if (age01 < 0.25) return lerpColor(COLOR_HOT, COLOR_MID, age01 / 0.25);
-  if (age01 < 0.6)  return lerpColor(COLOR_MID, COLOR_WARM, (age01 - 0.25) / 0.35);
-  return lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.6) / 0.4);
+  // Lines stay in the hot/bright phase roughly twice as long as before, then
+  // cool quickly through orange and red into the cold filament tone.
+  //   0..0.50   plateau at HOT (no fade for the first half of the trail)
+  //   0.50..0.70 HOT → MID  (yellow-white to orange)
+  //   0.70..0.85 MID → WARM (orange to deep red)
+  //   0.85..1.00 WARM → COLD (deep red to filament color)
+  if (age01 < 0.50) return COLOR_HOT.slice();
+  if (age01 < 0.70) return lerpColor(COLOR_HOT,  COLOR_MID,  (age01 - 0.50) / 0.20);
+  if (age01 < 0.85) return lerpColor(COLOR_MID,  COLOR_WARM, (age01 - 0.70) / 0.15);
+  return                 lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.85) / 0.15);
 }
 
 function updateTrail() {
