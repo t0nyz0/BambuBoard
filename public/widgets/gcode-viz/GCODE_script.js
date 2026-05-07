@@ -20,9 +20,9 @@ const NOZZLE_SPEED_FACTOR = 1.0;
 // fading to the cold print color, and the geometry buffer cap. Long window
 // + wide cooling bands so the red→orange→yellow→cold gradient is actually
 // visible across the trail rather than red-dominating up front.
-const TRAIL_SECONDS = 90;
-const TRAIL_MAX_POINTS = 5500; // covers ~75 s of motion at typical print speeds
-const TRAIL_BREAK_DIST = 25;   // mm jump that splits the trail (e.g. layer change)
+const TRAIL_SECONDS = 180;
+const TRAIL_MAX_POINTS = 11000; // covers ~150 s of motion at typical print speeds
+const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer change)
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
