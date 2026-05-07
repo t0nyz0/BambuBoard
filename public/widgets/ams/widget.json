@@ -1,7 +1,7 @@
 {
   "name": "AMS",
-  "description": "Filament tray status. Multi-AMS support: append ?ams=0|1|2|3 to target a specific AMS unit (defaults to AMS #1).",
-  "recommendedSize": { "w": 800, "h": 200 },
+  "description": "Combined AMS card: chamber temp + humidity bar + drying status (AMS 2 Pro / AMS HT) + 4 tray rows. Active tray gets a green left-edge accent. Multi-AMS: ?ams=0|1|2|3 (defaults to AMS #1).",
+  "recommendedSize": { "w": 400, "h": 460 },
   "tags": ["filament", "ams"],
   "params": {
     "ams": { "type": "number", "default": 0, "description": "AMS unit index (0–3)" }

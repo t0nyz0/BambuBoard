@@ -67,18 +67,23 @@ You'll need before starting:
 
 Printer type is **auto-detected from MQTT** when BambuBoard connects — no need to remember which model you picked. The detection mirrors [ha-bambulab](https://github.com/greghesp/ha-bambulab)'s logic (matches by MQTT `product_name`, falls back to hardware version).
 
-| Model | BambuBoard type | Caps |
-|-------|----------------|------|
-| X1 | `X1` | Chamber temp |
-| X1 Carbon | `X1C` | Chamber temp |
-| X1E | `X1C` (mapped) | Chamber temp |
-| P1P | `P1P` | — |
-| P1S, P2S | `P1S` | — |
-| A1 | `A1` | Single AMS |
-| A1 Mini | `A1M` | Single AMS |
-| H2D, H2D Pro, H2C, H2S, X2D | `H2D` | Chamber temp, dual nozzle, dual AMS |
+> **Honesty about testing:** I personally own and actively test BambuBoard against the **X1 Carbon** and **H2D**. Every other model below is a "should work" — the detection logic, capability map, and widget set were ported from ha-bambulab (which is broadly tested), but I can't physically verify the others. If something looks off on your specific printer, please open an [issue](https://github.com/t0nyz0/BambuBoard/issues) with a screenshot + the relevant chunk of `localhost:8080/data.json` and I'll fix it.
 
-All printers support up to 4 chained AMS units via the AMS Hub (`?ams=0|1|2|3` URL parameter on the AMS widgets).
+| Model | BambuBoard type | Caps | Status |
+|-------|-----------------|------|--------|
+| X1 Carbon | `X1C` | Chamber temp | ✅ **Tested by maintainer** |
+| H2D, H2D Pro | `H2D` | Chamber temp, dual nozzle, dual AMS | ✅ **Tested by maintainer** |
+| X1 | `X1` | Chamber temp | ⚠️ Should work — community feedback welcome |
+| X1E | `X1C` (mapped) | Chamber temp | ⚠️ Should work — community feedback welcome |
+| P1P | `P1P` | — | ⚠️ Should work — community feedback welcome |
+| P1S, P2S | `P1S` | — | ⚠️ Should work — community feedback welcome |
+| A1 | `A1` | Single AMS | ⚠️ Should work — community feedback welcome |
+| A1 Mini | `A1M` | Single AMS | ⚠️ Should work — community feedback welcome |
+| H2C, H2S, X2D | `H2D` (mapped) | Chamber temp, dual nozzle, dual AMS | ⚠️ Should work — community feedback welcome |
+
+**AMS variants:** any printer with a heating-capable AMS (AMS 2 Pro, AMS HT) gets a live drying indicator on the AMS widget when a dry cycle is running — `dry_time`, `dry_temperature`, animated fan icon. Older AMS / AMS Lite always reports zero so the indicator stays hidden, no model gating needed.
+
+**Multi-AMS:** all printers support up to 4 chained AMS units via the AMS Hub. Add a second AMS widget to your scene with `?ams=1` (or `?ams=2`, `?ams=3`) to target the others.
 
 ---
 
@@ -125,10 +130,10 @@ Every widget is a standalone HTML page you add as a Browser Source in OBS. The h
 <!-- WIDGET-CATALOG-START -->
 | Widget | Description | Recommended size | Params | Cap-gated |
 |--------|-------------|------------------|--------|-----------|
-| **AMS** (`ams`) | Filament tray status. Multi-AMS support: append ?ams=0\|1\|2\|3 to target a specific AMS unit (defaults to AMS #1). | 800×200 | — | — |
-| **AMS humidity / temp** (`ams-temp`) | Humidity + temperature for an AMS unit. Multi-AMS: ?ams=0\|1\|2\|3 (defaults to AMS #1). | 400×120 | — | — |
-| **AMS #2 humidity** (`ams-temp-2`) | Humidity / temperature for the second AMS unit (H2D only). | 400×120 | — | `hasDualAMS` |
-| **AMS #2** (`ams2`) | Filament tray status for the second AMS unit (H2D only). | 800×200 | — | `hasDualAMS` |
+| **AMS** (`ams`) | Combined AMS card: chamber temp + humidity bar + drying status (AMS 2 Pro / AMS HT) + 4 tray rows. Active tray gets a green left-edge accent. Multi-AMS: ?ams=0\|1\|2\|3 (defaults to AMS #1). | 400×460 | `?ams=0` | — |
+| **AMS humidity / temp (legacy)** (`ams-temp`) | Standalone humidity + chamber-temp + drying readout. Superseded by the combined `ams` widget which now includes this header above the trays. Kept for back-compat with custom scenes that reference it. | 400×120 | — | — |
+| **AMS #2 humidity (legacy)** (`ams-temp-2`) | Standalone humidity + chamber-temp + drying readout for the second AMS. Superseded by the combined `ams2` widget which now includes this header above the trays. Kept for back-compat with custom scenes. | 400×120 | — | `hasDualAMS` |
+| **AMS #2** (`ams2`) | Combined AMS #2 card (H2D only): chamber temp + humidity + drying status + 4 tray rows. Same layout as the primary `ams` widget but reads `ams.ams[1]`. | 400×460 | — | `hasDualAMS` |
 | **Bed temperature** (`bed-temp`) | Heat-bed temp with target + progress bar. | 400×120 | — | — |
 | **Chamber temperature** (`chamber-temp`) | Enclosed-chamber temperature (X1, X1C, H2D). | 400×120 | — | `hasChamberTemp` |
 | **Fans** (`fans`) | All four fan speeds with animated spinning icons and circular gauge rings showing speed percentage. | 420×160 | — | — |
@@ -176,6 +181,8 @@ Two pre-built scenes are included, scrubbed of personal info:
 - **`default-h2d`** — H2D / H2D Pro (dual nozzle + dual AMS layout).
 
 The scene editor auto-loads the right one based on the connected printer's type. You can also download the raw JSON from the Export page and import it directly into OBS.
+
+Both templates use the **combined AMS widget** (chamber temp + humidity + drying status + tray contents in one card) and a uniform 3px-gap right rail: Chamber Temp → Bed Temp → Nozzle(s) → AMS → Fans, all top-to-bottom flush. Active nozzle and active filament tray are highlighted with a green left-edge accent + soft tint while printing.
 
 ---
 

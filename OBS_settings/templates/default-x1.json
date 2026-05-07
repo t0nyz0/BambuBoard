@@ -112,41 +112,6 @@
   "sources": [
     {
       "prev_ver": 503447555,
-      "name": "AMS Temp",
-      "uuid": "49de2983-0656-495a-b9a1-0d53184ad1aa",
-      "id": "browser_source",
-      "versioned_id": "browser_source",
-      "settings": {
-        "url": "http://<HOST>/widgets/ams-temp/index.html",
-        "width": 700,
-        "height": 220,
-        "css": "body {margin: 0px auto; overflow: hidden; }"
-      },
-      "mixers": 255,
-      "sync": 0,
-      "flags": 0,
-      "volume": 1.0,
-      "balance": 0.5,
-      "enabled": true,
-      "muted": false,
-      "push-to-mute": false,
-      "push-to-mute-delay": 0,
-      "push-to-talk": false,
-      "push-to-talk-delay": 0,
-      "hotkeys": {
-        "libobs.mute": [],
-        "libobs.unmute": [],
-        "libobs.push-to-mute": [],
-        "libobs.push-to-talk": [],
-        "ObsBrowser.Refresh": []
-      },
-      "deinterlace_mode": 0,
-      "deinterlace_field_order": 0,
-      "monitoring_type": 0,
-      "private_settings": {}
-    },
-    {
-      "prev_ver": 503447555,
       "name": "AMS Trays",
       "uuid": "77793f3c-9919-4a61-bad4-0633de7f2422",
       "id": "browser_source",
@@ -154,7 +119,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 700,
-        "height": 600,
+        "height": 750,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -285,7 +250,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/fans/index.html",
         "width": 700,
-        "height": 210,
+        "height": 230,
         "fps": 60,
         "fps_custom": true,
         "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -431,7 +396,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/nozzle-temp/index.html",
         "width": 700,
-        "height": 130,
+        "height": 165,
         "css": "body {  margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -891,7 +856,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 962.0
+              "y": 939.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -930,11 +895,11 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 606.0
+              "y": 486.0
             },
             "scale": {
-              "x": 0.6014285683631897,
-              "y": 0.6016666889190674
+              "x": 0.6,
+              "y": 0.6
             },
             "align": 5,
             "bounds_type": 0,
@@ -962,45 +927,6 @@
             "private_settings": {}
           },
           {
-            "name": "AMS Temp",
-            "source_uuid": "49de2983-0656-495a-b9a1-0d53184ad1aa",
-            "visible": true,
-            "locked": false,
-            "rot": 0.0,
-            "pos": {
-              "x": 0.0,
-              "y": 477.0
-            },
-            "scale": {
-              "x": 0.6014285683631897,
-              "y": 0.6000000238418579
-            },
-            "align": 5,
-            "bounds_type": 0,
-            "bounds_align": 0,
-            "bounds_crop": false,
-            "bounds": {
-              "x": 0.0,
-              "y": 0.0
-            },
-            "crop_left": 0,
-            "crop_top": 0,
-            "crop_right": 0,
-            "crop_bottom": 0,
-            "id": 24,
-            "group_item_backup": false,
-            "scale_filter": "disable",
-            "blend_method": "default",
-            "blend_type": "normal",
-            "show_transition": {
-              "duration": 0
-            },
-            "hide_transition": {
-              "duration": 0
-            },
-            "private_settings": {}
-          },
-          {
             "name": "Bed Temperature",
             "source_uuid": "8b7ee737-3252-497f-b667-6cd386d38832",
             "visible": true,
@@ -1008,7 +934,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 406.0
+              "y": 303.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -1047,7 +973,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 328.0
+              "y": 384.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -1086,7 +1012,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 266.0
+              "y": 228.0
             },
             "scale": {
               "x": 0.6000000238418579,

@@ -1,1 +1,6 @@
-{ "name": "AMS humidity / temp", "description": "Humidity + temperature for an AMS unit. Multi-AMS: ?ams=0|1|2|3 (defaults to AMS #1).", "recommendedSize": {"w":400,"h":120}, "tags":["humidity","ams"] }
+{
+  "name": "AMS humidity / temp (legacy)",
+  "description": "Standalone humidity + chamber-temp + drying readout. Superseded by the combined `ams` widget which now includes this header above the trays. Kept for back-compat with custom scenes that reference it.",
+  "recommendedSize": { "w": 400, "h": 120 },
+  "tags": ["humidity", "ams", "legacy"]
+}
