@@ -8,9 +8,12 @@
     <script src="../../js/caps.js"></script>
     <meta http-equiv="refresh" content="28800" />
     <style>
-      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
-      .gcode-stage { position: relative; width: 100vw; height: 100vh; }
-      .gcode-stage canvas { display: block; width: 100% !important; height: 100% !important; }
+      /* Transparent body so the widget composites over whatever sits behind
+         the OBS browser-source / dashboard iframe. !important needed because
+         widgets/styles.css applies a dark body color by default. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent !important; }
+      .gcode-stage { position: relative; width: 100vw; height: 100vh; background: transparent; }
+      .gcode-stage canvas { display: block; width: 100% !important; height: 100% !important; background: transparent; }
       .gcode-overlay {
         position: absolute; inset: auto 0 8px 0;
         text-align: center; font-size: 12px; opacity: .7;

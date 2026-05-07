@@ -67,13 +67,21 @@ const bed = await resolveBedSize();
 const preview = GCodePreview.init({
   canvas,
   extrusionColor: 'hotpink',
-  backgroundColor: '#1a1c20',
+  backgroundColor: '#1a1c20', // overridden to transparent below; kept here so gcode-preview's fog still has a base color
   // Travels are visualized via the trail (short-lived gray streak) rather than
   // baked into the static toolpath — keeps the build plate uncluttered.
   renderTravel: false,
   buildVolume: { x: bed.x, y: bed.y, z: bed.z },
   initialCameraPosition: [-120, 130, 150],
 });
+
+// Make the canvas transparent so the widget composites over whatever sits
+// underneath it (camera feed in OBS, dashboard background on the web). The
+// vendored gcode-preview was patched to create its WebGLRenderer with
+// alpha:true; here we drop the scene background and zero the clear alpha.
+preview.scene.background = null;
+preview.scene.fog = null;
+preview.renderer?.setClearColor(0x000000, 0);
 
 // Hotend modeled on the Bambu finned-heatsink assembly. From the print up:
 //   tip    — black conical nozzle, narrow at the bottom, wider at the base
@@ -191,10 +199,10 @@ const PLATE_W = bed.x, PLATE_D = bed.y;
 const printPlate = new THREE.Group();
 const plateSlabGeo = new THREE.BoxGeometry(PLATE_W, 0.6, PLATE_D);
 plateSlabGeo.translate(0, -0.3, 0);  // top face at y=0
-const plateSlabMat = new THREE.MeshBasicMaterial({ color: 0x202329 });
+const plateSlabMat = new THREE.MeshBasicMaterial({ color: 0x0c0d10 }); // near-black neutral, no blue cast
 printPlate.add(new THREE.Mesh(plateSlabGeo, plateSlabMat));
 // Lighter rim around the edges (4 thin boxes).
-const rimMat = new THREE.MeshBasicMaterial({ color: 0x4a505a });
+const rimMat = new THREE.MeshBasicMaterial({ color: 0x2c3038 }); // neutral charcoal, no blue cast
 const rimT = 1.2, rimH = 0.2;
 const mkRim = (w, d, x, z) => {
   const g = new THREE.BoxGeometry(w, rimH, d);
