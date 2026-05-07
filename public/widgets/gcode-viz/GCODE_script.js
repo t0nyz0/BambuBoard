@@ -222,14 +222,20 @@ mkRim(PLATE_W, rimT, 0, -PLATE_D / 2 + rimT / 2);
 mkRim(rimT, PLATE_D, +PLATE_W / 2 - rimT / 2, 0);
 mkRim(rimT, PLATE_D, -PLATE_W / 2 + rimT / 2, 0);
 
-// Lights for the nozzle group — gcode-preview's ambient is too dim for the
-// dark hotend assembly to read clearly. Attach our own so the nozzle pops
-// regardless of scene lighting.
-const nozzleAmbient = new THREE.AmbientLight(0xffffff, 0.55);
-const nozzleKey = new THREE.DirectionalLight(0xffffff, 1.1);
-nozzleKey.position.set(80, 120, 60);
-const nozzleFill = new THREE.DirectionalLight(0xc8d4ff, 0.4);
-nozzleFill.position.set(-60, 40, -40);
+// Lights for the whole scene — illuminate both the hotend assembly and
+// the gcode-preview toolpath geometry (which uses MeshLambertMaterial).
+// Lower ambient + a strong key directional gives the print body visible
+// directional shading so curves and overhangs read with depth instead of
+// looking like flat outlines.
+const nozzleAmbient = new THREE.AmbientLight(0xffffff, 0.25);
+const nozzleKey = new THREE.DirectionalLight(0xffffff, 1.6);
+nozzleKey.position.set(120, 180, 90);
+const nozzleFill = new THREE.DirectionalLight(0xb8c8ff, 0.45);
+nozzleFill.position.set(-80, 60, -60);
+// Subtle warm rim light from low/behind to catch the back edges of cylindrical
+// prints — gives that "lit object on dark BG" look in OBS overlays.
+const nozzleRim = new THREE.DirectionalLight(0xffd2a0, 0.35);
+nozzleRim.position.set(-40, 30, 110);
 
 // Hot-extrusion trail: vertex-colored LineSegments drawn on top of the cold
 // gcode-preview toolpath. We append the nozzle's world position each frame
@@ -371,7 +377,7 @@ let lastRenderedEndLayer = -1;
 // camera feed in OBS, the real print bed already shows through the
 // transparent canvas. A virtual plate would just dim it. Construction is
 // kept above so it's a one-line tweak to add it back.
-const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, trailLine, nozzleGroup];
+const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup];
 
 function fullRebuild() {
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
@@ -384,7 +390,14 @@ function fullRebuild() {
   const ours = new Set(myExtras);
   for (let i = preview.scene.children.length - 1; i >= 0; i--) {
     const c = preview.scene.children[i];
-    if (c.type === 'LineSegments' && !ours.has(c)) preview.scene.remove(c);
+    // Remove gcode-preview's bed grid + build-volume box edges (LineSegments
+    // at top level) and its built-in ambient + point lights — those flatten
+    // the print body. Our directional/ambient lights below give better
+    // shape definition. Toolpath geometry lives inside a Group, untouched.
+    if (ours.has(c)) continue;
+    if (c.type === 'LineSegments' || c.type === 'AmbientLight' || c.type === 'PointLight') {
+      preview.scene.remove(c);
+    }
   }
   for (const obj of myExtras) {
     if (!preview.scene.children.includes(obj)) preview.scene.add(obj);
