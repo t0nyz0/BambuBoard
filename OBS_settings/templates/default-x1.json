@@ -119,7 +119,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 700,
-        "height": 700,
+        "height": 770,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -502,7 +502,7 @@
       "versioned_id": "browser_source",
       "settings": {
         "url": "http://<HOST>/widgets/profile-info/index.html",
-        "width": 460,
+        "width": 390,
         "height": 315,
         "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }"
       },
@@ -790,7 +790,7 @@
             "bounds_crop": false,
             "bounds": {
               "x": 420.0,
-              "y": 196.0
+              "y": 155.0
             },
             "crop_left": 0,
             "crop_top": 0,
@@ -856,7 +856,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 969.0
+              "y": 970.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -895,7 +895,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 546.0
+              "y": 505.0
             },
             "scale": {
               "x": 0.6,
@@ -934,7 +934,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 363.0
+              "y": 322.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -973,7 +973,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 444.0
+              "y": 403.0
             },
             "scale": {
               "x": 0.6000000238418579,
@@ -1012,7 +1012,7 @@
             "rot": 0.0,
             "pos": {
               "x": 0.0,
-              "y": 288.0
+              "y": 247.0
             },
             "scale": {
               "x": 0.6000000238418579,
