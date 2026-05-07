@@ -68,13 +68,20 @@ function buildObsSceneRouter({ paths }) {
     }
   });
 
+  // /raw is what the scene editor fetches when loading a template into
+  // the visual editor. Substitute <VERSION> so the scene name shows the
+  // current BambuBoard version (e.g. "BambuBoard 3.0.0"); leave <HOST>
+  // unsubstituted because the editor binds widget URLs to its own host
+  // when iframes are mounted, and we want the raw template to remain
+  // editable / portable across hosts.
   router.get('/templates/:slug/raw', async (req, res) => {
     const slug = req.params.slug;
     if (!SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
     try {
       const raw = await fsp.readFile(path.join(TEMPLATES_DIR, `${slug}.json`), 'utf-8');
+      const out = raw.replace(/<VERSION>/g, PKG_VERSION);
       res.setHeader('Content-Type', 'application/json');
-      res.send(raw);
+      res.send(out);
     } catch (e) {
       if (e.code === 'ENOENT') return res.status(404).json({ error: 'template not found' });
       res.status(500).json({ error: e.message });
