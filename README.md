@@ -91,6 +91,23 @@ Then open **http://localhost:8080**. The first-run setup wizard appears automati
 
 For docker-compose users, see [`docker-compose.yml`](docker-compose.yml) — `docker compose up -d` and you're done.
 
+### Synology NAS
+
+One-command install and update for Synology NAS (or any Docker host that needs host networking):
+
+```bash
+# First time — download the update script
+curl -O https://raw.githubusercontent.com/t0nyz0/BambuBoard/main/update-synology.sh
+chmod +x update-synology.sh
+
+# Run it (auto-elevates to sudo)
+./update-synology.sh
+```
+
+Uses host networking so MQTT/RTSP can reach the printer without NAT config. Settings persist in a Docker volume across updates — run the same script to update and your config carries over automatically.
+
+A [`docker-compose.synology.yml`](docker-compose.synology.yml) is also available if you prefer compose.
+
 ## Quickstart — from source
 
 ```bash
