@@ -315,6 +315,22 @@ function recomputeCumLayerTime() {
   totalGcodeTime = t;
 }
 
+// Bambu's MQTT `print.layer_num` is the *model* layer index (1-based),
+// counting only real print layers. gcode-preview's parser splits at every Z
+// change, so the first few parsed "layers" are the slicer's prep / skirt /
+// prime moves with anomalous heights (often 0 / 0.8 / 0.6 mm vs the regular
+// 0.12 mm). Find the index of the first parsed layer that looks like a real
+// model layer so we can translate model→parsed.
+let modelLayerOffset = 0;
+function recomputeModelLayerOffset() {
+  modelLayerOffset = 0;
+  const ls = preview.layers || [];
+  for (let i = 0; i < ls.length; i++) {
+    const h = ls[i]?.height || 0;
+    if (h >= 0.05 && h <= 0.5) { modelLayerOffset = i; return; }
+  }
+}
+
 function buildLayerPaths() {
   // Build a per-layer list of segments. Each segment carries:
   //   ax,ay → bx,by   start/end positions in gcode coords
@@ -544,6 +560,7 @@ async function loadGcode(taskKey) {
     recomputeCumZ();
     buildLayerPaths();
     recomputeCumLayerTime();
+    recomputeModelLayerOffset();
     // Reset auto-fit so the next orbit tick re-frames to this job's bbox.
     orbitRadius = 0;
     // Clear any leftover trail from a previous job.
@@ -711,24 +728,33 @@ async function tick() {
 
     if (state === 'PAUSED') return;
 
+    // Translate Bambu's model-relative layer count (1-based, ignores prep)
+    // to the parser's index space. e.g. if the slicer emitted 3 prep layers
+    // before the first model layer, modelLayerOffset = 3, and Bambu
+    // layer_num=1 maps to parsed layer index 3 (1-based: 4).
+    const modelToParsed = (n) => Math.min(totalLayers, n + modelLayerOffset);
     const target = state === 'FINISH'
-      ? (Number(print.total_layer_num) || layerNum || totalLayers)
-      : layerNum;
+      ? (Number(print.total_layer_num) ? modelToParsed(Number(print.total_layer_num)) : (layerNum || totalLayers))
+      : modelToParsed(layerNum);
     advanceTo(target);
 
-    // Sync the within-layer animation to the printer's actual progress so the
-    // simulated nozzle roughly matches what the real one is doing. Uses the
-    // global mc_percent + the gcode's per-layer time budget. Slightly off in
-    // practice (real printer ≠ slicer estimate due to accel, AMS swaps, etc.)
-    // but close enough for a dashboard.
+    // Sync the within-layer animation to mc_percent ONLY when the math lands
+    // cleanly within the current layer's duration. mc_percent counts heating
+    // / prep / cooldown toward total time, while our gcode time is extrusion-
+    // only — so early in a print mc_percent overshoots, which would clamp
+    // the nozzle to the end of the layer and freeze it. When out of band,
+    // let the natural realtime animation loop through the layer instead;
+    // it's close enough.
     if (state === 'RUNNING' && totalGcodeTime > 0 && activeLayerIdx >= 0) {
       const mcPct = Number(print.mc_percent);
       if (Number.isFinite(mcPct)) {
         const targetT = (mcPct / 100) * totalGcodeTime;
         const layerStartT = cumLayerTime[activeLayerIdx] || 0;
         const layerDur = layerPaths[activeLayerIdx]?.total || 0;
-        const inLayer = Math.max(0, Math.min(layerDur, targetT - layerStartT));
-        layerStartTime = performance.now() - inLayer * 1000;
+        const rel = targetT - layerStartT;
+        if (rel >= 0 && rel <= layerDur) {
+          layerStartTime = performance.now() - rel * 1000;
+        }
       }
     }
   } catch (e) {
