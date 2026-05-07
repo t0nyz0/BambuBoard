@@ -71,71 +71,74 @@ const preview = GCodePreview.init({
   initialCameraPosition: [-120, 130, 150],
 });
 
-// Hotend modeled on the Bambu H2D tungsten-carbide nozzle assembly. From the
-// print upward: small near-black tip → narrow neck → long mostly-cylindrical
-// polished steel shaft with a gentle taper → small silver collar → black
-// square heatblock. Proportions tuned to match the WC.6 reference photo
-// rather than older X1-style hotends.
+// Hotend modeled on the Bambu finned-heatsink assembly. From the print up:
+//   tip    — black conical nozzle, narrow at the bottom, wider at the base
+//   block  — silver aluminum heatbreak block (uniform width, no taper)
+//   sink   — black finned heatsink (alternating thick/thin slabs for the
+//            cooling fin look), uniform width
+// Each part has a constant width across its height — no upward widening — so
+// the silhouette reads as "straight down" past the heatsink.
 const nozzleGroup = new THREE.Group();
 const SCALE = 1.6;
 function metal(hex, spec = 0xffffff, shininess = 90) {
   return new THREE.MeshPhongMaterial({ color: hex, specular: spec, shininess });
 }
 function matte(hex) { return new THREE.MeshLambertMaterial({ color: hex }); }
-const matSteel  = metal(0xc9ced8, 0xffffff, 130); // polished cool-grey steel
-const matCollar = metal(0xa8aeb6, 0xffffff, 90);  // duller machined collar
-const matBlock  = matte(0x16181d);                // matte black heatblock
-const matTip    = matte(0x05060a);                // near-black tip
-
-// Stack heights in local mm (multiplied by SCALE later).
-const H_TIP    = 1.0;
-const H_NECK   = 1.4;
-const H_SHAFT  = 11.0;
-const H_COLLAR = 0.7;
-const H_BLOCK  = 3.6;
+const matAlu   = metal(0xd2d6dc, 0xffffff, 110); // silver aluminum block
+const matSink  = matte(0x121418);                // matte black finned heatsink
+const matTip   = matte(0x0a0c10);                // near-black nozzle tip
 
 let y = 0;
-// Tip — tiny near-black cylinder just touching the print.
+
+// Nozzle tip — tapered cone, narrow at the print, wider where it bolts in.
 {
-  const h = H_TIP * SCALE;
-  const g = new THREE.CylinderGeometry(0.42 * SCALE, 0.42 * SCALE, h, 16);
+  const h = 2.0 * SCALE;
+  const g = new THREE.CylinderGeometry(1.05 * SCALE, 0.35 * SCALE, h, 24);
   g.translate(0, y + h / 2, 0);
   nozzleGroup.add(new THREE.Mesh(g, matTip));
   y += h;
 }
-// Neck — short conical transition from tip to shaft.
+
+// Silver aluminum heatbreak block — uniform cuboid, no taper.
 {
-  const h = H_NECK * SCALE;
-  const g = new THREE.CylinderGeometry(0.65 * SCALE, 0.42 * SCALE, h, 20);
-  g.translate(0, y + h / 2, 0);
-  nozzleGroup.add(new THREE.Mesh(g, matSteel));
-  y += h;
-}
-// Main shaft — long, gentle taper from a slim base to a slightly thicker top.
-{
-  const h = H_SHAFT * SCALE;
-  const g = new THREE.CylinderGeometry(1.45 * SCALE, 0.7 * SCALE, h, 28);
-  g.translate(0, y + h / 2, 0);
-  nozzleGroup.add(new THREE.Mesh(g, matSteel));
-  y += h;
-}
-// Silver machined collar between shaft and heatblock.
-{
-  const h = H_COLLAR * SCALE;
-  const g = new THREE.CylinderGeometry(1.8 * SCALE, 1.55 * SCALE, h, 24);
-  g.translate(0, y + h / 2, 0);
-  nozzleGroup.add(new THREE.Mesh(g, matCollar));
-  y += h;
-}
-// Heatblock — square black box, slightly wider than the collar.
-{
-  const w = 4.6 * SCALE;
-  const d = 4.6 * SCALE;
-  const h = H_BLOCK * SCALE;
+  const w = 3.4 * SCALE;
+  const d = 3.4 * SCALE;
+  const h = 3.0 * SCALE;
   const g = new THREE.BoxGeometry(w, h, d);
   g.translate(0, y + h / 2, 0);
-  nozzleGroup.add(new THREE.Mesh(g, matBlock));
+  nozzleGroup.add(new THREE.Mesh(g, matAlu));
   y += h;
+}
+
+// Finned heatsink — uniform-width stack of alternating wider fin slabs and
+// narrower core slabs. Each fin protrudes radially from the core. Five fins
+// gives a clean horizontal-grooved look without exploding the mesh count.
+{
+  const finCount = 5;
+  const finH    = 0.55 * SCALE;
+  const gapH    = 0.55 * SCALE;
+  const finW    = 5.4 * SCALE;
+  const coreW   = 4.0 * SCALE;
+  for (let i = 0; i < finCount; i++) {
+    // fin (wide, thin)
+    const fg = new THREE.BoxGeometry(finW, finH, finW);
+    fg.translate(0, y + finH / 2, 0);
+    nozzleGroup.add(new THREE.Mesh(fg, matSink));
+    y += finH;
+    // gap / core slab between fins (skip after the last fin)
+    if (i < finCount - 1) {
+      const cg = new THREE.BoxGeometry(coreW, gapH, coreW);
+      cg.translate(0, y + gapH / 2, 0);
+      nozzleGroup.add(new THREE.Mesh(cg, matSink));
+      y += gapH;
+    }
+  }
+  // Solid cap on top of the heatsink (matches fin width).
+  const capH = 0.6 * SCALE;
+  const cap = new THREE.BoxGeometry(finW, capH, finW);
+  cap.translate(0, y + capH / 2, 0);
+  nozzleGroup.add(new THREE.Mesh(cap, matSink));
+  y += capH;
 }
 nozzleGroup.visible = false;
 
