@@ -684,7 +684,7 @@ let scrubLayer = 0;
 let playing = false;
 let playTimer = null;
 let lastGcodeState = null;   // most recent gcode_state from MQTT
-let lastPrintStage = 0;      // most recent mc_print_stage (0=idle, 1=prep, 2=printing)
+let lastSubStage = -1;       // most recent stg_cur (0=printing, nonzero=sub-stage/prep)
 // MQTT sync state for the within-layer animation. We re-anchor only when
 // fresh mc_percent or layer_num data arrives — between ticks the animation
 // runs free at gcode-real speed (using gcode F values), so it stays smooth
@@ -698,7 +698,7 @@ function isPausedForState() {
   if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') return true;
   // Preview state: model is shown but printer is still calibrating — freeze
   // the nozzle so it doesn't animate over the static preview.
-  if (lastGcodeState === 'RUNNING' && lastPrintStage < 2) return true;
+  if (lastGcodeState === 'RUNNING' && lastSubStage !== 0) return true;
   return false;
 }
 
@@ -993,12 +993,19 @@ async function tick() {
     const state = print.gcode_state;
     const layerNum = Number(print.layer_num) || 0;
     const printStage = Number(print.mc_print_stage) || 0;
+    const subStage = Number(print.stg_cur) || 0;
     lastGcodeState = state;
-    lastPrintStage = printStage;
-    // Active print = printer is depositing material (RUNNING + layer started
-    // + past calibration). Preview = RUNNING but still calibrating — we show
-    // the full model as a static preview so the user sees what's coming.
-    const isActivePrint = state === 'RUNNING' && layerNum > 0 && printStage >= 2;
+    lastSubStage = subStage;
+    // Active print = printer is actually depositing model material.
+    // Gate on THREE conditions:
+    //   1. gcode_state === 'RUNNING'
+    //   2. layer_num > 0 — prep stages keep this at 0
+    //   3. stg_cur === 0 — any nonzero value means a sub-stage is active
+    //      (auto bed leveling, nozzle preheat, extrusion calibration, etc.)
+    //      even when mc_print_stage is already 2
+    // Preview = RUNNING but still in a sub-stage — show the full model
+    // statically so the user sees what's coming.
+    const isActivePrint = state === 'RUNNING' && layerNum > 0 && subStage === 0;
     const isPreviewState = state === 'RUNNING' && !isActivePrint;
     const isHoldState   = state === 'PAUSED' || state === 'FINISH';
 
