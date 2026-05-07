@@ -71,37 +71,72 @@ const preview = GCodePreview.init({
   initialCameraPosition: [-120, 130, 150],
 });
 
-// Hotend modeled on the Bambu H2D tungsten-carbide nozzle assembly: a small
-// near-black tip → long polished tapered steel body → black square heatblock
-// at the top. All geometry in mm in gcode space; the tip is at local y=0
-// (touching the print) and everything stacks upward.
+// Hotend modeled on the Bambu H2D tungsten-carbide nozzle assembly. From the
+// print upward: small near-black tip → narrow neck → long mostly-cylindrical
+// polished steel shaft with a gentle taper → small silver collar → black
+// square heatblock. Proportions tuned to match the WC.6 reference photo
+// rather than older X1-style hotends.
 const nozzleGroup = new THREE.Group();
 const SCALE = 1.6;
 function metal(hex, spec = 0xffffff, shininess = 90) {
   return new THREE.MeshPhongMaterial({ color: hex, specular: spec, shininess });
 }
 function matte(hex) { return new THREE.MeshLambertMaterial({ color: hex }); }
-const matSteel    = metal(0xd6dae2, 0xffffff, 110); // polished steel
-const matBlock    = matte(0x1d1f24);                // matte charcoal heatblock
-const matTip      = matte(0x0e1014);                // near-black tip
+const matSteel  = metal(0xc9ced8, 0xffffff, 130); // polished cool-grey steel
+const matCollar = metal(0xa8aeb6, 0xffffff, 90);  // duller machined collar
+const matBlock  = matte(0x16181d);                // matte black heatblock
+const matTip    = matte(0x05060a);                // near-black tip
 
-// Tip — short cylinder that touches the print.
-const tipH = 1.6 * SCALE;
-const tipGeo = new THREE.CylinderGeometry(0.55 * SCALE, 0.45 * SCALE, tipH, 16);
-tipGeo.translate(0, tipH / 2, 0);
-const tip = new THREE.Mesh(tipGeo, matTip);
-// Steel body — long tapered cylinder, narrow at the tip end, wide at the top.
-const bodyH = 11 * SCALE;
-const bodyGeo = new THREE.CylinderGeometry(2.2 * SCALE, 0.8 * SCALE, bodyH, 28);
-bodyGeo.translate(0, tipH + bodyH / 2, 0);
-const body = new THREE.Mesh(bodyGeo, matSteel);
-// Heatblock — black square box on top with a slight overhang vs the body.
-const blockH = 4.5 * SCALE;
-const blockW = 5.5 * SCALE;
-const blockGeo = new THREE.BoxGeometry(blockW, blockH, blockW);
-blockGeo.translate(0, tipH + bodyH + blockH / 2, 0);
-const block = new THREE.Mesh(blockGeo, matBlock);
-nozzleGroup.add(tip, body, block);
+// Stack heights in local mm (multiplied by SCALE later).
+const H_TIP    = 1.0;
+const H_NECK   = 1.4;
+const H_SHAFT  = 11.0;
+const H_COLLAR = 0.7;
+const H_BLOCK  = 3.6;
+
+let y = 0;
+// Tip — tiny near-black cylinder just touching the print.
+{
+  const h = H_TIP * SCALE;
+  const g = new THREE.CylinderGeometry(0.42 * SCALE, 0.42 * SCALE, h, 16);
+  g.translate(0, y + h / 2, 0);
+  nozzleGroup.add(new THREE.Mesh(g, matTip));
+  y += h;
+}
+// Neck — short conical transition from tip to shaft.
+{
+  const h = H_NECK * SCALE;
+  const g = new THREE.CylinderGeometry(0.65 * SCALE, 0.42 * SCALE, h, 20);
+  g.translate(0, y + h / 2, 0);
+  nozzleGroup.add(new THREE.Mesh(g, matSteel));
+  y += h;
+}
+// Main shaft — long, gentle taper from a slim base to a slightly thicker top.
+{
+  const h = H_SHAFT * SCALE;
+  const g = new THREE.CylinderGeometry(1.45 * SCALE, 0.7 * SCALE, h, 28);
+  g.translate(0, y + h / 2, 0);
+  nozzleGroup.add(new THREE.Mesh(g, matSteel));
+  y += h;
+}
+// Silver machined collar between shaft and heatblock.
+{
+  const h = H_COLLAR * SCALE;
+  const g = new THREE.CylinderGeometry(1.8 * SCALE, 1.55 * SCALE, h, 24);
+  g.translate(0, y + h / 2, 0);
+  nozzleGroup.add(new THREE.Mesh(g, matCollar));
+  y += h;
+}
+// Heatblock — square black box, slightly wider than the collar.
+{
+  const w = 4.6 * SCALE;
+  const d = 4.6 * SCALE;
+  const h = H_BLOCK * SCALE;
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(0, y + h / 2, 0);
+  nozzleGroup.add(new THREE.Mesh(g, matBlock));
+  y += h;
+}
 nozzleGroup.visible = false;
 
 // Bambu-style print plate: matte slab with subtle grid lines and a slightly
