@@ -1454,6 +1454,22 @@ function updateCanvasInfoBtn () {
 }
 
 function pickCanvasResolution () {
+  // Warn once per tab session: OBS won't auto-pick up canvas resize. Users
+  // must match the resolution under OBS → Settings → Video → Base (Canvas)
+  // Resolution and re-import the scene, otherwise OBS will rescale/crop.
+  const ACK_KEY = 'bb_canvas_resize_obs_ack';
+  if (!sessionStorage.getItem(ACK_KEY)) {
+    const ok = confirm(
+      'Heads up: changing the canvas size here does NOT update OBS.\n\n' +
+      'Before importing this scene into OBS, you must match the resolution in:\n' +
+      '  OBS → Settings → Video → Base (Canvas) Resolution\n\n' +
+      'Tip: change OBS first, then import the scene so OBS doesn’t rescale your widgets.\n\n' +
+      'Continue and pick a new canvas size?'
+    );
+    if (!ok) return;
+    sessionStorage.setItem(ACK_KEY, '1');
+  }
+
   const presets = [
     '1920×1080 (Full HD)',
     '2560×1440 (2K / QHD)',
@@ -1464,7 +1480,7 @@ function pickCanvasResolution () {
   ];
   const labels = presets.map((p, i) => `${i + 1}. ${p}`).join('\n');
   const cur = `${CANVAS_W}×${CANVAS_H}`;
-  const choice = prompt(`Set canvas resolution\n(current: ${cur}; this must match your OBS Settings → Video → Base (Canvas) Resolution)\n\n${labels}`, '1');
+  const choice = prompt(`Set canvas resolution\n⚠ Must match OBS → Settings → Video → Base (Canvas) Resolution\nCurrent: ${cur}\n\n${labels}`, '1');
   if (!choice) return;
   const idx = parseInt(choice, 10) - 1;
   let w = CANVAS_W, h = CANVAS_H;

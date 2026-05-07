@@ -16,10 +16,12 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "basic-ftp": "^5.0.5",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "mqtt": "^5.10.3",
     "node-fetch": "^2.7.0",
-    "rtsp-relay": "^1.9.0"
+    "rtsp-relay": "^1.9.0",
+    "yauzl": "^3.2.0"
   }
 }

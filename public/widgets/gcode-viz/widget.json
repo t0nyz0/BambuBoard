@@ -1,0 +1,6 @@
+{
+  "name": "Gcode Toolpath",
+  "description": "Live three.js visualization of the active print's gcode, advancing layer-by-layer.",
+  "recommendedSize": { "w": 640, "h": 640 },
+  "tags": ["3d", "live", "gcode"]
+}

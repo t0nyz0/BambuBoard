@@ -10,6 +10,7 @@ const { buildPagesRouter } = require('./routes/pages');
 const { buildAuthRouter } = require('./routes/auth');
 const { buildObsSceneRouter } = require('./routes/obsScene');
 const { buildVideoRouter } = require('./routes/video');
+const { buildGcodeRouter } = require('./routes/gcode');
 
 const ROOT = path.resolve(__dirname, '..');
 const paths = {
@@ -83,6 +84,7 @@ app.use('/css',     express.static(path.join(paths.public, 'css')));
 app.use('/js',      express.static(path.join(paths.public, 'js')));
 app.use('/assets',  express.static(path.join(paths.public, 'assets')));
 app.use('/widgets', express.static(path.join(paths.public, 'widgets')));
+app.use('/vendor',  express.static(path.join(paths.public, 'vendor')));
 
 // /data.json — backed by data/data.json (kept at root path for OBS widget compatibility)
 app.get('/data.json', (req, res) => {
@@ -97,6 +99,7 @@ app.get('/data.json', (req, res) => {
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
 app.use('/api/obs', buildObsSceneRouter({ paths }));
+app.use('/api/gcode', buildGcodeRouter({ getConfig, paths }).router);
 app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 
 // Legacy /note endpoints — used by the notes widget (public/widgets/notes/*.html).
@@ -175,7 +178,7 @@ app.use((req, res) => {
   res.status(404).json({ error: 'not found' });
 });
 
-const port = config.BambuBoard_httpPort || 8080;
+const port = process.env.PORT || config.BambuBoard_httpPort || 8080;
 app.listen(port, '0.0.0.0', () => {
   console.log(`╔════════════════════════════════════════════════════╗`);
   console.log(`║  BambuBoard v${require('../package.json').version}                              ║`);

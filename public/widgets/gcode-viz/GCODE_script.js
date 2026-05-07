@@ -1,0 +1,831 @@
+// Live gcode toolpath visualization.
+// Polls /data.json for the current print, fetches the gcode from /api/gcode/current
+// when the task changes, and advances the rendered toolpath up to the active
+// layer using gcode-preview.
+//
+// Debug timeline scrubber: append `?debug=1` to the URL to reveal a slider
+// that lets you scrub through layers manually and a play/pause button that
+// auto-advances. While scrubbing/playing, MQTT layer_num is ignored.
+
+import * as GCodePreview from '../../vendor/gcode-preview.esm.js';
+import * as THREE from '../../vendor/three.module.js';
+
+const POLL_MS = 800;
+const PLAY_LAYERS_PER_SEC = 8;
+const ROTATE_DEG_PER_SEC = 6; // ~60s per full revolution
+// Nozzle simulation speed multiplier vs real gcode feedrate. 1.0 = realtime.
+// Print speeds are typically 100–300 mm/s, so realtime feels right.
+const NOZZLE_SPEED_FACTOR = 1.0;
+// Hot-extrusion trail: how long a freshly-deposited segment glows before
+// fading to the cold print color, and the geometry buffer cap. The buffer is
+// scaled so it can hold the full trail at ~60 fps without dropping points.
+const TRAIL_SECONDS = 35;
+const TRAIL_MAX_POINTS = 3000;
+const TRAIL_BREAK_DIST = 25; // mm jump that splits the trail (e.g. layer change)
+
+const params = new URLSearchParams(location.search);
+const debug = params.has('debug');
+// Verification mode: render only the first N layers and walk the nozzle through
+// them sequentially so you can compare the nozzle's path against the visible
+// gcode lines. Append `?layers=4` (or any small N) to enable.
+const verifyLayers = (() => {
+  const v = parseInt(params.get('layers') || '', 10);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+})();
+
+const canvas = document.getElementById('gcodeCanvas');
+const overlay = document.getElementById('gcodeOverlay');
+const debugBar = document.getElementById('gcodeDebug');
+const scrubEl = document.getElementById('gcodeScrub');
+const playEl = document.getElementById('gcodePlay');
+const prevEl = document.getElementById('gcodePrev');
+const nextEl = document.getElementById('gcodeNext');
+const labelEl = document.getElementById('gcodeLabel');
+const pathEl = document.getElementById('gcodePath');
+const pathLabelEl = document.getElementById('gcodePathLabel');
+
+// Resolve bed size from the connected printer's caps so the visualization
+// works for any Bambu model (X1/X1C/P1/A1/A1M/H2D/…), not just the H2D it was
+// developed against. Falls back to a sensible default if /api/status is
+// unreachable.
+async function resolveBedSize() {
+  try {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    const data = await res.json();
+    const t = data?.printer?.type;
+    const bed = (window.PRINTER_CAPS?.[t] || window.PRINTER_CAPS?.X1)?.bedSize;
+    if (bed && bed.x && bed.y && bed.z) return bed;
+  } catch (_) { /* fall through to default */ }
+  return { x: 256, y: 256, z: 256 }; // X1-class default
+}
+const bed = await resolveBedSize();
+
+const preview = GCodePreview.init({
+  canvas,
+  extrusionColor: 'hotpink',
+  backgroundColor: '#1a1c20',
+  // Travels are visualized via the trail (short-lived gray streak) rather than
+  // baked into the static toolpath — keeps the build plate uncluttered.
+  renderTravel: false,
+  buildVolume: { x: bed.x, y: bed.y, z: bed.z },
+  initialCameraPosition: [-120, 130, 150],
+});
+
+// Decorative hotend assembly modelled after a Bambu-style nozzle. Built with
+// MeshLambertMaterial so it picks up the lights gcode-preview adds to the
+// scene each render. All geometry is in mm in the gcode coordinate space; the
+// nozzle tip is at local y=0 and everything else stacks above it.
+const nozzleGroup = new THREE.Group();
+const SCALE = 1.6;
+// Phong materials with specular highlights so the metal parts read as metal,
+// not flat gray. Bright colors + specular give the pop the user asked for.
+function metal(hex, spec = 0xffffff, shininess = 80) {
+  return new THREE.MeshPhongMaterial({ color: hex, specular: spec, shininess });
+}
+function matte(hex)  { return new THREE.MeshLambertMaterial({ color: hex }); }
+const matBrass    = metal(0xf2c14e, 0xfff0c8, 110);  // bright brass
+const matSilicone = matte(0xd84545);                 // Bambu red sock
+const matSteel    = metal(0xd6dae2, 0xffffff, 90);   // chromed steel
+const matAlu      = metal(0xe6e9ee, 0xffffff, 70);   // polished aluminum
+const matFilament = matte(0xff5fa2);
+
+// Brass nozzle tip — apex at y=0 (touches print), base at y=2*SCALE.
+const nozTipGeo = new THREE.ConeGeometry(0.9 * SCALE, 2 * SCALE, 24);
+nozTipGeo.rotateX(Math.PI);
+nozTipGeo.translate(0, 1 * SCALE, 0);
+const nozTip = new THREE.Mesh(nozTipGeo, matBrass);
+// Small brass collar above the tip.
+const collarGeo = new THREE.CylinderGeometry(1.6 * SCALE, 0.9 * SCALE, 1.5 * SCALE, 24);
+collarGeo.translate(0, 2.75 * SCALE, 0);
+const collar = new THREE.Mesh(collarGeo, matBrass);
+// Red silicone sock — soft rounded box wrapping the heatblock.
+const sockGeo = new THREE.BoxGeometry(6 * SCALE, 4 * SCALE, 5 * SCALE);
+sockGeo.translate(0, 5.5 * SCALE, 0);
+const sock = new THREE.Mesh(sockGeo, matSilicone);
+// Heater cartridge sticking out one side, thermistor the other.
+const heaterGeo = new THREE.CylinderGeometry(0.7 * SCALE, 0.7 * SCALE, 4 * SCALE, 16);
+heaterGeo.rotateZ(Math.PI / 2);
+heaterGeo.translate(-4 * SCALE, 5 * SCALE, 0);
+const heater = new THREE.Mesh(heaterGeo, matSteel);
+const thermGeo = new THREE.CylinderGeometry(0.45 * SCALE, 0.45 * SCALE, 3 * SCALE, 12);
+thermGeo.rotateZ(Math.PI / 2);
+thermGeo.translate(3.5 * SCALE, 6 * SCALE, 0);
+const therm = new THREE.Mesh(thermGeo, matSteel);
+// Heatbreak — thin steel neck between sock and heatsink.
+const breakGeo = new THREE.CylinderGeometry(1.1 * SCALE, 1.1 * SCALE, 1.5 * SCALE, 20);
+breakGeo.translate(0, 8.25 * SCALE, 0);
+const heatbreak = new THREE.Mesh(breakGeo, matSteel);
+// Aluminum heatsink: alternating thin/thick cylinder discs to suggest fins.
+const heatsink = new THREE.Group();
+let y = 9 * SCALE;
+for (let i = 0; i < 6; i++) {
+  const fat = i % 2 === 0;
+  const r = (fat ? 2.4 : 1.8) * SCALE;
+  const h = (fat ? 0.6 : 0.7) * SCALE;
+  const g = new THREE.CylinderGeometry(r, r, h, 24);
+  g.translate(0, y + h / 2, 0);
+  heatsink.add(new THREE.Mesh(g, matAlu));
+  y += h;
+}
+// Filament tube above the heatsink.
+const filGeo = new THREE.CylinderGeometry(0.45 * SCALE, 0.45 * SCALE, 6 * SCALE, 12);
+filGeo.translate(0, y + 3 * SCALE, 0);
+const filTube = new THREE.Mesh(filGeo, matFilament);
+nozzleGroup.add(nozTip, collar, sock, heater, therm, heatbreak, heatsink, filTube);
+nozzleGroup.visible = false;
+
+// Bambu-style print plate: matte slab with subtle grid lines and a slightly
+// lighter rim, evoking the textured PEI build plate. Built as a small group
+// (slab + grid lines + rim) so it stays self-contained. Sized to the actual
+// connected printer's bed.
+const PLATE_W = bed.x, PLATE_D = bed.y;
+const printPlate = new THREE.Group();
+const plateSlabGeo = new THREE.BoxGeometry(PLATE_W, 0.6, PLATE_D);
+plateSlabGeo.translate(0, -0.3, 0);  // top face at y=0
+const plateSlabMat = new THREE.MeshBasicMaterial({ color: 0x202329 });
+printPlate.add(new THREE.Mesh(plateSlabGeo, plateSlabMat));
+// Subtle Bambu-style gridlines on the plate top (25mm cells).
+const gridLines = new THREE.GridHelper(Math.max(PLATE_W, PLATE_D), 14, 0x3a4050, 0x3a4050);
+gridLines.position.y = 0.01;
+gridLines.material.transparent = true;
+gridLines.material.opacity = 0.35;
+printPlate.add(gridLines);
+// Lighter rim around the edges (4 thin boxes).
+const rimMat = new THREE.MeshBasicMaterial({ color: 0x4a505a });
+const rimT = 1.2, rimH = 0.2;
+const mkRim = (w, d, x, z) => {
+  const g = new THREE.BoxGeometry(w, rimH, d);
+  g.translate(x, rimH / 2, z);
+  printPlate.add(new THREE.Mesh(g, rimMat));
+};
+mkRim(PLATE_W, rimT, 0, +PLATE_D / 2 - rimT / 2);
+mkRim(PLATE_W, rimT, 0, -PLATE_D / 2 + rimT / 2);
+mkRim(rimT, PLATE_D, +PLATE_W / 2 - rimT / 2, 0);
+mkRim(rimT, PLATE_D, -PLATE_W / 2 + rimT / 2, 0);
+
+// Lights for the nozzle group — gcode-preview's ambient is too dim for the
+// dark hotend assembly to read clearly. Attach our own so the nozzle pops
+// regardless of scene lighting.
+const nozzleAmbient = new THREE.AmbientLight(0xffffff, 0.55);
+const nozzleKey = new THREE.DirectionalLight(0xffffff, 1.1);
+nozzleKey.position.set(80, 120, 60);
+const nozzleFill = new THREE.DirectionalLight(0xc8d4ff, 0.4);
+nozzleFill.position.set(-60, 40, -40);
+
+// Hot-extrusion trail: a vertex-colored line drawn on top of the cold gcode-
+// preview toolpath. We append the nozzle's world position each frame and
+// color each point by its age — yellow-white when fresh, fading through
+// orange/red to the cold print color, then to fully-faded.
+const trailGeo = new THREE.BufferGeometry();
+const trailPositions = new Float32Array(TRAIL_MAX_POINTS * 3);
+const trailColors    = new Float32Array(TRAIL_MAX_POINTS * 3);
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+trailGeo.setAttribute('color',    new THREE.BufferAttribute(trailColors, 3));
+trailGeo.setDrawRange(0, 0);
+const trailMat = new THREE.LineBasicMaterial({
+  vertexColors: true, transparent: true, linewidth: 2,
+});
+const trailLine = new THREE.Line(trailGeo, trailMat);
+const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true breaks the line
+let lastTrailPos = null;
+
+function lerpColor(a, b, t) {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+const COLOR_HOT  = [1.00, 0.95, 0.55]; // yellow-white
+const COLOR_MID  = [1.00, 0.42, 0.18]; // orange
+const COLOR_WARM = [0.85, 0.18, 0.30]; // deep red
+let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
+
+function ageColor(age01) {
+  // 0..0.25  hot → mid
+  // 0.25..0.6 mid → warm
+  // 0.6..1   warm → cold
+  if (age01 < 0.25) return lerpColor(COLOR_HOT, COLOR_MID, age01 / 0.25);
+  if (age01 < 0.6)  return lerpColor(COLOR_MID, COLOR_WARM, (age01 - 0.25) / 0.35);
+  return lerpColor(COLOR_WARM, COLOR_COLD, (age01 - 0.6) / 0.4);
+}
+
+function updateTrail() {
+  if (activeLayerIdx < 0) return;
+  // While paused (FINISH/IDLE) clear the trail so we don't leave hot streaks
+  // hanging on a finished print.
+  if (isPausedForState()) {
+    if (trailBuf.length) {
+      trailBuf.length = 0;
+      trailGeo.setDrawRange(0, 0);
+    }
+    lastTrailPos = null;
+    return;
+  }
+  const now = performance.now();
+  const x = nozzleGroup.position.x;
+  const y = nozzleGroup.position.y;
+  const z = nozzleGroup.position.z;
+
+  if (lastTrailPos) {
+    const d = Math.hypot(x - lastTrailPos.x, y - lastTrailPos.y, z - lastTrailPos.z);
+    if (d > 0.05) {                    // moved enough to record
+      // Big jumps (layer change, scrub) → mark the new point as a break.
+      const jump = d > TRAIL_BREAK_DIST;
+      trailBuf.push({ x, y, z, t: now, jump });
+      lastTrailPos = { x, y, z };
+    }
+  } else {
+    trailBuf.push({ x, y, z, t: now, jump: true });
+    lastTrailPos = { x, y, z };
+  }
+
+  // Drop expired points.
+  while (trailBuf.length && (now - trailBuf[0].t) / 1000 > TRAIL_SECONDS) {
+    trailBuf.shift();
+  }
+  while (trailBuf.length > TRAIL_MAX_POINTS) trailBuf.shift();
+
+  // Push positions/colors. We use a degenerate line break on "jump" points by
+  // setting the previous vertex's alpha-equivalent (color black, but threejs
+  // LineBasicMaterial doesn't take per-vertex alpha) — easiest cheat: set the
+  // color of jump points to fully-faded so the bridging segment is invisible.
+  const n = trailBuf.length;
+  for (let i = 0; i < n; i++) {
+    const p = trailBuf[i];
+    trailPositions[i * 3] = p.x;
+    trailPositions[i * 3 + 1] = p.y;
+    trailPositions[i * 3 + 2] = p.z;
+    const age = (now - p.t) / 1000 / TRAIL_SECONDS;
+    if (p.jump) {
+      // Hide the bridge by collapsing color to background-near-black.
+      trailColors[i * 3] = 0; trailColors[i * 3 + 1] = 0; trailColors[i * 3 + 2] = 0;
+    } else {
+      const c = ageColor(Math.min(1, Math.max(0, age)));
+      trailColors[i * 3] = c[0]; trailColors[i * 3 + 1] = c[1]; trailColors[i * 3 + 2] = c[2];
+    }
+  }
+  trailGeo.setDrawRange(0, n);
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+}
+// gcode-preview's render() calls initScene() which clears all scene children.
+// Hook it: update the nozzle's animated position, re-add it, and force one more
+// renderer pass so it shows up after the lib has rebuilt the scene.
+const _origRender = preview.render.bind(preview);
+preview.render = function () {
+  const ret = _origRender();
+  for (const obj of [printPlate, nozzleAmbient, nozzleKey, nozzleFill, trailLine, nozzleGroup]) {
+    if (!preview.scene.children.includes(obj)) preview.scene.add(obj);
+  }
+  updateNozzlePosition();
+  updateTrail();
+  preview.renderer?.render(preview.scene, preview.camera);
+  return ret;
+};
+
+const buildCenter = { x: bed.x / 2, y: bed.y / 2 };
+
+// gcode-preview's layer.height is the LAYER THICKNESS, not absolute Z. Build a
+// prefix-sum after gcode loads so we can look up the absolute Z by layer idx.
+let cumZ = [];
+function recomputeCumZ() {
+  cumZ = [];
+  let z = 0;
+  for (const l of (preview.layers || [])) {
+    z += (typeof l.height === 'number' ? l.height : 0);
+    cumZ.push(z);
+  }
+}
+
+// Per-layer simplified path: array of {x, y} points + cumulative travel
+// distance so we can interpolate the nozzle position by elapsed time.
+let layerPaths = [];
+let activeLayerIdx = -1;
+let layerStartTime = 0;
+
+// Cumulative extrusion-time prefix sum across all layers. Used to map MQTT's
+// global `mc_percent` (0–100) into a (layer, within-layer-elapsed) pair so
+// the widget tracks the printer's real position rather than looping freely.
+let cumLayerTime = [0];
+let totalGcodeTime = 0;
+function recomputeCumLayerTime() {
+  cumLayerTime = [0];
+  let t = 0;
+  for (const lp of layerPaths) {
+    t += lp.total;
+    cumLayerTime.push(t);
+  }
+  totalGcodeTime = t;
+}
+
+function buildLayerPaths() {
+  // Build a per-layer list of segments. Each segment carries:
+  //   ax,ay → bx,by   start/end positions in gcode coords
+  //   ext             true for extrusion moves (G1 with positive E in M83 mode,
+  //                   or increasing E in M82); false for travels (move-only G0/G1)
+  //   dur             segment duration in seconds at the gcode's own feedrate.
+  //                   Travels resolve to 0 so they're instant — the nozzle
+  //                   teleports to the next extrusion start.
+  // Per-layer total = total extrusion time, which becomes the loop length for
+  // the simulated nozzle walk so it moves at real print speed.
+  layerPaths = [];
+  const layers = preview.layers || [];
+  let curX = 0, curY = 0;
+  let curF = 6000;          // mm/min, initial guess
+  let absoluteE = false;    // M83 (relative) is the Bambu default
+  let prevE = 0;
+  for (const layer of layers) {
+    const segs = [];
+    const cmds = (layer && layer.commands) || [];
+    for (const c of cmds) {
+      const g = c.gcode;
+      if (g === 'm82') { absoluteE = true; prevE = 0; continue; }
+      if (g === 'm83') { absoluteE = false; continue; }
+      if (g !== 'g0' && g !== 'g1') continue;
+      const p = c.params || {};
+      if (typeof p.f === 'number' && p.f > 0) curF = p.f;
+      const nx = (typeof p.x === 'number') ? p.x : curX;
+      const ny = (typeof p.y === 'number') ? p.y : curY;
+      // Detect extrusion: in M83, any positive E param. In M82, E that exceeds
+      // the previous absolute E.
+      let isExtrusion = false;
+      if (g === 'g1' && typeof p.e === 'number') {
+        if (absoluteE) { isExtrusion = p.e > prevE; prevE = p.e; }
+        else { isExtrusion = p.e > 0; }
+      }
+      if (nx !== curX || ny !== curY) {
+        const dist = Math.hypot(nx - curX, ny - curY);
+        const dur = isExtrusion ? (dist / (curF / 60)) / NOZZLE_SPEED_FACTOR : 0;
+        segs.push({ ax: curX, ay: curY, bx: nx, by: ny, ext: isExtrusion, dist, dur });
+        curX = nx; curY = ny;
+      }
+    }
+    let total = 0;
+    const cumTime = [0];
+    for (const s of segs) {
+      total += s.dur;
+      cumTime.push(total);
+    }
+    layerPaths.push({ segs, cumTime, total });
+  }
+}
+
+function nozzleXYAt(layerIdx, elapsedSec) {
+  const p = layerPaths[layerIdx];
+  if (!p || p.segs.length === 0) return null;
+  if (p.total === 0) return { x: p.segs[0].bx, y: p.segs[0].by };
+  const targetT = elapsedSec % p.total;
+  // Find the segment whose cumulative end-time crosses targetT. Travel
+  // segments have dur=0 so they're skipped; we land on the start of the next
+  // extrusion segment.
+  let i = 0;
+  while (i < p.segs.length && p.cumTime[i + 1] < targetT) i++;
+  if (i >= p.segs.length) i = p.segs.length - 1;
+  const s = p.segs[i];
+  if (!s.ext || s.dur === 0) return { x: s.bx, y: s.by };
+  const f = (targetT - p.cumTime[i]) / s.dur;
+  return { x: s.ax + (s.bx - s.ax) * f, y: s.ay + (s.by - s.ay) * f };
+}
+
+// When set, the nozzle's within-layer position is pinned to this fraction
+// (0..1) instead of being driven by elapsed wall-clock time.
+let pathHoldFraction = null;
+
+// Called from the wrapped preview.render() so the nozzle position updates on
+// every frame the orbit loop produces.
+function updateNozzlePosition() {
+  // Hide the nozzle entirely when the printer isn't actively printing — no
+  // real motion is happening, so the simulated nozzle would mislead the user.
+  if (isPausedForState()) {
+    nozzleGroup.visible = false;
+    return;
+  }
+  if (activeLayerIdx < 0 || !layerPaths.length) {
+    nozzleGroup.visible = false;
+    return;
+  }
+  let elapsed;
+  if (pathHoldFraction !== null) {
+    const total = layerPaths[activeLayerIdx]?.total || 0;
+    elapsed = pathHoldFraction * total;
+  } else {
+    elapsed = (performance.now() - layerStartTime) / 1000;
+  }
+  const xy = nozzleXYAt(activeLayerIdx, elapsed);
+  if (!xy) { nozzleGroup.visible = false; return; }
+  const z = cumZ[activeLayerIdx] ?? 0;
+  // gcode-preview rotates its render group -90° around X (so gcode Y maps to
+  // negative three.z) and translates by (-bv.x/2, 0, +bv.y/2). Mirror that
+  // here so the nozzle lines up with the rendered toolpath, not the
+  // bed-centered raw coords. Sign on Z was flipped before — caused prints
+  // offset from bed center to appear ~20mm shifted.
+  nozzleGroup.position.set(xy.x - buildCenter.x, z, buildCenter.y - xy.y);
+  nozzleGroup.visible = true;
+}
+
+// Sets which layer the nozzle should walk along. Position itself comes from
+// the time-driven animation in updateNozzlePosition().
+function setNozzleLayer(endLayer) {
+  const layers = preview.layers || [];
+  if (endLayer <= 0 || !layers.length) {
+    activeLayerIdx = -1;
+    return;
+  }
+  const idx = Math.min(endLayer, layers.length) - 1;
+  if (idx !== activeLayerIdx) {
+    activeLayerIdx = idx;
+    layerStartTime = performance.now();
+  }
+}
+
+// Verify mode: auto-advance the nozzle's active layer through 0..verifyLayers-1
+// when each layer's total extrusion time elapses. Renders all N layers up
+// front so the user can compare the nozzle's path against the static toolpath.
+let verifyManualHold = false;
+function verifyAdvanceTick() {
+  if (!verifyLayers || verifyManualHold || pathHoldFraction !== null || activeLayerIdx < 0 || !layerPaths.length) return;
+  const cap = Math.min(verifyLayers, layerPaths.length);
+  const p = layerPaths[activeLayerIdx];
+  if (!p || p.total === 0) {
+    // Empty layer — skip immediately
+    const next = (activeLayerIdx + 1) % cap;
+    setNozzleLayer(next + 1);
+    return;
+  }
+  const elapsed = (performance.now() - layerStartTime) / 1000;
+  if (elapsed >= p.total) {
+    const next = (activeLayerIdx + 1) % cap;
+    setNozzleLayer(next + 1);
+    setLabel(next + 1, cap);
+  }
+}
+
+let currentTaskKey = null;
+let lastEndLayer = -1;
+let inFlight = false;
+
+let totalLayers = 0;
+let scrubActive = false;     // user is dragging or playing
+let scrubLayer = 0;
+let playing = false;
+let playTimer = null;
+let lastGcodeState = null;   // most recent gcode_state from MQTT
+// In production (no ?debug / ?layers), pause all motion when the printer
+// isn't actively printing. The toolpath stays on screen as a finished snapshot.
+function isPausedForState() {
+  if (verifyLayers || scrubActive) return false;
+  return lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED';
+}
+
+// Pull the active filament color from MQTT — Bambu reports it as "RRGGBBAA"
+// hex on each tray; tray_now (or mapping) tells us which is feeding. Returns
+// "#RRGGBB" or null if nothing usable was found.
+function activeFilamentHex(print) {
+  const ams = print?.ams?.ams;
+  if (!Array.isArray(ams) || !ams.length) return null;
+  const trayNow = parseInt(print?.ams?.tray_now ?? '255', 10);
+  // Walk all trays; build a global slot list (slot 0–3 = AMS 0, 4–7 = AMS 1, …).
+  const slots = [];
+  ams.forEach((unit, ai) => {
+    (unit.tray || []).forEach((tray, ti) => {
+      slots[ai * 4 + ti] = tray;
+    });
+  });
+  let pick = (trayNow >= 0 && trayNow < 255) ? slots[trayNow] : null;
+  // Fall back to the first tray that looks loaded (color set, brand or type known).
+  if (!pick || !pick.tray_color || pick.tray_color === '00000000') {
+    pick = slots.find(t =>
+      t && typeof t.tray_color === 'string' &&
+      t.tray_color !== '00000000' &&
+      (t.tray_type || t.tray_sub_brands || t.tray_id_name)
+    );
+  }
+  if (!pick || !pick.tray_color || pick.tray_color.length < 6) return null;
+  return '#' + pick.tray_color.slice(0, 6).toUpperCase();
+}
+
+function hexToRgb01(hex) {
+  const h = hex.replace('#', '');
+  return [
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255,
+  ];
+}
+
+let lastFilamentHex = null;
+function syncFilamentColor(print) {
+  const hex = activeFilamentHex(print);
+  if (!hex || hex === lastFilamentHex) return;
+  // Pure black filament reads as invisible on the dark plate — nudge it up
+  // so the toolpath stays legible without misrepresenting color.
+  let useHex = hex;
+  if (hex === '#000000') useHex = '#404040';
+  preview.extrusionColor = useHex;
+  COLOR_COLD = hexToRgb01(useHex);
+  lastFilamentHex = hex;
+}
+
+function setOverlay(text, isError = false) {
+  overlay.textContent = text;
+  overlay.classList.toggle('error', !!isError);
+  overlay.style.display = text ? 'block' : 'none';
+}
+
+function setLabel(layer, total) {
+  if (labelEl) labelEl.textContent = `layer ${layer} / ${total}`;
+}
+
+async function loadGcode(taskKey) {
+  inFlight = true;
+  setOverlay('loading toolpath…');
+  try {
+    const res = await fetch('/api/gcode/current', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    preview.processGCode(text);
+    recomputeCumZ();
+    buildLayerPaths();
+    recomputeCumLayerTime();
+    // Reset auto-fit so the next orbit tick re-frames to this job's bbox.
+    orbitRadius = 0;
+    // Clear any leftover trail from a previous job.
+    trailBuf.length = 0;
+    lastTrailPos = null;
+    currentTaskKey = taskKey;
+    lastEndLayer = -1;
+    totalLayers = preview.layers?.length || 0;
+    const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
+    if (scrubEl) {
+      scrubEl.max = String(renderCap);
+      scrubEl.value = String(renderCap);
+      scrubLayer = renderCap;
+    }
+    if (verifyLayers) {
+      // Render all N layers up front; nozzle walks them sequentially.
+      scrubActive = true;       // freeze tick() from overriding
+      advanceTo(renderCap);     // draw all N layers' toolpath
+      setNozzleLayer(1);        // start nozzle on layer 1
+    }
+    setLabel(verifyLayers ? 1 : totalLayers, renderCap);
+    setOverlay('');
+  } catch (e) {
+    currentTaskKey = null;
+    setOverlay(`gcode fetch failed: ${e.message}`, true);
+  } finally {
+    inFlight = false;
+  }
+}
+
+function advanceTo(layerNum) {
+  if (layerNum === lastEndLayer) return;
+  preview.endLayer = layerNum;
+  setNozzleLayer(layerNum);
+  preview.render();
+  lastEndLayer = layerNum;
+  setLabel(layerNum, totalLayers);
+}
+
+// Slow camera orbit — runs continuously while a job is loaded. Radius/height
+// auto-fit to the loaded print's bounding box so small prints fill the frame
+// and big prints don't get clipped.
+let orbitStart = performance.now();
+let orbitRadius = 0;
+let orbitHeight = 0;
+let orbitTarget = new THREE.Vector3(0, 0, 0);
+
+function autoFitCamera() {
+  // Compute bbox of just the "real" model extrusions, ignoring Bambu's prep
+  // / priming / purge passes which can span the whole bed and blow up the
+  // framing. We approximate "real model layer" as one whose layer thickness
+  // is in the normal slicer range (0.05–0.5 mm).
+  if (!layerPaths.length || !preview.layers?.length) return;
+  let minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
+  const cap = verifyLayers ? Math.min(verifyLayers, layerPaths.length) : layerPaths.length;
+  for (let i = 0; i < cap; i++) {
+    const h = preview.layers[i]?.height || 0;
+    if (h < 0.05 || h > 0.5) continue;     // skip prep / priming / wipe layers
+    const lp = layerPaths[i];
+    for (const s of lp.segs) {
+      if (!s.ext) continue;
+      if (s.ax < minX) minX = s.ax; if (s.ax > maxX) maxX = s.ax;
+      if (s.bx < minX) minX = s.bx; if (s.bx > maxX) maxX = s.bx;
+      if (s.ay < minY) minY = s.ay; if (s.ay > maxY) maxY = s.ay;
+      if (s.by < minY) minY = s.by; if (s.by > maxY) maxY = s.by;
+    }
+  }
+  if (!isFinite(minX) || !isFinite(minY)) return;
+  const sx = maxX - minX, sy = maxY - minY;
+  const cxg = (minX + maxX) / 2, cyg = (minY + maxY) / 2;
+  const sz = (cumZ[Math.min(cap, cumZ.length) - 1] || 0);
+  const footprint = Math.hypot(sx, sy);
+  orbitRadius = Math.max(120, footprint * 1.4 + 100);
+  orbitHeight = Math.max(90, sz + footprint * 0.7);
+  // Map gcode (cxg, cyg, sz/2) to three world coords for the camera target.
+  orbitTarget = new THREE.Vector3(
+    cxg - buildCenter.x,
+    sz / 2,
+    buildCenter.y - cyg,
+  );
+}
+
+// Latched orbit angle so a paused widget freezes at whatever angle it was
+// last showing — instead of snapping back to theta=0 — and resumes from there
+// once the printer goes back to RUNNING.
+let lastTheta = 0;
+let orbitFrozenAt = null; // performance.now() at which we paused
+function orbitTick() {
+  if (preview.camera && totalLayers > 0) {
+    if (orbitRadius === 0) {
+      autoFitCamera();
+      if (orbitRadius === 0) { orbitRadius = 190; orbitHeight = 130; }
+    }
+    const paused = isPausedForState();
+    let theta;
+    if (paused) {
+      if (orbitFrozenAt === null) orbitFrozenAt = performance.now();
+      theta = lastTheta;
+    } else {
+      // Resuming from a paused stretch: shift orbitStart so theta picks up
+      // where it left off, no jump.
+      if (orbitFrozenAt !== null) {
+        orbitStart += (performance.now() - orbitFrozenAt);
+        orbitFrozenAt = null;
+      }
+      const t = (performance.now() - orbitStart) / 1000;
+      theta = t * (ROTATE_DEG_PER_SEC * Math.PI / 180);
+      lastTheta = theta;
+    }
+    preview.camera.position.set(
+      orbitTarget.x + Math.sin(theta) * orbitRadius,
+      orbitTarget.y + orbitHeight,
+      orbitTarget.z + Math.cos(theta) * orbitRadius,
+    );
+    preview.camera.lookAt(orbitTarget);
+    verifyAdvanceTick();
+    preview.render();
+  }
+  requestAnimationFrame(orbitTick);
+}
+requestAnimationFrame(orbitTick);
+
+async function tick() {
+  try {
+    const res = await fetch('/data.json', { cache: 'no-store' });
+    const data = await res.json();
+    const print = (data && data.print) || {};
+    const taskId = print.task_id || print.subtask_id;
+    const plateIdx = print.plate_idx || print.plate_id || 1;
+    const state = print.gcode_state;
+    const layerNum = Number(print.layer_num) || 0;
+    lastGcodeState = state;
+
+    if (!taskId || state === 'IDLE') {
+      if (currentTaskKey) {
+        setOverlay('');
+      } else {
+        setOverlay('waiting for print…');
+      }
+      return;
+    }
+
+    syncFilamentColor(print);
+
+    const taskKey = `${taskId}_p${plateIdx}`;
+
+    if (taskKey !== currentTaskKey) {
+      if (!inFlight) await loadGcode(taskKey);
+      return;
+    }
+
+    // While scrubbing/playing, the user owns the cursor.
+    if (scrubActive) return;
+
+    if (state === 'PAUSED') return;
+
+    const target = state === 'FINISH'
+      ? (Number(print.total_layer_num) || layerNum || totalLayers)
+      : layerNum;
+    advanceTo(target);
+
+    // Sync the within-layer animation to the printer's actual progress so the
+    // simulated nozzle roughly matches what the real one is doing. Uses the
+    // global mc_percent + the gcode's per-layer time budget. Slightly off in
+    // practice (real printer ≠ slicer estimate due to accel, AMS swaps, etc.)
+    // but close enough for a dashboard.
+    if (state === 'RUNNING' && totalGcodeTime > 0 && activeLayerIdx >= 0) {
+      const mcPct = Number(print.mc_percent);
+      if (Number.isFinite(mcPct)) {
+        const targetT = (mcPct / 100) * totalGcodeTime;
+        const layerStartT = cumLayerTime[activeLayerIdx] || 0;
+        const layerDur = layerPaths[activeLayerIdx]?.total || 0;
+        const inLayer = Math.max(0, Math.min(layerDur, targetT - layerStartT));
+        layerStartTime = performance.now() - inLayer * 1000;
+      }
+    }
+  } catch (e) {
+    setOverlay(`status poll failed: ${e.message}`, true);
+  }
+}
+
+if (debug && debugBar) {
+  debugBar.classList.add('show');
+  window.__preview = preview;
+  window.__nozzle = nozzleGroup;
+  window.__diag = () => ({
+    activeLayerIdx,
+    pathHoldFraction,
+    totalForActive: layerPaths[activeLayerIdx]?.total,
+    segCount: layerPaths[activeLayerIdx]?.segs?.length,
+    extCount: (layerPaths[activeLayerIdx]?.segs || []).filter(s => s.ext).length,
+    orbit: { radius: orbitRadius, height: orbitHeight, target: orbitTarget?.toArray()?.map(n => +n.toFixed(1)) },
+  });
+
+  scrubEl.addEventListener('input', () => {
+    scrubActive = true;
+    scrubLayer = Number(scrubEl.value) || 0;
+    if (verifyLayers) {
+      // Keep the full first-N rendered; just retarget the nozzle, and pin it
+      // to the user's chosen layer (no auto-advance until they release).
+      verifyManualHold = true;
+      setNozzleLayer(scrubLayer);
+      setLabel(scrubLayer, Math.min(verifyLayers, totalLayers));
+    } else {
+      advanceTo(scrubLayer);
+    }
+  });
+  if (verifyLayers) {
+    // 'change' fires when the user lets go of the slider — resume auto-advance.
+    scrubEl.addEventListener('change', () => { verifyManualHold = false; });
+  }
+
+  function setPlay(on) {
+    playing = on;
+    playEl.textContent = on ? '❚❚' : '▶';
+    if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    if (on) {
+      scrubActive = true;
+      playTimer = setInterval(() => {
+        if (totalLayers <= 0) return;
+        const cap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
+        scrubLayer = scrubLayer >= cap ? 1 : scrubLayer + 1;
+        scrubEl.value = String(scrubLayer);
+        if (verifyLayers) {
+          setNozzleLayer(scrubLayer);
+          setLabel(scrubLayer, cap);
+        } else {
+          advanceTo(scrubLayer);
+        }
+      }, Math.max(20, 1000 / PLAY_LAYERS_PER_SEC));
+    }
+  }
+
+  playEl.addEventListener('click', () => setPlay(!playing));
+
+  function stepLayer(delta) {
+    if (!totalLayers) return;
+    setPlay(false); // never auto-advance while stepping manually
+    const cap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
+    const cur = Number(scrubEl.value) || 1;
+    let nx = cur + delta;
+    if (nx < 1) nx = cap;
+    if (nx > cap) nx = 1;
+    scrubEl.value = String(nx);
+    scrubLayer = nx;
+    if (verifyLayers) {
+      verifyManualHold = true;
+      setNozzleLayer(nx);
+      setLabel(nx, cap);
+    } else {
+      scrubActive = true;
+      advanceTo(nx);
+    }
+  }
+  prevEl?.addEventListener('click', () => stepLayer(-1));
+  nextEl?.addEventListener('click', () => stepLayer(+1));
+
+  // Path slider: scrub the nozzle's position within the active layer.
+  if (pathEl) {
+    pathEl.addEventListener('input', () => {
+      const frac = (Number(pathEl.value) || 0) / 1000;
+      pathHoldFraction = frac;
+      setPlay(false);                 // freeze layer-level autoplay too
+      verifyManualHold = true;
+      pathLabelEl.textContent = `${Math.round(frac * 100)}%`;
+      // Push the new position into the renderer immediately rather than
+      // waiting for the next RAF tick so dragging feels responsive.
+      updateNozzlePosition();
+      preview.renderer?.render(preview.scene, preview.camera);
+    });
+    // 'change' fires on release — resume animation from current position.
+    pathEl.addEventListener('change', () => {
+      const total = layerPaths[activeLayerIdx]?.total || 0;
+      // Re-anchor wall-clock time so the animation continues from the held spot.
+      layerStartTime = performance.now() - pathHoldFraction * total * 1000;
+      pathHoldFraction = null;
+      verifyManualHold = false;
+    });
+  }
+}
+
+tick();
+setInterval(tick, POLL_MS);
+
+window.addEventListener('resize', () => preview.resize?.());

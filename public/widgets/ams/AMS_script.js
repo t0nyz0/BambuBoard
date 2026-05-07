@@ -112,6 +112,10 @@ function updateTray(trayIdx, tray) {
   }
 
   if (currentState !== 'RUNNING') {
+    // Off state: swatch + progress bar both grey, regardless of filament color.
+    // The drying pill (rendered separately in updateAMS) stays colorful even
+    // here, since drying can run independently of an active print.
+    $(`#tray${n}Color`).css('background-color', 'rgba(120,120,120,0.45)');
     $(`#tray${n}ProgressBar`).css('background-color', 'grey');
   }
 }
@@ -188,6 +192,20 @@ async function updateAMS(telemetryObject) {
       $('#amsProgressBar').css('background-color', 'yellow');
     } else {
       $('#amsProgressBar').css('background-color', '#51a34f');
+    }
+
+    // Off state: AMS temp + humidity bars read as inactive, but we still
+    // convey the humidity level via two shades of grey so the gauge stays
+    // useful at a glance. Drying pill (rendered separately) keeps its color.
+    if (currentState !== 'RUNNING') {
+      $('#amsProgressBar').css('background-color', 'grey');
+      $('#humidity1, #humidity2, #humidity3, #humidity4, #humidity5').css('background', '#3a3a3a');
+      // Bambu's humidity index is inverted: 5 = driest (1 bar), 1 = wettest (5 bars).
+      const idx = parseInt(amsHumidity, 10);
+      const lit = (idx >= 1 && idx <= 5) ? (6 - idx) : 0;
+      for (let i = 1; i <= lit; i++) {
+        $('#humidity' + i).css('background', '#9a9a9a');
+      }
     }
 
     // AMS active tray — dual/quad-AMS aware.

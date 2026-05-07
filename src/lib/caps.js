@@ -1,15 +1,16 @@
 // `maxAms` is the maximum number of AMS units the printer can chain via the
 // AMS Hub (Bambu firmware caps it at 4). The dual-AMS flag is derived for
 // back-compat with the H2D-only widget gating logic; new code should use maxAms.
+// `bedSize` is in mm (X = bed left↔right, Y = front↔back, Z = vertical clearance).
 const PRINTER_CAPS = {
-  X1:  { hasChamberTemp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, label: 'X1'      },
-  X1C: { hasChamberTemp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, label: 'X1 Carbon' },
-  P1P: { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, label: 'P1P'     },
-  P1S: { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, label: 'P1S'     },
-  P1:  { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, label: 'P1'      },
-  A1:  { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, label: 'A1'      },
-  A1M: { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, label: 'A1 Mini' },
-  H2D: { hasChamberTemp: true,  hasDualNozzle: true,  hasDualAMS: true,  maxAms: 4, label: 'H2D'     },
+  X1:  { hasChamberTemp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'X1'      },
+  X1C: { hasChamberTemp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'X1 Carbon' },
+  P1P: { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P1P'     },
+  P1S: { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P1S'     },
+  P1:  { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P1'      },
+  A1:  { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, bedSize: { x: 256, y: 256, z: 256 }, label: 'A1'      },
+  A1M: { hasChamberTemp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, bedSize: { x: 180, y: 180, z: 180 }, label: 'A1 Mini' },
+  H2D: { hasChamberTemp: true,  hasDualNozzle: true,  hasDualAMS: true,  maxAms: 4, bedSize: { x: 350, y: 320, z: 325 }, label: 'H2D'     },
 };
 
 const PRINTER_TYPES = Object.keys(PRINTER_CAPS);
