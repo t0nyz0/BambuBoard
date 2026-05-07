@@ -35,6 +35,7 @@
         min-height: 0;
         padding-top: 22px !important;
         padding-bottom: 14px !important;
+        position: relative;
       }
       .partTitle { flex-shrink: 0; margin-bottom: 16px; }
 
@@ -42,8 +43,14 @@
          narrow (~198px rendered), so we keep the text short and use
          nowrap + small font to keep it on one line. Wraps to its own
          line below the title only if absolutely necessary. */
-      /* Drying status on its own row below title — see ams/index.html. */
-      .ams-drying-row { flex-shrink: 0; margin-bottom: 12px; }
+      /* See ams/index.html — absolute-positioned in the top-right
+         corner, floats over empty space, doesn't push content. */
+      .ams-drying-row {
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        z-index: 2;
+      }
       .ams-drying-status {
         display: inline-flex;
         align-items: center;
@@ -53,7 +60,7 @@
         color: #f0b35e;
         border: 1px solid rgba(226, 160, 74, 0.6);
         border-radius: 10rem;
-        font-size: 0.85em;
+        font-size: 0.78em;
         font-weight: 700;
         letter-spacing: 0.04em;
         white-space: nowrap;

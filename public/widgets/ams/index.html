@@ -35,15 +35,24 @@
         min-height: 0;
         padding-top: 22px !important;
         padding-bottom: 14px !important;
+        /* Anchor for the absolute-positioned drying pill so it floats
+           over the empty top-right corner instead of pushing content
+           down (which would misalign sibling AMS cards). */
+        position: relative;
       }
       .partTitle { flex-shrink: 0; margin-bottom: 16px; }
 
-      /* Drying status — its own row directly below the title. The H2D
-         AMS card is narrow (~198px rendered) so a pill inline with the
-         title was always going to wrap awkwardly. By giving it a
-         dedicated row we get readable type at full pill style without
-         fighting card width. */
-      .ams-drying-row { flex-shrink: 0; margin-bottom: 12px; }
+      /* Drying status — absolute-positioned in the top-right corner of
+         the AMS card, floating over empty space. Doesn't push content
+         down, so AMS #1 (drying) and AMS #2 (idle) keep the same
+         layout — header / temp / humidity / trays all start at the
+         same y-coordinate on both cards regardless of drying state. */
+      .ams-drying-row {
+        position: absolute;
+        top: 18px;
+        right: 18px;
+        z-index: 2;
+      }
       .ams-drying-status {
         display: inline-flex;
         align-items: center;
@@ -53,7 +62,7 @@
         color: #f0b35e;
         border: 1px solid rgba(226, 160, 74, 0.6);
         border-radius: 10rem;
-        font-size: 0.85em;
+        font-size: 0.78em;
         font-weight: 700;
         letter-spacing: 0.04em;
         white-space: nowrap;
