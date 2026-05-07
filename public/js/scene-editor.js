@@ -1379,7 +1379,56 @@ async function onSave () {
     body: JSON.stringify({ name, json: out }),
   });
   const j = await r.json().catch(() => ({}));
-  if (j.ok) window.toast(`Saved as "${name}"`); else window.toast('Save failed: ' + (j.error || ''), 'error');
+  if (j.ok) {
+    window.toast(`Saved as "${name}"`);
+    // Refresh the loader's "Saved scenes" group so the new entry appears
+    // without a full page reload.
+    refreshSavedScenes(j.slug || null);
+  } else {
+    window.toast('Save failed: ' + (j.error || ''), 'error');
+  }
+}
+
+// Re-fetch /api/obs/scenes and rebuild just the "Saved scenes" optgroup in
+// the loader dropdown. Preserves the current selection unless `selectSlug`
+// is supplied — in which case the newly-saved scene is selected (without
+// re-triggering the loader's onChange, which would re-load the scene we
+// already have in memory).
+async function refreshSavedScenes (selectSlug) {
+  const sel = els.loader();
+  if (!sel) return;
+  let scnR = [];
+  try { scnR = await fetch('/api/obs/scenes').then(r => r.json()); } catch (_) { return; }
+  const prev = sel.value;
+  // Replace the existing Saved-scenes optgroup, leaving Templates / Upload alone.
+  const oldGroup = Array.from(sel.querySelectorAll('optgroup'))
+    .find(g => g.label === 'Saved scenes');
+  const newGroupHTML = scnR.length
+    ? '<optgroup label="Saved scenes">' + scnR.map(s =>
+        `<option value="scn:${s.slug}">${escape(s.name)}</option>`).join('') + '</optgroup>'
+    : '';
+  if (oldGroup) {
+    if (newGroupHTML) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = newGroupHTML;
+      sel.replaceChild(tmp.firstChild, oldGroup);
+    } else {
+      oldGroup.remove();
+    }
+  } else if (newGroupHTML) {
+    // Insert before the "From file" group so order stays consistent.
+    const fromFile = Array.from(sel.querySelectorAll('optgroup'))
+      .find(g => g.label === 'From file');
+    const tmp = document.createElement('div');
+    tmp.innerHTML = newGroupHTML;
+    sel.insertBefore(tmp.firstChild, fromFile || null);
+  }
+  // Restore selection (suppress the loader change handler so it doesn't
+  // re-fetch a scene we already have in state).
+  const target = selectSlug ? `scn:${selectSlug}` : prev;
+  if (target && Array.from(sel.options).some(o => o.value === target)) {
+    sel.value = target;
+  }
 }
 
 async function onDownload () {

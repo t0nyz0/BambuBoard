@@ -189,7 +189,9 @@ function buildObsSceneRouter({ paths }) {
       const text = typeof json === 'string' ? json : JSON.stringify(json, null, 2);
       JSON.parse(text); // validate
       await fsp.writeFile(path.join(SCENES_DIR, `${name}.json`), text);
-      res.json({ ok: true });
+      // Return the slug so callers (the scene editor) can auto-select the new
+      // entry in their saved-scenes dropdown without a page reload.
+      res.json({ ok: true, slug: name });
     } catch (e) {
       res.status(400).json({ error: e.message });
     }

@@ -201,8 +201,15 @@ async function updateAMS(telemetryObject) {
     // Off state: AMS temp + humidity bars read as inactive, but we still
     // convey the humidity level via two shades of grey so the gauge stays
     // useful at a glance. Drying pill (rendered separately) keeps its color.
-    if (currentState !== 'RUNNING') {
+    // Exception: when the AMS is actively drying (dry_time > 0), the
+    // temp progress bar stays in its colored state — the unit is heating
+    // and the heating value is the relevant piece of data even with the
+    // printer idle.
+    const isDrying = (parseInt(amsUnit.dry_time, 10) || 0) > 0;
+    if (currentState !== 'RUNNING' && !isDrying) {
       $('#amsProgressBar').css('background-color', 'grey');
+    }
+    if (currentState !== 'RUNNING') {
       $('#humidity1, #humidity2, #humidity3, #humidity4, #humidity5').css('background', '#3a3a3a');
       // Bambu's humidity index is inverted: 5 = driest (1 bar), 1 = wettest (5 bars).
       const idx = parseInt(amsHumidity, 10);
