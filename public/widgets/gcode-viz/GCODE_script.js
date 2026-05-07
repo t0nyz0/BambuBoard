@@ -71,67 +71,37 @@ const preview = GCodePreview.init({
   initialCameraPosition: [-120, 130, 150],
 });
 
-// Decorative hotend assembly modelled after a Bambu-style nozzle. Built with
-// MeshLambertMaterial so it picks up the lights gcode-preview adds to the
-// scene each render. All geometry is in mm in the gcode coordinate space; the
-// nozzle tip is at local y=0 and everything else stacks above it.
+// Hotend modeled on the Bambu H2D tungsten-carbide nozzle assembly: a small
+// near-black tip → long polished tapered steel body → black square heatblock
+// at the top. All geometry in mm in gcode space; the tip is at local y=0
+// (touching the print) and everything stacks upward.
 const nozzleGroup = new THREE.Group();
 const SCALE = 1.6;
-// Phong materials with specular highlights so the metal parts read as metal,
-// not flat gray. Bright colors + specular give the pop the user asked for.
-function metal(hex, spec = 0xffffff, shininess = 80) {
+function metal(hex, spec = 0xffffff, shininess = 90) {
   return new THREE.MeshPhongMaterial({ color: hex, specular: spec, shininess });
 }
-function matte(hex)  { return new THREE.MeshLambertMaterial({ color: hex }); }
-const matBrass    = metal(0xf2c14e, 0xfff0c8, 110);  // bright brass
-const matSilicone = matte(0xd84545);                 // Bambu red sock
-const matSteel    = metal(0xd6dae2, 0xffffff, 90);   // chromed steel
-const matAlu      = metal(0xe6e9ee, 0xffffff, 70);   // polished aluminum
-const matFilament = matte(0xff5fa2);
+function matte(hex) { return new THREE.MeshLambertMaterial({ color: hex }); }
+const matSteel    = metal(0xd6dae2, 0xffffff, 110); // polished steel
+const matBlock    = matte(0x1d1f24);                // matte charcoal heatblock
+const matTip      = matte(0x0e1014);                // near-black tip
 
-// Brass nozzle tip — apex at y=0 (touches print), base at y=2*SCALE.
-const nozTipGeo = new THREE.ConeGeometry(0.9 * SCALE, 2 * SCALE, 24);
-nozTipGeo.rotateX(Math.PI);
-nozTipGeo.translate(0, 1 * SCALE, 0);
-const nozTip = new THREE.Mesh(nozTipGeo, matBrass);
-// Small brass collar above the tip.
-const collarGeo = new THREE.CylinderGeometry(1.6 * SCALE, 0.9 * SCALE, 1.5 * SCALE, 24);
-collarGeo.translate(0, 2.75 * SCALE, 0);
-const collar = new THREE.Mesh(collarGeo, matBrass);
-// Red silicone sock — soft rounded box wrapping the heatblock.
-const sockGeo = new THREE.BoxGeometry(6 * SCALE, 4 * SCALE, 5 * SCALE);
-sockGeo.translate(0, 5.5 * SCALE, 0);
-const sock = new THREE.Mesh(sockGeo, matSilicone);
-// Heater cartridge sticking out one side, thermistor the other.
-const heaterGeo = new THREE.CylinderGeometry(0.7 * SCALE, 0.7 * SCALE, 4 * SCALE, 16);
-heaterGeo.rotateZ(Math.PI / 2);
-heaterGeo.translate(-4 * SCALE, 5 * SCALE, 0);
-const heater = new THREE.Mesh(heaterGeo, matSteel);
-const thermGeo = new THREE.CylinderGeometry(0.45 * SCALE, 0.45 * SCALE, 3 * SCALE, 12);
-thermGeo.rotateZ(Math.PI / 2);
-thermGeo.translate(3.5 * SCALE, 6 * SCALE, 0);
-const therm = new THREE.Mesh(thermGeo, matSteel);
-// Heatbreak — thin steel neck between sock and heatsink.
-const breakGeo = new THREE.CylinderGeometry(1.1 * SCALE, 1.1 * SCALE, 1.5 * SCALE, 20);
-breakGeo.translate(0, 8.25 * SCALE, 0);
-const heatbreak = new THREE.Mesh(breakGeo, matSteel);
-// Aluminum heatsink: alternating thin/thick cylinder discs to suggest fins.
-const heatsink = new THREE.Group();
-let y = 9 * SCALE;
-for (let i = 0; i < 6; i++) {
-  const fat = i % 2 === 0;
-  const r = (fat ? 2.4 : 1.8) * SCALE;
-  const h = (fat ? 0.6 : 0.7) * SCALE;
-  const g = new THREE.CylinderGeometry(r, r, h, 24);
-  g.translate(0, y + h / 2, 0);
-  heatsink.add(new THREE.Mesh(g, matAlu));
-  y += h;
-}
-// Filament tube above the heatsink.
-const filGeo = new THREE.CylinderGeometry(0.45 * SCALE, 0.45 * SCALE, 6 * SCALE, 12);
-filGeo.translate(0, y + 3 * SCALE, 0);
-const filTube = new THREE.Mesh(filGeo, matFilament);
-nozzleGroup.add(nozTip, collar, sock, heater, therm, heatbreak, heatsink, filTube);
+// Tip — short cylinder that touches the print.
+const tipH = 1.6 * SCALE;
+const tipGeo = new THREE.CylinderGeometry(0.55 * SCALE, 0.45 * SCALE, tipH, 16);
+tipGeo.translate(0, tipH / 2, 0);
+const tip = new THREE.Mesh(tipGeo, matTip);
+// Steel body — long tapered cylinder, narrow at the tip end, wide at the top.
+const bodyH = 11 * SCALE;
+const bodyGeo = new THREE.CylinderGeometry(2.2 * SCALE, 0.8 * SCALE, bodyH, 28);
+bodyGeo.translate(0, tipH + bodyH / 2, 0);
+const body = new THREE.Mesh(bodyGeo, matSteel);
+// Heatblock — black square box on top with a slight overhang vs the body.
+const blockH = 4.5 * SCALE;
+const blockW = 5.5 * SCALE;
+const blockGeo = new THREE.BoxGeometry(blockW, blockH, blockW);
+blockGeo.translate(0, tipH + bodyH + blockH / 2, 0);
+const block = new THREE.Mesh(blockGeo, matBlock);
+nozzleGroup.add(tip, body, block);
 nozzleGroup.visible = false;
 
 // Bambu-style print plate: matte slab with subtle grid lines and a slightly
@@ -269,20 +239,52 @@ function updateTrail() {
   trailGeo.attributes.position.needsUpdate = true;
   trailGeo.attributes.color.needsUpdate = true;
 }
-// gcode-preview's render() calls initScene() which clears all scene children.
-// Hook it: update the nozzle's animated position, re-add it, and force one more
-// renderer pass so it shows up after the lib has rebuilt the scene.
+// gcode-preview's render() rebuilds the entire toolpath geometry (parses
+// commands up to endLayer, creates a fresh group, and clears the scene).
+// That's expensive and almost always wasteful — the geometry only actually
+// changes when endLayer changes (i.e., once per layer). For all the in-between
+// frames we just need to re-issue a GPU draw with the new camera position
+// and updated nozzle/trail positions. Splitting those paths cut CPU
+// dramatically.
 const _origRender = preview.render.bind(preview);
-preview.render = function () {
-  const ret = _origRender();
-  for (const obj of [printPlate, nozzleAmbient, nozzleKey, nozzleFill, trailLine, nozzleGroup]) {
+let lastRenderedEndLayer = -1;
+const myExtras = [printPlate, nozzleAmbient, nozzleKey, nozzleFill, trailLine, nozzleGroup];
+
+function fullRebuild() {
+  // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
+  _origRender();
+  for (const obj of myExtras) {
     if (!preview.scene.children.includes(obj)) preview.scene.add(obj);
+  }
+  lastRenderedEndLayer = preview.endLayer;
+}
+
+// preview.render() is overridden so callers (e.g. setExtrusionColor) trigger
+// a rebuild the first time they're called after a real geometry change.
+preview.render = function () {
+  fullRebuild();
+  updateNozzlePosition();
+  updateTrail();
+  preview.renderer?.render(preview.scene, preview.camera);
+};
+
+// Lightweight per-frame draw — no geometry rebuild, just nozzle/trail position
+// updates and one GPU draw call. Falls back to a full rebuild when the
+// rendered endLayer changes.
+function fastTick() {
+  if (preview.endLayer !== lastRenderedEndLayer) {
+    fullRebuild();
+  } else {
+    // Make sure our extras are still attached (nothing should be removing
+    // them, but be defensive against future scene-clearing callers).
+    for (const obj of myExtras) {
+      if (!preview.scene.children.includes(obj)) preview.scene.add(obj);
+    }
   }
   updateNozzlePosition();
   updateTrail();
   preview.renderer?.render(preview.scene, preview.camera);
-  return ret;
-};
+}
 
 const buildCenter = { x: bed.x / 2, y: bed.y / 2 };
 
@@ -681,7 +683,10 @@ function orbitTick() {
     );
     preview.camera.lookAt(orbitTarget);
     verifyAdvanceTick();
-    preview.render();
+    // fastTick: skips the heavy gcode-preview geometry rebuild unless the
+    // rendered endLayer actually changed. ~10× cheaper for the steady-state
+    // orbit-and-walk frames.
+    fastTick();
   }
   requestAnimationFrame(orbitTick);
 }
