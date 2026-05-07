@@ -84,33 +84,35 @@
         color: rgba(255, 255, 255, 0.45);
       }
 
-      /* Trays section — 4 evenly-distributed rows. Each row gets a subtle
-         border + faint background for visual separation. */
+      /* Trays section — 4 evenly-distributed rows in a clean list style:
+         thin horizontal separator between rows (no per-row card border or
+         background). Less visually heavy than the previous card-per-tray
+         look — the rows feel like a list inside the AMS card rather than
+         boxes inside a box. */
       .ams-container {
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 4px;
         min-height: 0;
       }
       .ams-container .element {
         flex: 1;
         min-height: 0;
-        padding: 6px 10px;
-        background: rgba(255, 255, 255, 0.025);
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 6px;
+        padding: 4px 4px 4px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
         align-content: center;
         box-sizing: border-box;
-        transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+        transition: background 0.2s, box-shadow 0.2s;
       }
-      /* Active tray — green-tinted container instead of relying on the tiny
-         pill. JS toggles `.tray-active` on the .element parent of whichever
-         tray pill is currently shown. */
+      .ams-container .element:last-child { border-bottom: none; }
+      /* Active tray — subtle green wash + bold left-edge accent bar. The
+         accent is the primary visual cue (stands out at any size); the
+         wash adds just enough tint to confirm it without making the row
+         feel like a separate card. JS toggles `.tray-active`. */
       .ams-container .element.tray-active {
-        background: rgba(81, 163, 79, 0.12);
-        border-color: rgba(81, 163, 79, 0.55);
-        box-shadow: 0 0 0 1px rgba(81, 163, 79, 0.25) inset;
+        background: rgba(81, 163, 79, 0.08);
+        box-shadow: inset 3px 0 0 #51a34f;
+        padding-left: 12px;
       }
       .ams-container .dot-content {
         padding-bottom: 0;
