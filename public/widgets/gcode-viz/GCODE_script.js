@@ -457,6 +457,13 @@ function buildLayerPaths() {
   let curF = 6000;          // mm/min, initial guess
   let absoluteE = false;    // M83 (relative) is the Bambu default
   let prevE = 0;
+  // Helper: append one tessellated segment to the layer's segs array.
+  function pushSeg(segs, ax, ay, bx, by, isExt, curFRef) {
+    if (ax === bx && ay === by) return;
+    const dist = Math.hypot(bx - ax, by - ay);
+    const dur = isExt ? (dist / (curFRef.f / 60)) / NOZZLE_SPEED_FACTOR : 0;
+    segs.push({ ax, ay, bx, by, ext: isExt, dist, dur });
+  }
   for (const layer of layers) {
     const segs = [];
     const cmds = (layer && layer.commands) || [];
@@ -464,23 +471,57 @@ function buildLayerPaths() {
       const g = c.gcode;
       if (g === 'm82') { absoluteE = true; prevE = 0; continue; }
       if (g === 'm83') { absoluteE = false; continue; }
-      if (g !== 'g0' && g !== 'g1') continue;
       const p = c.params || {};
-      if (typeof p.f === 'number' && p.f > 0) curF = p.f;
-      const nx = (typeof p.x === 'number') ? p.x : curX;
-      const ny = (typeof p.y === 'number') ? p.y : curY;
-      // Detect extrusion: in M83, any positive E param. In M82, E that exceeds
-      // the previous absolute E.
-      let isExtrusion = false;
-      if (g === 'g1' && typeof p.e === 'number') {
-        if (absoluteE) { isExtrusion = p.e > prevE; prevE = p.e; }
-        else { isExtrusion = p.e > 0; }
-      }
-      if (nx !== curX || ny !== curY) {
-        const dist = Math.hypot(nx - curX, ny - curY);
-        const dur = isExtrusion ? (dist / (curF / 60)) / NOZZLE_SPEED_FACTOR : 0;
-        segs.push({ ax: curX, ay: curY, bx: nx, by: ny, ext: isExtrusion, dist, dur });
-        curX = nx; curY = ny;
+      if (g === 'g0' || g === 'g1') {
+        if (typeof p.f === 'number' && p.f > 0) curF = p.f;
+        const nx = (typeof p.x === 'number') ? p.x : curX;
+        const ny = (typeof p.y === 'number') ? p.y : curY;
+        // Detect extrusion: in M83, any positive E param. In M82, E that exceeds
+        // the previous absolute E.
+        let isExtrusion = false;
+        if (g === 'g1' && typeof p.e === 'number') {
+          if (absoluteE) { isExtrusion = p.e > prevE; prevE = p.e; }
+          else { isExtrusion = p.e > 0; }
+        }
+        if (nx !== curX || ny !== curY) {
+          pushSeg(segs, curX, curY, nx, ny, isExtrusion, { f: curF });
+          curX = nx; curY = ny;
+        }
+      } else if (g === 'g2' || g === 'g3') {
+        // Arc move. Bambu emits these heavily for curved perimeters; without
+        // tessellation the simulated nozzle would teleport across each arc
+        // as a straight chord (e.g. drawing a triangle across an open cup).
+        // Tessellate into short line segments so the nozzle traces the curve.
+        if (typeof p.x !== 'number' || typeof p.y !== 'number') continue;
+        if (typeof p.i !== 'number' || typeof p.j !== 'number') continue; // R-form not supported; rare in slicer output
+        if (typeof p.f === 'number' && p.f > 0) curF = p.f;
+        let isExtrusion = false;
+        if (typeof p.e === 'number') {
+          if (absoluteE) { isExtrusion = p.e > prevE; prevE = p.e; }
+          else { isExtrusion = p.e > 0; }
+        }
+        const cw = (g === 'g2');
+        const cx = curX + p.i;
+        const cy = curY + p.j;
+        const r  = Math.hypot(p.i, p.j);
+        const a0 = Math.atan2(curY - cy, curX - cx);
+        let a1 = Math.atan2(p.y - cy, p.x - cx);
+        let dA = a1 - a0;
+        // Force the angular sweep to go in the correct direction.
+        if (cw && dA > 0) dA -= Math.PI * 2;
+        if (!cw && dA < 0) dA += Math.PI * 2;
+        // Tessellation: ~11° per chord (12 chords per full circle), bounded.
+        const nSegs = Math.max(2, Math.min(24, Math.ceil(Math.abs(dA) / (Math.PI / 16))));
+        let prevX = curX, prevY = curY;
+        for (let s = 1; s <= nSegs; s++) {
+          const t = s / nSegs;
+          const a = a0 + dA * t;
+          const nx = cx + r * Math.cos(a);
+          const ny = cy + r * Math.sin(a);
+          pushSeg(segs, prevX, prevY, nx, ny, isExtrusion, { f: curF });
+          prevX = nx; prevY = ny;
+        }
+        curX = p.x; curY = p.y;
       }
     }
     let total = 0;
