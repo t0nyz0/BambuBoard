@@ -909,8 +909,8 @@ function autoFitCamera() {
   const cxg = (minX + maxX) / 2, cyg = (minY + maxY) / 2;
   const sz = (cumZ[Math.min(cap, cumZ.length) - 1] || 0);
   const footprint = Math.hypot(sx, sy);
-  orbitRadius = Math.max(100, footprint * 1.1 + 70);
-  orbitHeight = Math.max(70, sz + footprint * 0.5);
+  orbitRadius = Math.max(80, footprint * 0.85 + 50);
+  orbitHeight = Math.max(55, sz + footprint * 0.35);
   // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
   bboxCenter.set(
     cxg - buildCenter.x,
@@ -934,7 +934,7 @@ function orbitTick() {
   if (preview.camera) {
     if (orbitRadius === 0) {
       autoFitCamera();
-      if (orbitRadius === 0) { orbitRadius = 160; orbitHeight = 100; }
+      if (orbitRadius === 0) { orbitRadius = 130; orbitHeight = 80; }
     }
     const theta = ORBIT_THETA_FIXED;
 
