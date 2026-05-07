@@ -236,9 +236,13 @@ let lastTrailLayerIdx = -1;
 function lerpColor(a, b, t) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
-const COLOR_HOT  = [1.00, 0.95, 0.55]; // yellow-white
-const COLOR_MID  = [1.00, 0.42, 0.18]; // orange
-const COLOR_WARM = [0.85, 0.18, 0.30]; // deep red
+// Trail color ramp uses the ember/lava mental model: just-extruded filament
+// is bright RED (still glowing hot), then cools through orange to yellow,
+// then settles to the actual filament color. Order is red → orange →
+// yellow → cold.
+const COLOR_HOT  = [1.00, 0.18, 0.10]; // bright red — just out of the nozzle
+const COLOR_MID  = [1.00, 0.50, 0.18]; // orange — cooling
+const COLOR_WARM = [1.00, 0.85, 0.30]; // yellow — almost set
 let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
 
 function ageColor(age01) {
