@@ -84,7 +84,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams/index.html",
         "width": 390,
-        "height": 850,
+        "height": 920,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -107,7 +107,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/ams2/index.html",
         "width": 390,
-        "height": 850,
+        "height": 920,
         "css": "body { margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -196,7 +196,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/fans/index.html",
         "width": 800,
-        "height": 374,
+        "height": 275,
         "fps": 60,
         "fps_custom": true,
         "css": "body { margin: 0px auto; overflow: hidden; }"
@@ -291,7 +291,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/nozzle-temp-2/index.html",
         "width": 390,
-        "height": 140,
+        "height": 165,
         "css": "body {  margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -314,7 +314,7 @@
       "settings": {
         "url": "http://<HOST>/widgets/nozzle-temp/index.html",
         "width": 390,
-        "height": 140,
+        "height": 165,
         "css": "body {  margin: 0px auto; overflow: hidden; }"
       },
       "mixers": 255,
@@ -745,7 +745,7 @@
             "id": 32,
             "pos": {
               "x": 194,
-              "y": 458
+              "y": 471
             },
             "scale": {
               "x": 0.50733,
@@ -774,7 +774,7 @@
             "id": 4,
             "pos": {
               "x": -4,
-              "y": 458
+              "y": 471
             },
             "scale": {
               "x": 0.50733,
@@ -803,7 +803,7 @@
             "id": 11,
             "pos": {
               "x": -4,
-              "y": 892
+              "y": 941
             },
             "scale": {
               "x": 0.4946,

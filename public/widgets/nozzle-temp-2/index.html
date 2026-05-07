@@ -15,8 +15,23 @@
       .bedcontainer { margin-top: 0; height: 100%; box-sizing: border-box; }
       .grid.grid-gap-30 { height: 100%; }
       .column.grid-gap-10 { height: 100%; display: flex; flex-direction: column; align-items: stretch; }
-      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; padding-bottom: 28px; }
-      .bed-title h4.finePrint { font-size: 1.1em; }
+      .bed-title {
+        flex: 1;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding-top: 14px;
+        padding-bottom: 18px;
+        transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+      }
+      /* See /widgets/nozzle-temp/index.html — active container highlight. */
+      .bed-title.nozzle-active {
+        background: rgba(81, 163, 79, 0.10);
+        box-shadow: 0 0 0 1px rgba(81, 163, 79, 0.55) inset,
+                    0 0 0 2px rgba(81, 163, 79, 0.20) inset;
+      }
+      .partTitle .badge-active { display: none !important; }
     </style>
     <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>

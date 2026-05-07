@@ -90,20 +90,25 @@ async function updateUI(telemetryObject) {
     try {
       if (extruder && typeof extruder.state === 'number') {
         const activeIdx = (extruder.state >> 4) & 0x0F;
-        if (activeIdx === NOZZLE_INDEX) {
-          $('#activeTag').show();
-          if (isPrinting) {
-            $('#activeTag').css({ 'background-color': '#51a34f', 'opacity': '1' });
-          } else {
-            $('#activeTag').css({ 'background-color': '#666', 'opacity': '0.5' });
-          }
+        const $card = $('.bed-title');
+        if (activeIdx === NOZZLE_INDEX && isPrinting) {
+          // The .nozzle-active class on .bed-title gives the whole card a
+          // green tint + glow. Much more visible than the legacy inline pill.
+          $card.addClass('nozzle-active');
+          $('#activeTag').show()
+            .css({ 'background-color': '#51a34f', 'opacity': '1' });
         } else {
+          $card.removeClass('nozzle-active');
           $('#activeTag').hide();
         }
       } else {
+        $('.bed-title').removeClass('nozzle-active');
         $('#activeTag').hide();
       }
-    } catch (_) { $('#activeTag').hide(); }
+    } catch (_) {
+      $('.bed-title').removeClass('nozzle-active');
+      $('#activeTag').hide();
+    }
 
     // Compute Fahrenheit and percentage
     const nozzleCurrentTempF = Math.round((nozzleCurrentTempC * 9) / 5 + 32);

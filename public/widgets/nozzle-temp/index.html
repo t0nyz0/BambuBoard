@@ -17,10 +17,30 @@
       .bedcontainer { margin-top: 0; height: 100%; box-sizing: border-box; }
       .grid.grid-gap-30 { height: 100%; }
       .column.grid-gap-10 { height: 100%; display: flex; flex-direction: column; align-items: stretch; }
-      .bed-title { flex: 1; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; padding-bottom: 28px; }
-      /* Tighten the Current / Target lines slightly so the larger
-         bottom padding doesn't force the iframe to need more height. */
-      .bed-title h4.finePrint { font-size: 1.1em; }
+      .bed-title {
+        flex: 1;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        padding-top: 14px;
+        padding-bottom: 18px;
+        transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+      }
+      /* When this nozzle is the currently-extruding one, mirror the
+         "tray-active" treatment from the AMS widget — green-tinted
+         background + green border + soft inset glow — so the active
+         state is obvious at a glance instead of relying on a small
+         inline pill. JS toggles `.nozzle-active` on .bed-title. */
+      .bed-title.nozzle-active {
+        background: rgba(81, 163, 79, 0.10);
+        box-shadow: 0 0 0 1px rgba(81, 163, 79, 0.55) inset,
+                    0 0 0 2px rgba(81, 163, 79, 0.20) inset;
+      }
+      /* Hide the legacy inline-styled "active" badge — the container
+         highlight is the primary indicator now. The badge stays in DOM
+         for back-compat with old NOZZLE_script.js show()/hide() calls. */
+      .partTitle .badge-active { display: none !important; }
     </style>
     <script src="../_customizer.js"></script>
     <script src="../../assets/js/jquery-3.6.0.min.js"></script>
