@@ -19,6 +19,19 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 ---
 
+## Screenshots
+
+The 4-step workflow inside BambuBoard:
+
+| | |
+|---|---|
+| **1. Setup** — printer credentials + optional Bambu Cloud sign-in | **2. Layout** — visual scene editor with live widget previews on a 1920×1080 OBS canvas |
+| ![Setup tab](screenshots/SETUP-TAB.jpg) | ![Layout tab](screenshots/LAYOUT-TAB.jpg) |
+| **3. Export** — download the OBS scene `.json` and import instructions | **4. Dashboard** — live print monitor (separate from the workflow, open whenever) |
+| ![Export tab](screenshots/EXPORT-TAB.jpg) | ![Dashboard tab](screenshots/DASHBOARD-TAB.jpg) |
+
+---
+
 ## Quickstart — Docker (recommended)
 
 A single command. Multi-arch image (works on x86, Apple Silicon, Raspberry Pi):
