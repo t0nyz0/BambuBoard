@@ -467,7 +467,7 @@
       "settings": {
         "undo_uuid": "e645b33b-a488-4321-84bb-cd0fab3d281b",
         "url": "http://<HOST>/widgets/printer-info/index.html",
-        "width": 355,
+        "width": 400,
         "height": 280,
         "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }\n\n.bedcontainer {\n    margin-top: 5px;\n}\n\n.bed-title {\n    padding: 10px 15px;\n}"
       },
@@ -502,7 +502,7 @@
       "versioned_id": "browser_source",
       "settings": {
         "url": "http://<HOST>/widgets/profile-info/index.html",
-        "width": 390,
+        "width": 400,
         "height": 315,
         "css": "body {background: rgb(0 0 0 / 80%); margin: 0px; padding: 0px; overflow: hidden; }"
       },
@@ -664,8 +664,8 @@
               "y": 91.0
             },
             "scale": {
-              "x": 0.7184210419654846,
-              "y": 0.7174999713897705
+              "x": 0.6575,
+              "y": 0.6575
             },
             "align": 5,
             "bounds_type": 0,
@@ -703,8 +703,8 @@
               "y": 835.0
             },
             "scale": {
-              "x": 0.7126760482788086,
-              "y": 0.7132075428962708
+              "x": 0.6575,
+              "y": 0.6575
             },
             "align": 5,
             "bounds_type": 0,

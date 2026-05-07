@@ -33,10 +33,10 @@
         flex-direction: column;
         box-sizing: border-box;
         min-height: 0;
-        padding-top: 14px !important;
+        padding-top: 22px !important;
         padding-bottom: 14px !important;
       }
-      .partTitle { flex-shrink: 0; margin-bottom: 10px; }
+      .partTitle { flex-shrink: 0; margin-bottom: 16px; }
 
       /* Drying pill — outline-style indicator next to title. The card is
          narrow (~198px rendered), so we keep the text short and use
@@ -74,16 +74,17 @@
       .ams-drying-status .drying-fan-wrap {
         display: inline-block;
         position: relative;
-        width: 1.1em;
-        height: 1.1em;
-        vertical-align: -0.18em;
+        width: 1.3em;
+        height: 1.3em;
+        vertical-align: -0.25em;
       }
       .ams-drying-status .drying-fan {
         position: absolute;
         top: 50%;
         left: 50%;
-        font-size: 1.05em;
+        font-size: 1.3em;
         line-height: 1;
+        color: #f0b35e;
         animation: drying-fan-spin 2.4s linear infinite;
       }
       @keyframes drying-fan-spin {
@@ -91,18 +92,24 @@
         to   { transform: translate(-50%, -50%) rotate(-360deg); }
       }
 
-      /* See ams/index.html — header sized to feel proportionate to trays. */
-      .ams-header { flex-shrink: 0; margin-bottom: 18px; }
-      .ams-header .progress { height: 10px; }
+      /* See ams/index.html — explicit min-height + bigger internal
+         spacing so the header claims a real share of the AMS card. */
+      .ams-header {
+        flex-shrink: 0;
+        min-height: 150px;
+        margin-bottom: 22px;
+        padding: 4px 0 10px;
+      }
+      .ams-header .progress { height: 12px; }
       .ams-header .temp-row {
         display: flex;
         justify-content: space-between;
-        margin: 10px 0 14px;
+        margin: 14px 0 20px;
       }
       .ams-header .temp-row h4 { margin: 0; }
       .ams-header .humidity-container { margin: 0; }
-      .ams-header .humidity-item { height: 12px; }
-      .ams-header .ams-type-remaining { margin-top: 6px; }
+      .ams-header .humidity-item { height: 14px; }
+      .ams-header .ams-type-remaining { margin-top: 10px; }
 
       /* Section divider between header and trays — small dim label with
          a faint top border so users see the visual break between
