@@ -16,9 +16,12 @@ const PLAY_LAYERS_PER_SEC = 8;
 // the H2D's chamber camera looks at the bed — same prints, same left/right
 // orientation across both views.
 const ORBIT_THETA_FIXED = Math.PI * 1.7;        // ~306° / -54° — looks from the opposite side of the bed vs the previous take
-// Nozzle simulation speed multiplier vs real gcode feedrate. 1.0 = realtime.
-// Print speeds are typically 100–300 mm/s, so realtime feels right.
-const NOZZLE_SPEED_FACTOR = 1.0;
+// Nozzle simulation speed multiplier vs real gcode feedrate. Real printers
+// run slower than gcode F speeds because of acceleration/deceleration on
+// every segment — gcode F is an upper bound, not actual speed. 0.82 ≈ 18%
+// haircut roughly matching what Bambu printers achieve on typical short
+// extrusion segments. Further scaled at runtime by spd_lvl (Silent/Sport/…).
+let nozzleSpeedFactor = 0.82;
 // Hot-extrusion trail: how long a freshly-deposited segment glows before
 // fading to the cold print color, and the geometry buffer cap. Long window
 // + wide cooling bands so the red→orange→yellow→cold gradient is actually
@@ -26,10 +29,9 @@ const NOZZLE_SPEED_FACTOR = 1.0;
 const TRAIL_SECONDS = 144;
 const TRAIL_MAX_POINTS = 8800;
 const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer change)
-// Delay (seconds) between what the printer is actually doing and what the
-// nozzle animation shows. Small delay only — too large and the simulation
-// ends up on a different object than the printer on multi-object layers.
-const REPLAY_DELAY_S = 3;
+// No delay — sync the simulated nozzle directly to the printer's
+// mc_percent position. Any lag puts us on the wrong segment / object.
+const REPLAY_DELAY_S = 0;
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -539,7 +541,7 @@ function buildLayerPaths() {
   function pushSeg(segs, ax, ay, bx, by, isExt, curFRef) {
     if (ax === bx && ay === by) return;
     const dist = Math.hypot(bx - ax, by - ay);
-    const dur = isExt ? (dist / (curFRef.f / 60)) / NOZZLE_SPEED_FACTOR : 0;
+    const dur = isExt ? (dist / (curFRef.f / 60)) : 0;
     segs.push({ ax, ay, bx, by, ext: isExt, dist, dur });
   }
   for (const layer of layers) {
@@ -659,7 +661,7 @@ function updateNozzlePosition() {
     const total = layerPaths[activeLayerIdx]?.total || 0;
     elapsed = pathHoldFraction * total;
   } else {
-    elapsed = (performance.now() - layerStartTime) / 1000;
+    elapsed = (performance.now() - layerStartTime) / 1000 * nozzleSpeedFactor;
   }
   const xy = nozzleXYAt(activeLayerIdx, elapsed);
   if (!xy) { nozzleGroup.visible = false; return; }
@@ -1092,6 +1094,11 @@ async function tick() {
     }
 
     syncFilamentColor(print);
+    // Bambu speed mode: 1=Silent, 2=Standard, 3=Sport, 4=Ludicrous.
+    // Combined with the ~0.82 accel/decel haircut for a realistic timing.
+    const spdLvl = parseInt(print.spd_lvl ?? 2, 10);
+    const spdMul = spdLvl === 1 ? 0.5 : spdLvl === 3 ? 1.24 : spdLvl === 4 ? 1.66 : 1.0;
+    nozzleSpeedFactor = 0.82 * spdMul;
 
     const taskKey = `${taskId}_p${plateIdx}`;
 
@@ -1136,15 +1143,12 @@ async function tick() {
           // Offset by REPLAY_DELAY_S so the nozzle animation lags behind
           // what the printer is actually doing.
           const delayedRel = Math.max(0, rel - REPLAY_DELAY_S);
-          const desiredStart = performance.now() - delayedRel * 1000;
-          // Snap harder so the nozzle stays close to the real printer's
-          // position — keeps the simulation on the correct object on
-          // multi-object layers instead of drifting onto a previous one.
-          if (layerJustChanged) {
-            layerStartTime = desiredStart;
-          } else {
-            layerStartTime += (desiredStart - layerStartTime) * 0.85;
-          }
+          // Convert gcode-time `delayedRel` to wall-clock time using the
+          // current speed factor: elapsed = wall * factor → wall = elapsed / factor.
+          const desiredStart = performance.now() - (delayedRel / nozzleSpeedFactor) * 1000;
+          // Full snap on every sync — keeps the simulation locked to the
+          // real printer's percent-derived position with no smoothing lag.
+          layerStartTime = desiredStart;
           mqttSyncedLayer = activeLayerIdx;
         }
         mcPercentLastSeen = mcPct;
