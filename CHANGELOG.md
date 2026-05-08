@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased — 3.0.3
+
+### Fixed
+- **Temperature unit setting was silently ignored** (`views/setup.html`, `public/js/setup.js`, `src/server.js`, `src/routes/api.js`) — the setup dropdown saved `"C"` / `"F"` / `"Both"` but every temperature widget (`bed-temp`, `chamber-temp`, `nozzle-temp`, `nozzle-temp-2`, `ams-temp`, `ams-temp-2`, `ams`, `ams2`) checks for the spelled-out strings (`"Celsius"` / `"Fahrenheit"` / `"Both"`). The `"Both"` case worked by accident; selecting Celsius or Fahrenheit silently fell through to the "show both" branch. Fix: dropdown option values now match the widget checks, plus a legacy migration path on read (`/settings`, `/api/settings`) and on form hydration so existing configs auto-correct without manual intervention.
+- **Setup-page changes didn't propagate to live widgets without an iframe reload** (8 widget script files) — every temperature widget called `loadSettings()` once at init and then read the cached `settings` object on every `updateUI()` tick. Added `setInterval(loadSettings, 5000)` to each so changes from the `/setup` page (temperature unit, fan-percent toggle, etc.) propagate within ~5 seconds. **Why:** users would change a preference, see no effect, and assume the dropdown was broken.
+- **Redundant printer-type dropdown on setup** (`views/setup.html`, `public/js/setup.js`) — the printer type is auto-detected from MQTT (`src/lib/caps.js#printerTypeFromMqtt`) within ~3 seconds of the first connection, then `onPrinterDetected` overwrites whatever was saved. The visible dropdown was just a transient bootstrap that confused users. Hidden it as a `<input type="hidden" value="X1">` so existing setup.js logic still reads it; the value never matters past first connect because MQTT replaces it. Auto-detection result is still surfaced in the Step 2 ("Verify connection") panel via `connect-detected`.
+
+### Changed
+- **Layers panel closed by default on layout screen** (`views/scene-editor.html`) — the OBS-style Layers panel added in 3.0.2 was opening automatically when the scene editor loaded, crowding the canvas. Now it starts closed; click the **⚏ Layers** toolbar button to open it. Existing toggle / close-button wiring already supported open/close — only the initial class needed removing.
+
+---
+
 ## 3.0.2 — 2026-05-08
 
 ### Added
@@ -17,9 +29,6 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Fixed
 - **Camera widget troubleshooting entry** (`README.md`) — the previous entry referenced "the camera widget" which doesn't exist. Replaced with accurate guidance: the camera is an OBS Media Source bundled in the scene template, configure via the source's Local File / SDP path.
-- **Temperature unit setting was silently ignored** (`views/setup.html`, `public/js/setup.js`, `src/server.js`, `src/routes/api.js`) — the setup dropdown saved `"C"` / `"F"` / `"Both"` but every temperature widget (`bed-temp`, `chamber-temp`, `nozzle-temp`, `nozzle-temp-2`, `ams-temp`, `ams-temp-2`, `ams`, `ams2`) checks for the spelled-out strings (`"Celsius"` / `"Fahrenheit"` / `"Both"`). The `"Both"` case worked by accident; selecting Celsius or Fahrenheit silently fell through to the "show both" branch. Fix: dropdown option values now match the widget checks, plus a legacy migration path on read (`/settings`, `/api/settings`) and on form hydration so existing configs auto-correct without manual intervention.
-- **Setup-page changes didn't propagate to live widgets without an iframe reload** (8 widget script files) — every temperature widget called `loadSettings()` once at init and then read the cached `settings` object on every `updateUI()` tick. Added `setInterval(loadSettings, 5000)` to each so changes from the `/setup` page (temperature unit, fan-percent toggle, etc.) propagate within ~5 seconds. **Why:** users would change a preference, see no effect, and assume the dropdown was broken.
-- **Redundant printer-type dropdown on setup** (`views/setup.html`, `public/js/setup.js`) — the printer type is auto-detected from MQTT (`src/lib/caps.js#printerTypeFromMqtt`) within ~3 seconds of the first connection, then `onPrinterDetected` overwrites whatever was saved. The visible dropdown was just a transient bootstrap that confused users. Hidden it as a `<input type="hidden" value="X1">` so existing setup.js logic still reads it; the value never matters past first connect because MQTT replaces it. Auto-detection result is still surfaced in the Step 2 ("Verify connection") panel via `connect-detected`.
 
 
 
