@@ -909,8 +909,8 @@ let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
 let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
 let smoothedNozzleInit = false;
 const NOZZLE_FOLLOW_BIAS = 0.55;
-const NOZZLE_SMOOTH_LERP = 0.006;
-const TARGET_LERP        = 0.018;
+const NOZZLE_SMOOTH_LERP = 0.015;
+const TARGET_LERP        = 0.045;
 const _scratchDesired    = new THREE.Vector3();
 
 function autoFitCamera() {
@@ -1042,13 +1042,19 @@ async function tick() {
     // statically so the user sees what's coming.
     const mcPctRaw = Number(print.mc_percent) || 0;
     const mcRemain = Number(print.mc_remaining_time) || 0;
-    // Treat as effectively finished when >=99% and 0 min remaining — the
-    // printer is just scraping/purging the nozzle, no longer extruding on
-    // the model. Show the completed print instead of animating cleanup moves.
     const isEffectivelyDone = state === 'RUNNING' && mcPctRaw >= 99 && mcRemain <= 0;
-    const isActivePrint = state === 'RUNNING' && layerNum > 0 && subStage === 0 && !isEffectivelyDone;
-    const isPreviewState = state === 'RUNNING' && !isActivePrint && !isEffectivelyDone;
-    const isHoldState   = state === 'PAUSED' || state === 'FINISH' || isEffectivelyDone;
+    // Active print = RUNNING + stg_cur===0 (no sub-stage). We no longer
+    // require layerNum>0 because layer_num can lag behind stg_cur clearing.
+    const isActivePrint = state === 'RUNNING' && subStage === 0 && !isEffectivelyDone;
+    // Mid-print sub-stage (nozzle switch, bed scan, etc.) — we were already
+    // printing and a transient sub-stage kicked in. Don't show "Preparing",
+    // just freeze the nozzle. Detected by: RUNNING + subStage nonzero but
+    // we've already rendered at least one layer in this job.
+    const isMidPrintSubStage = state === 'RUNNING' && subStage !== 0 && !isEffectivelyDone && lastEndLayer > 0;
+    // Pre-print preview: RUNNING but haven't printed any layers yet and
+    // a sub-stage is active (calibrating/heating). Show the full model.
+    const isPreviewState = state === 'RUNNING' && !isActivePrint && !isEffectivelyDone && !isMidPrintSubStage;
+    const isHoldState   = state === 'PAUSED' || state === 'FINISH' || isEffectivelyDone || isMidPrintSubStage;
 
     if (!taskId || (!isActivePrint && !isPreviewState && !isHoldState)) {
       if (currentTaskKey) {
