@@ -146,15 +146,15 @@ Printer type is **auto-detected from MQTT** when BambuBoard connects — no need
 
 | Model | BambuBoard type | Caps | Status |
 |-------|-----------------|------|--------|
-| X1 Carbon | `X1C` | Chamber temp | **Tested by maintainer** |
-| H2D, H2D Pro | `H2D` | Chamber temp, dual nozzle, dual AMS | **Tested by maintainer** |
-| X1 | `X1` | Chamber temp | Should work — community feedback welcome |
-| X1E | `X1C` (mapped) | Chamber temp | Should work — community feedback welcome |
-| P1P | `P1P` | — | Should work — community feedback welcome |
-| P1S, P2S | `P1S` | — | Should work — community feedback welcome |
-| A1 | `A1` | Single AMS | Should work — community feedback welcome |
-| A1 Mini | `A1M` | Single AMS | Should work — community feedback welcome |
-| H2C, H2S, X2D | `H2D` (mapped) | Chamber temp, dual nozzle, dual AMS | Should work — community feedback welcome |
+| X1 Carbon | `X1C` | Chamber temp | ✅ **Tested by maintainer** |
+| H2D, H2D Pro | `H2D` | Chamber temp, dual nozzle, dual AMS | ✅ **Tested by maintainer** |
+| X1 | `X1` | Chamber temp | ⚠️ Should work — community feedback welcome |
+| X1E | `X1C` (mapped) | Chamber temp | ⚠️ Should work — community feedback welcome |
+| P1P | `P1P` | — | ⚠️ Should work — community feedback welcome |
+| P1S, P2S | `P1S` | — | ⚠️ Should work — community feedback welcome |
+| A1 | `A1` | Single AMS | ⚠️ Should work — community feedback welcome |
+| A1 Mini | `A1M` | Single AMS | ⚠️ Should work — community feedback welcome |
+| H2C, H2S, X2D | `H2D` (mapped) | Chamber temp, dual nozzle, dual AMS | ⚠️ Should work — community feedback welcome |
 
 **AMS variants:** any printer with a heating-capable AMS (AMS 2 Pro, AMS HT) gets a live drying indicator on the AMS widget when a dry cycle is running — `dry_time`, `dry_temperature`, animated fan icon. Older AMS / AMS Lite always reports zero so the indicator stays hidden, no model gating needed.
 
