@@ -27,9 +27,9 @@ const TRAIL_SECONDS = 144;
 const TRAIL_MAX_POINTS = 8800;
 const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer change)
 // Delay (seconds) between what the printer is actually doing and what the
-// nozzle animation shows. Lets the visualization trail behind the real
-// print so the nozzle doesn't appear to jump ahead during MQTT sync jitter.
-const REPLAY_DELAY_S = 25;
+// nozzle animation shows. Small delay only — too large and the simulation
+// ends up on a different object than the printer on multi-object layers.
+const REPLAY_DELAY_S = 3;
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -207,15 +207,19 @@ const plateSlabGeo = new THREE.BoxGeometry(PLATE_W, 0.6, PLATE_D);
 plateSlabGeo.translate(0, -0.3, 0);  // top face at y=0
 // Semi-transparent slab so the camera feed (or whatever sits behind the
 // widget) shows through the plate while the prints + nozzle stay opaque.
+// Lighter slab with a subtle specular highlight so it reads as a
+// physical surface and you can see the camera angle / lighting on it.
 const plateSlabMat = new THREE.MeshPhongMaterial({
-  color: 0x0c0d10,
+  color: 0x3a4048,
+  specular: 0x6a7280,
+  shininess: 35,
 });
 printPlate.add(new THREE.Mesh(plateSlabGeo, plateSlabMat));
 // Lighter rim around the edges (4 thin boxes).
-// Rim — slightly lighter than the slab, also semi-transparent so the whole
-// plate composites uniformly over the background.
 const rimMat = new THREE.MeshPhongMaterial({
-  color: 0x2c3038,
+  color: 0x6a7280,
+  specular: 0xa0a8b0,
+  shininess: 60,
 });
 const rimT = 1.2, rimH = 0.2;
 const mkRim = (w, d, x, z) => {
@@ -734,31 +738,38 @@ function isPausedForState() {
   return false;
 }
 
-// Pull the active filament color from MQTT — Bambu reports it as "RRGGBBAA"
-// hex on each tray; tray_now (or mapping) tells us which is feeding. Returns
-// "#RRGGBB" or null if nothing usable was found.
-function activeFilamentHex(print) {
+// Build an array of hex colors for every AMS tray slot (slot N = global
+// index ai*4+ti). gcode-preview accepts this array form and colors each
+// extrusion segment by the active tool index from T0/T1/T2 commands in the
+// gcode, so multi-color prints render correctly without us tracking the
+// switches ourselves.
+function buildTrayPalette(print) {
   const ams = print?.ams?.ams;
   if (!Array.isArray(ams) || !ams.length) return null;
-  const trayNow = parseInt(print?.ams?.tray_now ?? '255', 10);
-  // Walk all trays; build a global slot list (slot 0–3 = AMS 0, 4–7 = AMS 1, …).
   const slots = [];
   ams.forEach((unit, ai) => {
     (unit.tray || []).forEach((tray, ti) => {
       slots[ai * 4 + ti] = tray;
     });
   });
-  let pick = (trayNow >= 0 && trayNow < 255) ? slots[trayNow] : null;
-  // Fall back to the first tray that looks loaded (color set, brand or type known).
-  if (!pick || !pick.tray_color || pick.tray_color === '00000000') {
-    pick = slots.find(t =>
-      t && typeof t.tray_color === 'string' &&
-      t.tray_color !== '00000000' &&
-      (t.tray_type || t.tray_sub_brands || t.tray_id_name)
-    );
+  if (!slots.length) return null;
+  const palette = [];
+  for (let i = 0; i < slots.length; i++) {
+    const t = slots[i];
+    let hex = (t && typeof t.tray_color === 'string' && t.tray_color.length >= 6 && t.tray_color !== '00000000')
+      ? '#' + t.tray_color.slice(0, 6).toUpperCase()
+      : '#888888';
+    if (hex === '#000000') hex = '#404040';  // pure black washes out on dark plate
+    palette.push(hex);
   }
-  if (!pick || !pick.tray_color || pick.tray_color.length < 6) return null;
-  return '#' + pick.tray_color.slice(0, 6).toUpperCase();
+  return palette;
+}
+
+function activeTrayHex(print, palette) {
+  const trayNow = parseInt(print?.ams?.tray_now ?? '255', 10);
+  if (palette && trayNow >= 0 && trayNow < palette.length) return palette[trayNow];
+  // Fallback: first loaded tray
+  return palette?.find(c => c && c !== '#888888') || null;
 }
 
 function hexToRgb01(hex) {
@@ -770,17 +781,24 @@ function hexToRgb01(hex) {
   ];
 }
 
-let lastFilamentHex = null;
+let lastPaletteSig = null;
+let lastActiveHex = null;
 function syncFilamentColor(print) {
-  const hex = activeFilamentHex(print);
-  if (!hex || hex === lastFilamentHex) return;
-  // Pure black filament reads as invisible on the dark plate — nudge it up
-  // so the toolpath stays legible without misrepresenting color.
-  let useHex = hex;
-  if (hex === '#000000') useHex = '#404040';
-  preview.extrusionColor = useHex;
-  COLOR_COLD = hexToRgb01(useHex);
-  lastFilamentHex = hex;
+  const palette = buildTrayPalette(print);
+  if (!palette) return;
+  const sig = palette.join('|');
+  if (sig !== lastPaletteSig) {
+    preview.extrusionColor = palette;
+    lastPaletteSig = sig;
+    // Force a rebuild so per-tool colors apply to existing geometry.
+    lastRenderedEndLayer = -1;
+  }
+  // Trail "cold" color follows the currently-active tray.
+  const active = activeTrayHex(print, palette);
+  if (active && active !== lastActiveHex) {
+    COLOR_COLD = hexToRgb01(active);
+    lastActiveHex = active;
+  }
 }
 
 // kind: 'hint' (small bottom hint, default), 'loading' (centered pill with
@@ -908,7 +926,7 @@ let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
 let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
 let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
 let smoothedNozzleInit = false;
-const NOZZLE_FOLLOW_BIAS = 0.55;
+const NOZZLE_FOLLOW_BIAS = 1.0;
 const NOZZLE_SMOOTH_LERP = 0.015;
 const TARGET_LERP        = 0.045;
 const _scratchDesired    = new THREE.Vector3();
@@ -1119,10 +1137,13 @@ async function tick() {
           // what the printer is actually doing.
           const delayedRel = Math.max(0, rel - REPLAY_DELAY_S);
           const desiredStart = performance.now() - delayedRel * 1000;
+          // Snap harder so the nozzle stays close to the real printer's
+          // position — keeps the simulation on the correct object on
+          // multi-object layers instead of drifting onto a previous one.
           if (layerJustChanged) {
             layerStartTime = desiredStart;
           } else {
-            layerStartTime += (desiredStart - layerStartTime) * 0.35;
+            layerStartTime += (desiredStart - layerStartTime) * 0.85;
           }
           mqttSyncedLayer = activeLayerIdx;
         }
