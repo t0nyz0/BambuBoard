@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖨️ BambuBoard
+# BambuBoard
 
 **OBS dashboard widgets for Bambu Lab printers.**
 Live print stats overlays designed for streamers — drop a scene file into OBS Studio and you have a polished, real-time print dashboard on stream.
@@ -13,7 +13,7 @@ Live print stats overlays designed for streamers — drop a scene file into OBS 
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
-**Setup → Connect → Layout → Export.** Four steps, signposted in the app.
+**Setup → Connect → Layout → Export.** Four steps, signposted in the app (Connect lives on the Setup page).
 
 [Quickstart](#quickstart--docker-recommended) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
 
@@ -63,16 +63,16 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 ---
 
-## ✨ Highlights
+## Highlights
 
-- 🎬 **Drop-in OBS scene** — pre-built H2D and X1-family scene templates with widget positions, sizes, and themes already tuned for stream overlays. Download, import, done.
-- 🖱️ **Visual scene editor** — drag widgets onto a 1920×1080 (or 2K, 4K) preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry.
-- 🔌 **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
-- 🌡️ **AMS drying indicator** — `AMS 2 Pro` and `AMS HT` units get a live "DRYING · 60° · 11h" pill with an animated fan icon when actively heating filament.
-- 🎯 **Active tray + active nozzle highlights** — the currently-feeding filament tray and the currently-extruding nozzle get a green left-edge accent + soft tint while printing.
-- ☁️ **Bambu Cloud (optional)** — sign in via paste-token (Cloudflare-resilient) or email + verification code to populate MakerWorld profile + model image widgets.
-- 🌐 **LAN-only operation** — fully functional without any cloud dependency; all assets bundled locally (no CDN calls).
-- 🐳 **One-line Docker install** — multi-arch image (`amd64` / `arm64`) auto-published to GHCR. Works on x86, Apple Silicon, Raspberry Pi, Synology NAS.
+- **Drop-in OBS scene** — pre-built H2D and X1-family scene templates with widget positions, sizes, and themes already tuned for stream overlays. Download, import, done.
+- **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry.
+- **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
+- **AMS drying indicator** — `AMS 2 Pro` and `AMS HT` units get a live "DRYING · 60° · 11h" pill with an animated fan icon when actively heating filament.
+- **Active tray + active nozzle highlights** — the currently-feeding filament tray and the currently-extruding nozzle get a green left-edge accent + soft tint while printing.
+- **Bambu Cloud (optional)** — sign in via paste-token (Cloudflare-resilient) or email + verification code to populate MakerWorld profile + model image widgets.
+- **LAN-only operation** — fully functional without any cloud dependency; all assets bundled locally (no CDN calls).
+- **One-line Docker install** — multi-arch image (`amd64` / `arm64`) auto-published to GHCR. Works on x86, Apple Silicon, Raspberry Pi, Synology NAS.
 
 ---
 
@@ -125,9 +125,11 @@ Open `http://localhost:8080`.
 When you open BambuBoard for the first time, you'll be guided through:
 
 1. **Setup** (`/setup`) — Enter your printer's IP, serial number, and LAN access code. Test the connection from this page before saving.
-2. **Connect** (still `/setup`, lower section) — BambuBoard asks the printer to identify itself via MQTT. Within a few seconds you'll see "Auto-detected: H2D" (or whichever model). The "Continue to Layout →" button lights up.
+2. **Connect** (`/setup#connect`, same page as Setup) — BambuBoard asks the printer to identify itself via MQTT. Within a few seconds you'll see "Auto-detected: H2D" (or whichever model). The "Continue to Layout →" button lights up.
 3. **Layout** (`/scene-editor`) — A 1920×1080 canvas auto-loads the matching default template for your printer type. Drag widgets, resize, change themes, snap to grid. When you're happy, click **Save & Continue to Export**.
 4. **Export** (`/`) — Download the scene `.json` file. In OBS Studio: **Scene Collection → Import…** → pick the file. Done.
+
+> **Match your OBS canvas to the template.** The H2D default template ships at **2560×1440 (2K)**; the X1 family default ships at **1920×1080 (1080p)**. Before importing, set OBS → **Settings → Video → Base (Canvas) Resolution** to the same size. If they don't match, OBS will scale or crop the imported scene. The scene editor warns you about this and remembers your acknowledgement per tab.
 
 You'll need before starting:
 - The printer's **IP address** (printer screen → Settings → Network).
@@ -144,15 +146,15 @@ Printer type is **auto-detected from MQTT** when BambuBoard connects — no need
 
 | Model | BambuBoard type | Caps | Status |
 |-------|-----------------|------|--------|
-| X1 Carbon | `X1C` | Chamber temp | ✅ **Tested by maintainer** |
-| H2D, H2D Pro | `H2D` | Chamber temp, dual nozzle, dual AMS | ✅ **Tested by maintainer** |
-| X1 | `X1` | Chamber temp | ⚠️ Should work — community feedback welcome |
-| X1E | `X1C` (mapped) | Chamber temp | ⚠️ Should work — community feedback welcome |
-| P1P | `P1P` | — | ⚠️ Should work — community feedback welcome |
-| P1S, P2S | `P1S` | — | ⚠️ Should work — community feedback welcome |
-| A1 | `A1` | Single AMS | ⚠️ Should work — community feedback welcome |
-| A1 Mini | `A1M` | Single AMS | ⚠️ Should work — community feedback welcome |
-| H2C, H2S, X2D | `H2D` (mapped) | Chamber temp, dual nozzle, dual AMS | ⚠️ Should work — community feedback welcome |
+| X1 Carbon | `X1C` | Chamber temp | **Tested by maintainer** |
+| H2D, H2D Pro | `H2D` | Chamber temp, dual nozzle, dual AMS | **Tested by maintainer** |
+| X1 | `X1` | Chamber temp | Should work — community feedback welcome |
+| X1E | `X1C` (mapped) | Chamber temp | Should work — community feedback welcome |
+| P1P | `P1P` | — | Should work — community feedback welcome |
+| P1S, P2S | `P1S` | — | Should work — community feedback welcome |
+| A1 | `A1` | Single AMS | Should work — community feedback welcome |
+| A1 Mini | `A1M` | Single AMS | Should work — community feedback welcome |
+| H2C, H2S, X2D | `H2D` (mapped) | Chamber temp, dual nozzle, dual AMS | Should work — community feedback welcome |
 
 **AMS variants:** any printer with a heating-capable AMS (AMS 2 Pro, AMS HT) gets a live drying indicator on the AMS widget when a dry cycle is running — `dry_time`, `dry_temperature`, animated fan icon. Older AMS / AMS Lite always reports zero so the indicator stays hidden, no model gating needed.
 
@@ -276,7 +278,9 @@ All assets (jQuery, Material Symbols, fonts) are bundled locally — no external
 The first boot of v3 detects and migrates two legacy config shapes:
 
 - **Old single-printer H2D fork** (flat `BambuBoard_printerURL` etc.) → new `printer` object with `type: "H2D"`.
-- **Old multi-printer BambuBoard v2** (`printers[]` array) → first printer is kept; the rest are dropped with a warning. **Multi-printer is not supported in v3** — for that, use the [v2.0.1 release](https://github.com/t0nyz0/BambuBoard/tree/v2.0.1) or `ghcr.io/t0nyz0/bambuboard:2.0.1`.
+- **Old multi-printer BambuBoard v2** (`printers[]` array) → first printer is kept; the rest are dropped with a warning.
+
+> **WARNING — multi-printer users:** v3 is intentionally single-printer. Upgrading from v2 with more than one printer in your config will silently drop everything except the first entry on first boot. If you rely on multi-printer support, **stay on v2** — use the [v2.0.1 release](https://github.com/t0nyz0/BambuBoard/tree/v2.0.1) (`git checkout v2.0.1`) or pull `ghcr.io/t0nyz0/bambuboard:2.0.1`. A pre-merge backup is saved as `config.json.pre-merge-*-{timestamp}.bak` so the original config is recoverable.
 
 Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriting. Legacy runtime files (`accessToken.json`, `note.json`, `public/data.json`) at the repo root are auto-moved into `data/` on first boot.
 
@@ -287,7 +291,7 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 - **"Test connection" fails** — verify the IP, port (8883), serial number, and access code. The printer must be on the same LAN.
 - **No data appearing on dashboard** — check the printer's "LAN Mode Liveview" setting is enabled (Settings → General). Also check the "Connect" panel on `/setup` — it should show "MQTT: ✓ Connected" within 3-5s.
 - **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
-- **Camera widget shows "RTSP disabled"** — On the H2D, enable: Settings → Network → LAN Only Liveview → ON, then reboot the printer. May require firmware 01.06+.
+- **Printer Camera source is black or empty in OBS** — the camera isn't a BambuBoard widget; it's an OBS Media Source bundled in the scene template. The default template points at the Bambu Studio cameratools SDP file (machine-specific). Open the `Printer Camera` source's properties in OBS and set the **Local File** path to your SDP file (Bambu Studio writes it when its Virtual Camera is enabled). For RTSPS direct streaming on H2D/H2S/P2S you also need: printer Settings → Network → LAN Only Liveview → ON, plus firmware 01.06+.
 - **OBS scene fails to import** — make sure you used the Export page's Download button (which substitutes `<HOST>` for you), not the raw template.
 
 ---
@@ -296,8 +300,8 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 
 ```bash
 npm install
-node src/server.js                # bare-bones; uses ./config.json + ./data/
-BAMBUBOARD_LOGGING=true node src/server.js > /tmp/bb.log 2>&1 &
+npm start                         # uses ./data/config.json (or env overrides)
+BAMBUBOARD_LOGGING=true npm start > /tmp/bb.log 2>&1 &
 tail -f /tmp/bb.log               # verbose MQTT trace
 ```
 
@@ -330,6 +334,6 @@ Issues, bug reports, and pull requests are welcome — especially for printer mo
 
 <div align="center">
 
-If you found BambuBoard useful, a ⭐ on the repo helps others discover it.
+If you found BambuBoard useful, a star on the repo helps others discover it.
 
 </div>

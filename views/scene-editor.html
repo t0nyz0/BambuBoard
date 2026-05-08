@@ -41,6 +41,7 @@
       </div>
 
       <div class="group">
+        <button id="layers-panel-btn" class="btn btn-ghost" type="button" title="Show / hide the scene layers panel">⚏ Layers</button>
         <button id="widget-drawer-btn" class="btn btn-ghost" type="button" title="Show available widgets to drag onto the canvas">+ Widgets</button>
       </div>
 
@@ -69,6 +70,20 @@
       Drag a widget onto the canvas to add it to the scene.
     </p>
     <div id="widget-drawer-list" class="widget-drawer-list"></div>
+  </aside>
+
+  <!-- Scene layers panel (OBS-Studio "Sources" dock equivalent).
+       Displayed top-of-list = top-of-stack; reordering, visibility, lock,
+       and quick layer-up/down per row. Default-open on first load. -->
+  <aside id="layers-panel" class="layers-panel open">
+    <div class="layers-panel-header">
+      <h4>Layers</h4>
+      <button id="layers-panel-close" class="btn btn-ghost" type="button" title="Hide layers panel">×</button>
+    </div>
+    <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2);padding:0 var(--space-3)">
+      Top of list = front of scene. Drag rows to reorder.
+    </p>
+    <div id="layers-panel-list" class="layers-panel-list"></div>
   </aside>
 
   <aside id="inspector" class="inspector">

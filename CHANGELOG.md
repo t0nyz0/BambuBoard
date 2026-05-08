@@ -4,7 +4,19 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
-## 3.0.1
+## Unreleased
+
+### Added
+- **Scene editor: OBS-style layers panel** (`views/scene-editor.html`, `public/css/scene-editor.css`, `public/js/scene-editor.js`) — new floating left dock listing every scene item, top-of-list = top-of-stack (matches OBS Sources convention). Each row has a drag handle, visibility toggle, lock toggle, per-row up/down arrows, and the source name. Click a row to select that item (canvas + inspector mirror the highlight); drag a row to reorder; arrows move just that row regardless of selection. Re-renders automatically whenever the scene changes (canvas drops, deletes, undo/redo). Default-open; toggleable via a new toolbar button. Backed by the existing `state.items[]` array — no scene data-model change. **Why:** the inspector's four-button layer control only acted on the currently-selected item, making it tedious to reorder a stack of overlapping widgets. The OBS Sources panel pattern (which most users already know) gives the whole stack at a glance plus drag-to-reorder.
+
+### Changed
+- **README polish** (`README.md`) — stripped the 19 decorative emojis (title, Highlights bullets, status badges, footer), clarified that "Connect" is the section of `/setup` (same page) rather than a separate URL, switched the Development snippet to `npm start` for consistency, and added a callout to the Export step noting the H2D template now ships at 2560×1440 (2K) and the X1 family at 1920×1080 — users must match OBS → Settings → Video → Base Resolution to the template's size before importing or OBS will scale/crop the scene.
+- **Migration warning hoisted** (`README.md`) — the v2 → v3 migration silently drops extra printers; the warning is now a bold callout in the Migrating section so a multi-printer user sees it before upgrading.
+
+### Fixed
+- **Camera widget troubleshooting entry** (`README.md`) — the previous entry referenced "the camera widget" which doesn't exist. Replaced with accurate guidance: the camera is an OBS Media Source bundled in the scene template, configure via the source's Local File / SDP path.
+
+
 
 ### Added
 - **Live gcode toolpath widget** (`public/widgets/gcode-viz/`, `src/routes/gcode.js`, `src/services/printerFiles.js`, `public/vendor/`) — new three.js widget that visualizes the active print's gcode in real-time, with a stylized hotend tracing the toolpath and a hot-extrusion trail that fades to the cold filament color. Polls `/data.json` on the existing 800ms cadence; layer follows `print.layer_num`, within-layer position follows `print.mc_percent` mapped onto the gcode's per-segment time budget (using the gcode's actual `F` feedrates), so the simulated nozzle roughly tracks the real one. Travels (G0 / non-extruding G1) are skipped in 0 animation time so the nozzle stays on actual deposited filament. The hot trail is a vertex-colored `THREE.Line` built from the last ~35 s of nozzle motion, color-ramping yellow-white → orange → red → cold filament color across the trail length. Auto-pauses when `gcode_state` is `FINISH` / `IDLE` / `FAILED`: camera orbit, nozzle, and trail all freeze; the cold toolpath stays as a finished snapshot. **Why:** existing widgets surface telemetry but never the actual toolpath; this is the first widget that shows *what* is being printed, not just *how far*.

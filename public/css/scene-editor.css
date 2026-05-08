@@ -238,3 +238,114 @@
 .widget-drawer.open ~ .inspector.open {
   right: 344px;
 }
+
+/* Scene layers panel — fixed left dock, OBS "Sources" equivalent.
+   Mirrors the inspector pattern (fixed, surface, shadow) but anchored left
+   so it sits opposite the inspector and doesn't fight the widget drawer. */
+.layers-panel {
+  position: fixed;
+  top: 120px;
+  left: 24px;
+  width: 240px;
+  max-height: calc(100vh - 160px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+}
+.layers-panel.open { display: flex; }
+.layers-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.layers-panel-header h4 { margin: 0; font-size: 14px; }
+.layers-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+  /* Empty-state hint when no scene loaded; replaced by row content. */
+  min-height: 40px;
+}
+.layers-panel-list .empty-hint {
+  padding: var(--space-3);
+  color: var(--color-text-dim);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* Single row in the layers list. Columns: drag-handle, eye, lock,
+   stacked-up/down arrows, name. */
+.layer-row {
+  display: grid;
+  grid-template-columns: 14px 18px 18px 24px 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  margin-bottom: 2px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+}
+.layer-row:hover { background: var(--color-surface-2); }
+.layer-row.selected {
+  background: var(--color-surface-2);
+  border-color: var(--color-accent);
+}
+.layer-row.dragging { opacity: 0.4; }
+.layer-row.drop-above { box-shadow: inset 0 2px 0 var(--color-accent); }
+.layer-row.drop-below { box-shadow: inset 0 -2px 0 var(--color-accent); }
+
+.layer-row .lr-handle {
+  cursor: grab;
+  text-align: center;
+  color: var(--color-text-dim);
+  font-size: 13px;
+  line-height: 1;
+}
+.layer-row .lr-handle:active { cursor: grabbing; }
+.layer-row .lr-toggle {
+  background: none;
+  border: 0;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+.layer-row .lr-toggle.off { color: var(--color-text-dim); opacity: 0.35; }
+.layer-row .lr-arrows {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.layer-row .lr-arrows button {
+  background: none;
+  border: 0;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  padding: 0;
+  font-size: 9px;
+  line-height: 1;
+  width: 18px;
+}
+.layer-row .lr-arrows button:hover { color: var(--color-text); }
+.layer-row .lr-arrows button:disabled { opacity: 0.25; cursor: default; }
+.layer-row .lr-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+}
+.layer-row.lr-hidden .lr-name {
+  text-decoration: line-through;
+  color: var(--color-text-dim);
+}

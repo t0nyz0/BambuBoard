@@ -45,6 +45,8 @@ const els = {
   inspector: () => document.getElementById('inspector'),
   diff:      () => document.getElementById('diff'),
   zoomLbl:   () => document.getElementById('zoom-label'),
+  layersPanel: () => document.getElementById('layers-panel'),
+  layersList:  () => document.getElementById('layers-panel-list'),
 };
 
 const widgetSlugRe = /\/widgets\/([a-zA-Z0-9_\-]+)\//;
@@ -220,6 +222,7 @@ function updateUndoButtons () {
     if (e.key === 'Escape') {
       state.selectedIndex = -1;
       document.querySelectorAll('.scene-item.selected').forEach(n => n.classList.remove('selected'));
+      document.querySelectorAll('.layer-row.selected').forEach(n => n.classList.remove('selected'));
       closeInspector();
       return;
     }
@@ -269,16 +272,25 @@ function updateUndoButtons () {
   });
   document.getElementById('inspector-close').addEventListener('click', () => closeInspector());
   document.addEventListener('click', (e) => {
-    if (e.target.closest('.scene-item') || e.target.closest('.inspector') || e.target.closest('.editor-toolbar') || e.target.closest('.widget-drawer')) return;
+    if (e.target.closest('.scene-item') || e.target.closest('.inspector') || e.target.closest('.editor-toolbar') || e.target.closest('.widget-drawer') || e.target.closest('.layers-panel')) return;
     closeInspector();
     state.selectedIndex = -1;
     document.querySelectorAll('.scene-item.selected').forEach(n => n.classList.remove('selected'));
+    document.querySelectorAll('.layer-row.selected').forEach(n => n.classList.remove('selected'));
   });
 
   // Widget drawer toggle + populate
   document.getElementById('widget-drawer-btn').addEventListener('click', toggleWidgetDrawer);
   document.getElementById('widget-drawer-close').addEventListener('click', () => closeWidgetDrawer());
   populateWidgetDrawer();
+
+  // Layers panel toggle (open by default — set in HTML class).
+  document.getElementById('layers-panel-btn').addEventListener('click', () => {
+    els.layersPanel().classList.toggle('open');
+  });
+  document.getElementById('layers-panel-close').addEventListener('click', () => {
+    els.layersPanel().classList.remove('open');
+  });
 
   // Canvas drop target — accept widgets dragged from the drawer
   setupCanvasDrop();
@@ -614,6 +626,7 @@ function render () {
     }
   });
   updateDiff();
+  renderLayersPanel();
 }
 
 function renderItem (item, idx) {
@@ -1047,10 +1060,181 @@ function applyToDom (idx) {
   if (lbl) lbl.textContent = `${item.name} · ${Math.round(sz.w)}×${Math.round(sz.h)} (natural ${Math.round(sz.naturalW)}×${Math.round(sz.naturalH)})`;
 }
 
+// ---- layers panel (OBS Sources-style dock) ----
+// Move a scene item from one array index to another. Mirrors moveLayer()
+// but works on arbitrary (from, to) — used by drag-reorder and per-row
+// up/down arrows where the moved item may not be the selected one.
+function moveItemFromTo (from, to) {
+  const items = state.items;
+  if (from === to) return;
+  if (from < 0 || from >= items.length) return;
+  if (to   < 0 || to   >= items.length) return;
+  snapshot();
+  const [item] = items.splice(from, 1);
+  items.splice(to, 0, item);
+  // Keep the selection pinned to the same item if it was the one moving;
+  // otherwise adjust the index so the previously-selected item stays
+  // selected after the splice shifts everything around it.
+  if (state.selectedIndex === from) {
+    state.selectedIndex = to;
+  } else if (from < state.selectedIndex && to >= state.selectedIndex) {
+    state.selectedIndex--;
+  } else if (from > state.selectedIndex && to <= state.selectedIndex) {
+    state.selectedIndex++;
+  }
+  render();
+  refreshInspector();
+  updateDiff();
+}
+
+// Render the rows whenever the scene changes. One row per item, displayed
+// top-to-bottom in REVERSE array order so top-of-list = top-of-stack
+// (matches OBS Sources convention). Called from render().
+function renderLayersPanel () {
+  const list = els.layersList();
+  if (!list) return;
+  list.innerHTML = '';
+  if (!state.items.length) {
+    list.innerHTML = '<div class="empty-hint">No scene loaded.</div>';
+    return;
+  }
+  const total = state.items.length;
+  for (let i = total - 1; i >= 0; i--) {
+    const item = state.items[i];
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+    row.dataset.idx = i;
+    if (i === state.selectedIndex) row.classList.add('selected');
+    if (item.visible === false) row.classList.add('lr-hidden');
+    row.draggable = true;
+
+    // Drag handle (visual cue — the whole row is draggable, this glyph
+    // signals the reorder affordance).
+    const handle = document.createElement('span');
+    handle.className = 'lr-handle';
+    handle.textContent = '⋮';
+    row.appendChild(handle);
+
+    // Visibility toggle.
+    const eye = document.createElement('button');
+    eye.type = 'button';
+    eye.className = 'lr-toggle' + (item.visible === false ? ' off' : '');
+    eye.textContent = item.visible === false ? '◌' : '●';
+    eye.title = 'Toggle visibility';
+    eye.addEventListener('click', (e) => {
+      e.stopPropagation();
+      snapshot();
+      state.items[i].visible = (item.visible === false);
+      render();
+      if (state.selectedIndex === i) refreshInspector();
+    });
+    row.appendChild(eye);
+
+    // Lock toggle.
+    const lock = document.createElement('button');
+    lock.type = 'button';
+    lock.className = 'lr-toggle' + (item.locked === true ? '' : ' off');
+    lock.textContent = item.locked === true ? '◆' : '◇';
+    lock.title = 'Toggle lock';
+    lock.addEventListener('click', (e) => {
+      e.stopPropagation();
+      snapshot();
+      state.items[i].locked = !(item.locked === true);
+      render();
+      if (state.selectedIndex === i) refreshInspector();
+    });
+    row.appendChild(lock);
+
+    // Stacked up/down arrows (per-row, work on this row's item regardless
+    // of selection state).
+    const arrows = document.createElement('div');
+    arrows.className = 'lr-arrows';
+    const upBtn = document.createElement('button');
+    upBtn.type = 'button';
+    upBtn.textContent = '▲';
+    upBtn.title = 'Move forward (up in list)';
+    upBtn.disabled = (i === total - 1);
+    upBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveItemFromTo(i, i + 1);
+    });
+    const downBtn = document.createElement('button');
+    downBtn.type = 'button';
+    downBtn.textContent = '▼';
+    downBtn.title = 'Move backward (down in list)';
+    downBtn.disabled = (i === 0);
+    downBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveItemFromTo(i, i - 1);
+    });
+    arrows.appendChild(upBtn);
+    arrows.appendChild(downBtn);
+    row.appendChild(arrows);
+
+    // Name (clicking selects the item, like clicking on canvas).
+    const name = document.createElement('span');
+    name.className = 'lr-name';
+    name.textContent = item.name || '(unnamed)';
+    name.title = item.name || '';
+    row.appendChild(name);
+
+    row.addEventListener('click', () => selectItem(i));
+
+    // Drag-to-reorder using native HTML5 Drag API with a custom mime type
+    // so the canvas's drop handler (which accepts widget tiles from the
+    // drawer) doesn't accidentally consume our row drags.
+    row.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('application/x-bambuboard-layer', String(i));
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      list.querySelectorAll('.drop-above, .drop-below').forEach(n => {
+        n.classList.remove('drop-above', 'drop-below');
+      });
+    });
+    row.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer.types.includes('application/x-bambuboard-layer')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = row.getBoundingClientRect();
+      const above = (e.clientY - rect.top) < rect.height / 2;
+      list.querySelectorAll('.drop-above, .drop-below').forEach(n => {
+        if (n !== row) n.classList.remove('drop-above', 'drop-below');
+      });
+      row.classList.toggle('drop-above', above);
+      row.classList.toggle('drop-below', !above);
+    });
+    row.addEventListener('dragleave', () => {
+      row.classList.remove('drop-above', 'drop-below');
+    });
+    row.addEventListener('drop', (e) => {
+      const raw = e.dataTransfer.getData('application/x-bambuboard-layer');
+      if (raw === '') return;
+      e.preventDefault();
+      const from = parseInt(raw, 10);
+      const rect = row.getBoundingClientRect();
+      const above = (e.clientY - rect.top) < rect.height / 2;
+      // List is reversed (top-of-list = highest array index). Dropping ABOVE
+      // this row means inserting at i + 1 (just after this slot in the
+      // array); BELOW means inserting at i. Adjust for the splice shift
+      // when the source comes from a lower index than the target.
+      let target = above ? (i + 1) : i;
+      if (from < target) target -= 1;
+      moveItemFromTo(from, target);
+    });
+
+    list.appendChild(row);
+  }
+}
+
 // ---- selection / inspector ----
 function selectItem (idx) {
   state.selectedIndex = idx;
   document.querySelectorAll('.scene-item').forEach(n => n.classList.toggle('selected', Number(n.dataset.idx) === idx));
+  // Mirror the highlight in the layers panel so canvas-clicks update both.
+  document.querySelectorAll('.layer-row').forEach(n => n.classList.toggle('selected', Number(n.dataset.idx) === idx));
   openInspector();
 }
 
