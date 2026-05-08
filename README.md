@@ -34,6 +34,10 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 ## Screenshots
 
+> **Live H2D dashboard** — chamber camera background, gcode toolpath widget, dual nozzles, dual AMS, MakerWorld profile, and progress bar all composited as OBS browser sources.
+
+<a href="screenshots/LIVE-DASHBOARD-3.0.jpg"><img src="screenshots/LIVE-DASHBOARD-3.0.jpg" alt="BambuBoard 3.0 live H2D dashboard" width="100%"></a>
+
 <table>
   <tr>
     <td width="50%" valign="top">
@@ -66,7 +70,8 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 ## Highlights
 
 - **Drop-in OBS scene** — pre-built H2D and X1-family scene templates with widget positions, sizes, and themes already tuned for stream overlays. Download, import, done.
-- **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry.
+- **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. New OBS-style Layers panel for drag-to-reorder z-stacking.
+- **Live gcode toolpath widget** *(experimental / beta)* — three.js widget that fetches the active print's gcode over FTPS, parses it, and renders the toolpath in real time with a stylized hotend tracing the active layer. Multi-color prints get per-tool AMS colors. Adaptive speed calibration keeps the simulation locked to the printer's reported `mc_percent` even through filament swaps. Single-color prints work great; multi-color/multi-object timing on complex prints can still drift — open an issue if you hit a case that's clearly off.
 - **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
 - **AMS drying indicator** — `AMS 2 Pro` and `AMS HT` units get a live "DRYING · 60° · 11h" pill with an animated fan icon when actively heating filament.
 - **Active tray + active nozzle highlights** — the currently-feeding filament tray and the currently-extruding nozzle get a green left-edge accent + soft tint while printing.
@@ -205,13 +210,14 @@ Every widget is a standalone HTML page you add as a Browser Source in OBS. The h
 <!-- WIDGET-CATALOG-START -->
 | Widget | Description | Recommended size | Params | Cap-gated |
 |--------|-------------|------------------|--------|-----------|
-| **AMS** (`ams`) | Combined AMS card: chamber temp + humidity bar + drying status (AMS 2 Pro / AMS HT) + 4 tray rows. Active tray gets a green left-edge accent. Multi-AMS: ?ams=0\|1\|2\|3 (defaults to AMS #1). | 400×460 | `?ams=0` | — |
+| **AMS** (`ams`) | Combined AMS card: chamber temp + humidity bar + drying status (AMS 2 Pro / AMS HT) + 4 tray rows. Active tray gets a green left-edge accent. Defaults to AMS #1 (firmware id=1, which is the user-facing 'AMS #1' on H2D dual-AMS setups). Multi-AMS: ?ams=0\|1\|2\|3. | 400×460 | `?ams=1` | — |
 | **AMS humidity / temp (legacy)** (`ams-temp`) | Standalone humidity + chamber-temp + drying readout. Superseded by the combined `ams` widget which now includes this header above the trays. Kept for back-compat with custom scenes that reference it. | 400×120 | — | — |
 | **AMS #2 humidity (legacy)** (`ams-temp-2`) | Standalone humidity + chamber-temp + drying readout for the second AMS. Superseded by the combined `ams2` widget which now includes this header above the trays. Kept for back-compat with custom scenes. | 400×120 | — | `hasDualAMS` |
-| **AMS #2** (`ams2`) | Combined AMS #2 card (H2D only): chamber temp + humidity + drying status + 4 tray rows. Same layout as the primary `ams` widget but reads `ams.ams[1]`. | 400×460 | — | `hasDualAMS` |
+| **AMS #2** (`ams2`) | Combined AMS #2 card (H2D only): chamber temp + humidity + drying status + 4 tray rows. Same layout as the primary `ams` widget but reads `ams.ams[0]` (firmware id=0, which is the user-facing 'AMS #2' on H2D — Bambu's MQTT enumeration is reversed from the labeled hardware). | 400×460 | — | `hasDualAMS` |
 | **Bed temperature** (`bed-temp`) | Heat-bed temp with target + progress bar. | 400×120 | — | — |
 | **Chamber temperature** (`chamber-temp`) | Enclosed-chamber temperature (X1, X1C, H2D). | 400×120 | — | `hasChamberTemp` |
 | **Fans** (`fans`) | All four fan speeds with animated spinning icons and circular gauge rings showing speed percentage. | 420×160 | — | — |
+| **Gcode Toolpath** (`gcode-viz`) | **Experimental / beta.** Live three.js visualization of the active print's gcode, advancing layer-by-layer with a stylized hotend tracing the toolpath. Multi-color prints render per-tool AMS colors. Adaptive speed calibration keeps the sim locked to the printer's mc_percent through filament swaps. Single-color prints work great; multi-object timing on complex prints can still drift. | 640×640 | — | — |
 | **Model image** (`model-image`) | Preview image of the current model (requires Bambu Cloud auth for live MakerWorld images). | 400×300 | — | — |
 | **Notes / footer** (`notes`) | Auto-updates with the model name each print; can be manually overridden from the dashboard. | 600×40 | — | — |
 | **Nozzle info** (`nozzle-info`) | Nozzle type, size, current speed level. | 400×120 | — | — |
@@ -223,6 +229,8 @@ Every widget is a standalone HTML page you add as a Browser Source in OBS. The h
 | **Progress** (`progress-info`) | Print progress bar with status text and percentage. | 600×80 | — | — |
 | **Version stamp** (`version`) | Shows BambuBoard version in a corner. | 200×30 | — | — |
 | **Wi-Fi signal** (`wifi`) | Wireless signal strength. | 200×80 | — | — |
+
+_19 widgets — generated by `scripts/build-widget-catalog.js`._
 <!-- WIDGET-CATALOG-END -->
 
 Regenerate this table after adding/changing widgets:

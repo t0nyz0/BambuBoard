@@ -1,6 +1,6 @@
 {
   "name": "Gcode Toolpath",
-  "description": "Live three.js visualization of the active print's gcode, advancing layer-by-layer.",
+  "description": "**Experimental / beta.** Live three.js visualization of the active print's gcode, advancing layer-by-layer with a stylized hotend tracing the toolpath. Multi-color prints render per-tool AMS colors. Adaptive speed calibration keeps the sim locked to the printer's mc_percent through filament swaps. Single-color prints work great; multi-object timing on complex prints can still drift.",
   "recommendedSize": { "w": 640, "h": 640 },
   "tags": ["3d", "live", "gcode"]
 }
