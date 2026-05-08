@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
-## Unreleased
+## 3.0.2 — 2026-05-08
 
 ### Added
 - **Scene editor: OBS-style layers panel** (`views/scene-editor.html`, `public/css/scene-editor.css`, `public/js/scene-editor.js`) — new floating left dock listing every scene item, top-of-list = top-of-stack (matches OBS Sources convention). Each row has a drag handle, visibility toggle, lock toggle, per-row up/down arrows, and the source name. Click a row to select that item (canvas + inspector mirror the highlight); drag a row to reorder; arrows move just that row regardless of selection. Re-renders automatically whenever the scene changes (canvas drops, deletes, undo/redo). Default-open; toggleable via a new toolbar button. Backed by the existing `state.items[]` array — no scene data-model change. **Why:** the inspector's four-button layer control only acted on the currently-selected item, making it tedious to reorder a stack of overlapping widgets. The OBS Sources panel pattern (which most users already know) gives the whole stack at a glance plus drag-to-reorder.
