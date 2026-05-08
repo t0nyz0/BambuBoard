@@ -74,8 +74,10 @@
 
   <!-- Scene layers panel (OBS-Studio "Sources" dock equivalent).
        Displayed top-of-list = top-of-stack; reordering, visibility, lock,
-       and quick layer-up/down per row. Default-open on first load. -->
-  <aside id="layers-panel" class="layers-panel open">
+       and quick layer-up/down per row. Closed by default — click the
+       Layers button in the toolbar (or any layer-related action elsewhere)
+       to reveal. Keeps the canvas uncluttered on first load. -->
+  <aside id="layers-panel" class="layers-panel">
     <div class="layers-panel-header">
       <h4>Layers</h4>
       <button id="layers-panel-close" class="btn btn-ghost" type="button" title="Hide layers panel">×</button>
