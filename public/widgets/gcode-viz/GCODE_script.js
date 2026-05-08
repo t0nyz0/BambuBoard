@@ -16,12 +16,12 @@ const PLAY_LAYERS_PER_SEC = 8;
 // the H2D's chamber camera looks at the bed — same prints, same left/right
 // orientation across both views.
 const ORBIT_THETA_FIXED = Math.PI * 1.7;        // ~306° / -54° — looks from the opposite side of the bed vs the previous take
-// Nozzle simulation speed multiplier vs real gcode feedrate. Real printers
-// run slower than gcode F speeds because of acceleration/deceleration on
-// every segment — gcode F is an upper bound, not actual speed. 0.82 ≈ 18%
-// haircut roughly matching what Bambu printers achieve on typical short
-// extrusion segments. Further scaled at runtime by spd_lvl (Silent/Sport/…).
-let nozzleSpeedFactor = 0.82;
+// Nozzle simulation speed multiplier vs gcode feedrate. Self-calibrates
+// based on observed mc_percent advancement rate so it tracks the real
+// printer including filament-swap delays, accel/decel overhead, and any
+// speed-mode multiplier. 0.7 is a reasonable starting guess for a Bambu
+// printer in Standard mode; the calibrator zeroes in within a few percent.
+let nozzleSpeedFactor = 0.7;
 // Hot-extrusion trail: how long a freshly-deposited segment glows before
 // fading to the cold print color, and the geometry buffer cap. Long window
 // + wide cooling bands so the red→orange→yellow→cold gradient is actually
@@ -729,6 +729,11 @@ let lastSubStage = -1;       // most recent stg_cur (0=printing, nonzero=sub-sta
 // instead of jittering on the 1% mc_percent integer steps.
 let mcPercentLastSeen = null;
 let mqttSyncedLayer = null;
+// Adaptive speed calibration: track when we last saw a new mc_percent
+// value so we can measure how much wall-clock time elapses per percent
+// of gcode-time. The ratio tells us the true effective speed factor.
+let lastMcPctChangeWall = null;
+let lastMcPctChangeValue = null;
 // In production (no ?debug / ?layers), pause all motion when the printer
 // isn't actively printing. The toolpath stays on screen as a finished snapshot.
 function isPausedForState() {
@@ -841,6 +846,8 @@ function clearScene() {
   smoothedNozzleInit = false;
   mcPercentLastSeen = null;                 // force a fresh sync on next tick
   mqttSyncedLayer = null;
+  lastMcPctChangeWall = null;
+  lastMcPctChangeValue = null;
   orbitRadius = 0;                          // re-fit on next orbit tick
   fastTick();                               // commit the empty state to the GPU
 }
@@ -1082,6 +1089,8 @@ async function tick() {
         currentTaskKey = null;
         mcPercentLastSeen = null;
         mqttSyncedLayer = null;
+        lastMcPctChangeWall = null;
+        lastMcPctChangeValue = null;
       }
       if (state === 'PREPARE' || state === 'SLICING') {
         setOverlay('Preparing print…', 'loading');
@@ -1094,11 +1103,6 @@ async function tick() {
     }
 
     syncFilamentColor(print);
-    // Bambu speed mode: 1=Silent, 2=Standard, 3=Sport, 4=Ludicrous.
-    // Combined with the ~0.82 accel/decel haircut for a realistic timing.
-    const spdLvl = parseInt(print.spd_lvl ?? 2, 10);
-    const spdMul = spdLvl === 1 ? 0.5 : spdLvl === 3 ? 1.24 : spdLvl === 4 ? 1.66 : 1.0;
-    nozzleSpeedFactor = 0.82 * spdMul;
 
     const taskKey = `${taskId}_p${plateIdx}`;
 
@@ -1120,6 +1124,19 @@ async function tick() {
 
     if (scrubActive) return;
     if (state === 'PAUSED') return;
+    // Mid-print sub-stage (filament swap, bed scan, etc.): freeze the
+    // simulation. Bambu's mc_percent is real-time-based and keeps ticking
+    // during the 30-60s physical swap even though gcode position barely
+    // advances. Letting the sync run during swaps fast-forwards us past
+    // the swap point and onto the wrong object on multi-color prints.
+    if (subStage !== 0) {
+      // Discard any in-flight calibration sample — it would otherwise mix
+      // swap-time wall seconds into the gcode-time-per-wall-time estimate
+      // and tank the speed factor.
+      lastMcPctChangeWall = null;
+      lastMcPctChangeValue = null;
+      return;
+    }
 
     const modelToParsed = (n) => Math.min(totalLayers, n + modelLayerOffset);
     const target = state === 'FINISH'
@@ -1135,6 +1152,27 @@ async function tick() {
       const layerJustChanged = (mqttSyncedLayer !== activeLayerIdx);
       const pctAdvanced = (mcPct !== mcPercentLastSeen);
       if (Number.isFinite(mcPct) && (layerJustChanged || pctAdvanced)) {
+        // Adaptive calibration: when mc_percent advances, measure how much
+        // wall-clock time the printer took for that percent change and
+        // compare to how much gcode-time it represents. The ratio is the
+        // true speed factor (gcode-time per wall-time) including filament
+        // swap delays, accel/decel, and any speed-mode multiplier.
+        if (pctAdvanced && lastMcPctChangeWall != null && lastMcPctChangeValue != null) {
+          const dPct = mcPct - lastMcPctChangeValue;
+          const dWallSec = (performance.now() - lastMcPctChangeWall) / 1000;
+          if (dPct > 0 && dWallSec > 0.5 && dWallSec < 120) {
+            const dGcodeSec = (dPct / 100) * totalGcodeTime;
+            const observed = dGcodeSec / dWallSec;
+            // Clamp + EMA so a single weird sample (e.g. mid-swap) doesn't
+            // wreck the estimate. Range 0.1–1.5 is sane for any printer mode.
+            const clamped = Math.max(0.1, Math.min(1.5, observed));
+            nozzleSpeedFactor = nozzleSpeedFactor * 0.7 + clamped * 0.3;
+          }
+        }
+        if (pctAdvanced) {
+          lastMcPctChangeWall = performance.now();
+          lastMcPctChangeValue = mcPct;
+        }
         const targetT = (mcPct / 100) * totalGcodeTime;
         const layerStartT = cumLayerTime[activeLayerIdx] || 0;
         const layerDur = layerPaths[activeLayerIdx]?.total || 0;
