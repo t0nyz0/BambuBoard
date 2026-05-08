@@ -8,14 +8,22 @@
   const isFirst = new URLSearchParams(location.search).get('firstRun') === '1' || cfg._meta?.firstRun;
   if (isFirst) document.body.classList.add('first-run');
 
-  // Type dropdown
-  const typeSel = document.getElementById('p-type');
-  types.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.value; opt.textContent = `${t.label} (${t.value})`;
-    typeSel.appendChild(opt);
-  });
-  typeSel.value = cfg.printer?.type || 'X1';
+  // Printer type — used to be a visible dropdown but the type is auto-detected
+  // from MQTT once the printer connects (see src/lib/caps.js#printerTypeFromMqtt
+  // and the onPrinterDetected hook in src/server.js). We keep the field as a
+  // hidden input so save/load logic still reads it; populate the option list
+  // only if the element is a `<select>` (kept for back-compat if someone
+  // restores the dropdown). Default 'X1' is a safe bootstrap that gets
+  // overwritten within a few seconds of MQTT connecting.
+  const typeEl = document.getElementById('p-type');
+  if (typeEl && typeEl.tagName === 'SELECT') {
+    types.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.value; opt.textContent = `${t.label} (${t.value})`;
+      typeEl.appendChild(opt);
+    });
+  }
+  if (typeEl) typeEl.value = cfg.printer?.type || 'X1';
 
   // Hydrate fields
   document.getElementById('p-name').value = cfg.printer?.name || '';
@@ -37,7 +45,12 @@
   } catch (_) {
     document.getElementById('p-ac-status').textContent = cfg.printer?.accessCodeSet ? 'A code is saved (could not load).' : 'Required.';
   }
-  document.getElementById('temp').value = cfg.BambuBoard_tempSetting || 'Both';
+  // Migration: older configs saved "C" / "F" but every temp widget checks for
+  // the spelled-out strings. Map legacy values forward so the dropdown shows
+  // the right thing — and so the next save normalizes the file.
+  const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
+  const savedTemp = cfg.BambuBoard_tempSetting || 'Both';
+  document.getElementById('temp').value = legacyTempMap[savedTemp] || savedTemp;
   toggle('fan-pct', !!cfg.BambuBoard_displayFanPercentages);
   toggle('fan-icons', cfg.BambuBoard_displayFanIcons !== false);
   toggle('logging', !!cfg.BambuBoard_logging);

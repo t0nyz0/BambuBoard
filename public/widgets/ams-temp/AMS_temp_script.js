@@ -39,7 +39,9 @@ async function loadSettings() {
 }
 
 loadSettings();
-
+// Re-fetch every 5s so changes made on the /setup page (e.g. temperature
+// unit, fan-percent toggle) propagate without reloading the iframe.
+setInterval(loadSettings, 5000);
 async function retrieveData() {
   const response2 = await fetch(fullServerURL + "/data.json");
 

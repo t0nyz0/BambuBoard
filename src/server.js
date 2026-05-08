@@ -142,7 +142,15 @@ app.get('/settings', (req, res) => {
   // Several widgets read this and just check the temperature unit string.
   // Return a flat shape that's compatible: c.BambuBoard_tempSetting is what
   // the widgets look for.
-  res.json(getConfig());
+  // Migration: older configs saved "C" / "F"; widgets check for the spelled-
+  // out strings. Normalize on read so stale configs don't silently fall
+  // through to "Both" behavior.
+  const c = { ...getConfig() };
+  const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
+  if (legacyTempMap[c.BambuBoard_tempSetting]) {
+    c.BambuBoard_tempSetting = legacyTempMap[c.BambuBoard_tempSetting];
+  }
+  res.json(c);
 });
 
 app.get('/preference-fan-icons', (req, res) => {

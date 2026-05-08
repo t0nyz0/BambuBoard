@@ -24,6 +24,12 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
       safe.printer.accessCodeSet = !!c.printer.accessCode && c.printer.accessCode !== 'FILL_THIS_OUT';
       safe.printer.accessCode = '';
     }
+    // Legacy "C" / "F" → "Celsius" / "Fahrenheit" so widgets that match on
+    // the spelled-out strings work for users with old saved configs.
+    const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
+    if (legacyTempMap[safe.BambuBoard_tempSetting]) {
+      safe.BambuBoard_tempSetting = legacyTempMap[safe.BambuBoard_tempSetting];
+    }
     res.json({ ...safe, _meta: { firstRun: !c.printer || c.printer.serialNumber === 'FILL_THIS_OUT' } });
   });
 

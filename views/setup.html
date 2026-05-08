@@ -21,10 +21,12 @@
       <section class="card">
         <h3 class="card-title">Printer</h3>
         <label class="field"><span>Name</span><input id="p-name" class="input" placeholder="My Printer"></label>
-        <div class="field-row">
-          <label class="field"><span>Type</span><select id="p-type" class="select"></select></label>
-          <label class="field"><span>Port</span><input id="p-port" class="input" placeholder="8883"></label>
-        </div>
+        <!-- Printer type is auto-detected from MQTT after Connect (see Step 2).
+             We keep #p-type as a hidden input so existing setup.js logic still
+             reads it; default 'X1' acts as a safe bootstrap that gets
+             overwritten within ~3s of MQTT connecting. -->
+        <input id="p-type" type="hidden" value="X1">
+        <label class="field"><span>Port</span><input id="p-port" class="input" placeholder="8883"></label>
         <label class="field"><span>IP address or hostname</span><input id="p-url" class="input" placeholder="192.168.1.50"></label>
         <label class="field"><span>Serial number</span><input id="p-sn" class="input" placeholder="00M00A0B1234567"></label>
         <label class="field">
@@ -44,8 +46,8 @@
         <h3 class="card-title">Display preferences</h3>
         <label class="field"><span>Temperature unit</span>
           <select id="temp" class="select">
-            <option value="C">Celsius</option>
-            <option value="F">Fahrenheit</option>
+            <option value="Celsius">Celsius</option>
+            <option value="Fahrenheit">Fahrenheit</option>
             <option value="Both">Both</option>
           </select>
         </label>
