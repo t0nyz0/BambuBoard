@@ -26,3 +26,4 @@ public/data_*.json
 .claude/
 AGENTS.md
 CLAUDE.md
+agent.md
