@@ -19,9 +19,12 @@ const ORBIT_THETA_FIXED = Math.PI * 1.7;        // ~306° / -54° — looks from
 // Nozzle simulation speed multiplier vs gcode feedrate. Self-calibrates
 // based on observed mc_percent advancement rate so it tracks the real
 // printer including filament-swap delays, accel/decel overhead, and any
-// speed-mode multiplier. 0.7 is a reasonable starting guess for a Bambu
-// printer in Standard mode; the calibrator zeroes in within a few percent.
-let nozzleSpeedFactor = 0.7;
+// speed-mode multiplier. 0.5 is a conservative starting guess — real
+// printers rarely exceed commanded feedrate, and accel/decel overhead
+// pushes effective speed well below it. The calibrator zeroes in within
+// a few samples.
+let nozzleSpeedFactor = 0.5;
+let calibrationSamples = 0;
 // Hot-extrusion trail: how long a freshly-deposited segment glows before
 // fading to the cold print color, and the geometry buffer cap. Long window
 // + wide cooling bands so the red→orange→yellow→cold gradient is actually
@@ -334,16 +337,24 @@ function updateTrail() {
       //   2) Layer changed since last sample.
       //   3) The simulated nozzle skipped over a travel segment in the
       //      parsed gcode between this frame and the last. Travels have
-      //      dur=0 so the time-based walker traverses them in zero animation
-      //      time — visually the nozzle teleports across them. Without this
-      //      check we'd connect both ends of the travel with a fake "trail".
+      //      them. The nozzle moves smoothly through travels now (they
+      //      carry real duration), but no filament is deposited so we
+      //      mustn't draw a trail across the repositioning gap.
       let jump = (d > TRAIL_BREAK_DIST) || (activeLayerIdx !== lastTrailLayerIdx);
-      if (!jump && lastTrailSegIdx >= 0 && currentSegIdx >= 0 && currentSegIdx !== lastTrailSegIdx) {
+      if (!jump && currentSegIdx >= 0) {
         const segs = layerPaths[activeLayerIdx]?.segs || [];
-        const lo = Math.min(lastTrailSegIdx, currentSegIdx);
-        const hi = Math.max(lastTrailSegIdx, currentSegIdx);
-        for (let k = lo + 1; k <= hi; k++) {
-          if (segs[k] && !segs[k].ext) { jump = true; break; }
+        // Break the trail when the nozzle is currently on a travel
+        // segment — no filament is being deposited during repositioning.
+        // Also break when any travel segment was crossed since the last
+        // frame so the trail doesn't bridge an air gap.
+        if (segs[currentSegIdx] && !segs[currentSegIdx].ext) {
+          jump = true;
+        } else if (lastTrailSegIdx >= 0 && currentSegIdx !== lastTrailSegIdx) {
+          const lo = Math.min(lastTrailSegIdx, currentSegIdx);
+          const hi = Math.max(lastTrailSegIdx, currentSegIdx);
+          for (let k = lo + 1; k <= hi; k++) {
+            if (segs[k] && !segs[k].ext) { jump = true; break; }
+          }
         }
       }
       trailBuf.push({ x, y, z, t: now, jump });
@@ -538,10 +549,17 @@ function buildLayerPaths() {
   let absoluteE = false;    // M83 (relative) is the Bambu default
   let prevE = 0;
   // Helper: append one tessellated segment to the layer's segs array.
+  // Both extrusion and travel moves get their real duration at the
+  // commanded feedrate. Previously travels were instant (dur=0) which
+  // underestimated totalGcodeTime by 20-50% — the calibrator then
+  // converged to a speed factor that was too high, making the animation
+  // visibly outpace the real printer (especially on multi-color H2D
+  // prints with frequent tool-change travels).
   function pushSeg(segs, ax, ay, bx, by, isExt, curFRef) {
     if (ax === bx && ay === by) return;
     const dist = Math.hypot(bx - ax, by - ay);
-    const dur = isExt ? (dist / (curFRef.f / 60)) : 0;
+    const f = curFRef.f || 6000;
+    const dur = dist / (f / 60);
     segs.push({ ax, ay, bx, by, ext: isExt, dist, dur });
   }
   for (const layer of layers) {
@@ -619,15 +637,15 @@ function nozzleXYAt(layerIdx, elapsedSec) {
   if (!p || p.segs.length === 0) { currentSegIdx = -1; return null; }
   if (p.total === 0) { currentSegIdx = 0; return { x: p.segs[0].bx, y: p.segs[0].by }; }
   const targetT = elapsedSec % p.total;
-  // Find the segment whose cumulative end-time crosses targetT. Travel
-  // segments have dur=0 so they're skipped; we land on the start of the next
-  // extrusion segment.
+  // Find the segment whose cumulative end-time crosses targetT. Travels
+  // now carry their real duration so the nozzle smoothly moves through
+  // them (matching how the real printhead repositions).
   let i = 0;
   while (i < p.segs.length && p.cumTime[i + 1] < targetT) i++;
   if (i >= p.segs.length) i = p.segs.length - 1;
   currentSegIdx = i;
   const s = p.segs[i];
-  if (!s.ext || s.dur === 0) return { x: s.bx, y: s.by };
+  if (s.dur === 0) return { x: s.bx, y: s.by };
   const f = (targetT - p.cumTime[i]) / s.dur;
   return { x: s.ax + (s.bx - s.ax) * f, y: s.ay + (s.by - s.ay) * f };
 }
@@ -848,6 +866,8 @@ function clearScene() {
   mqttSyncedLayer = null;
   lastMcPctChangeWall = null;
   lastMcPctChangeValue = null;
+  calibrationSamples = 0;
+  nozzleSpeedFactor = 0.5;                 // reset to initial guess for new print
   orbitRadius = 0;                          // re-fit on next orbit tick
   fastTick();                               // commit the empty state to the GPU
 }
@@ -965,8 +985,13 @@ function autoFitCamera() {
   const cxg = (minX + maxX) / 2, cyg = (minY + maxY) / 2;
   const sz = (cumZ[Math.min(cap, cumZ.length) - 1] || 0);
   const footprint = Math.hypot(sx, sy);
-  orbitRadiusBase = Math.max(60, footprint * 0.65 + 35);
-  orbitHeightBase = Math.max(30, sz + footprint * 0.15);
+  // Wider framing than before (was 0.65+35). The 25° FOV is tight, so large
+  // prints need more orbit radius to avoid the nozzle drifting off-screen
+  // when it crosses the bed. The frustum-aware code in orbitTick() handles
+  // real-time adjustments, but a better starting radius prevents the first
+  // few seconds from clipping.
+  orbitRadiusBase = Math.max(60, footprint * 0.75 + 40);
+  orbitHeightBase = Math.max(30, sz + footprint * 0.2);
   orbitRadius = orbitRadiusBase;
   orbitHeight = orbitHeightBase;
   // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
@@ -996,11 +1021,32 @@ function orbitTick() {
     }
     const theta = ORBIT_THETA_FIXED;
 
+    // Viewport-aware framing: project the nozzle into NDC (-1..1) using
+    // the *previous* frame's camera so we know where it currently appears
+    // on screen. If it's in the outer fringe, boost follow speed and zoom
+    // so it never clips. Computed up front so both the radius and target
+    // lerps can react.
+    let nozzleEdge = 0;      // 0..1+ — how close to the viewport edge
+    if (nozzleGroup.visible && preview.camera) {
+      const _ndc = nozzleGroup.position.clone().project(preview.camera);
+      nozzleEdge = Math.max(Math.abs(_ndc.x), Math.abs(_ndc.y));
+    }
+
     // When finished, zoom out to show the full model; while printing,
     // use the tighter nozzle-follow framing.
     const isFinished = isPausedForState() && !verifyLayers && !scrubActive;
-    const goalRadius = isFinished ? orbitRadiusBase * 1.6 : orbitRadiusBase;
-    const goalHeight = isFinished ? orbitHeightBase * 1.4 : orbitHeightBase;
+    let goalRadius = isFinished ? orbitRadiusBase * 1.6 : orbitRadiusBase;
+    let goalHeight = isFinished ? orbitHeightBase * 1.4 : orbitHeightBase;
+
+    // If the nozzle is drifting toward the edge of the viewport, gently
+    // zoom out so there's more room. The ramp starts at 0.65 (nozzle in
+    // the outer 35%) and maxes at 30% extra radius when fully at the edge.
+    if (nozzleEdge > 0.65) {
+      const urgency = Math.min(1, (nozzleEdge - 0.65) / 0.35);
+      goalRadius = Math.max(goalRadius, orbitRadiusBase * (1 + urgency * 0.3));
+      goalHeight = Math.max(goalHeight, orbitHeightBase * (1 + urgency * 0.15));
+    }
+
     orbitRadius += (goalRadius - orbitRadius) * 0.02;
     orbitHeight += (goalHeight - orbitHeight) * 0.02;
 
@@ -1017,6 +1063,16 @@ function orbitTick() {
       smoothedNozzleInit = false;
     }
     orbitTarget.lerp(_scratchDesired, TARGET_LERP);
+
+    // Turbo-follow: when the nozzle is near the viewport edge, push the
+    // orbit target directly toward the nozzle position — bypasses the
+    // two-stage smoothing so the camera re-centers faster and the nozzle
+    // doesn't clip. The effect is proportional: gentle nudge at 0.65,
+    // strong snap at 1.0+.
+    if (nozzleEdge > 0.65 && nozzleGroup.visible) {
+      const urgency = Math.min(1, (nozzleEdge - 0.65) / 0.35);
+      orbitTarget.lerp(nozzleGroup.position, urgency * 0.08);
+    }
 
     preview.camera.position.set(
       orbitTarget.x + Math.sin(theta) * orbitRadius,
@@ -1166,7 +1222,12 @@ async function tick() {
             // Clamp + EMA so a single weird sample (e.g. mid-swap) doesn't
             // wreck the estimate. Range 0.1–1.5 is sane for any printer mode.
             const clamped = Math.max(0.1, Math.min(1.5, observed));
-            nozzleSpeedFactor = nozzleSpeedFactor * 0.7 + clamped * 0.3;
+            calibrationSamples++;
+            // First few samples use heavier weight (0.5) so the animation
+            // converges within ~60s instead of drifting for 5+ minutes at
+            // the initial guess. After warm-up, settle to 0.3 for stability.
+            const alpha = calibrationSamples <= 3 ? 0.5 : 0.3;
+            nozzleSpeedFactor = nozzleSpeedFactor * (1 - alpha) + clamped * alpha;
           }
         }
         if (pctAdvanced) {

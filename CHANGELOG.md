@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## v3.0.4 — 2026-05-09
+
+### Changed
+- **Gcode visualization: viewport-aware camera framing** (`public/widgets/gcode-viz/GCODE_script.js`) — the camera now projects the nozzle into screen coordinates each frame and reacts when it drifts toward the viewport edge: (1) the orbit target snaps harder toward the nozzle so the camera re-centers faster (turbo-follow), and (2) the orbit radius and height gently increase so the viewport covers more of the bed. Both effects ramp proportionally — subtle near the edge, aggressive if the nozzle risks clipping. Base orbit radius also increased for large prints (was `footprint × 0.65 + 35`, now `footprint × 0.75 + 40`) to give the 25° FOV more breathing room from the start. **Why:** on big prints or fast cross-bed travels, the double-smoothed camera follow was too slow to keep the nozzle in frame — it would drift to the edge or off-screen.
+
+### Fixed
+- **Gcode visualization nozzle ran ~2× faster than the real printer** (`public/widgets/gcode-viz/GCODE_script.js`) — three root causes addressed: (1) travel moves (G0 repositioning) had zero duration, underestimating `totalGcodeTime` by 20-50% and biasing the adaptive speed calibrator too high; travels now carry their real feedrate-based duration. (2) Initial `nozzleSpeedFactor` lowered from 0.7 to 0.5 — more conservative starting point that doesn't race ahead while the calibrator warms up. (3) Calibrator convergence accelerated: first 3 samples use 50% EMA weight (vs 30%) so the animation locks onto the printer's true speed within ~60s instead of drifting for 5+ minutes. Also: nozzle now smoothly moves through travel segments instead of teleporting, and the hot-extrusion trail correctly breaks during repositioning moves. **Why:** the simulated nozzle was visibly outpacing the real printer, especially on multi-color H2D prints with frequent tool-change travels.
+
+---
+
 ## v3.0.3 — 2026-05-08
 
 ### Fixed
