@@ -733,6 +733,7 @@ function verifyAdvanceTick() {
 let currentTaskKey = null;
 let lastEndLayer = -1;
 let inFlight = false;
+let forceNocache = false;  // set by lifecycle detection to bust server cache
 
 let totalLayers = 0;
 let scrubActive = false;     // user is dragging or playing
@@ -741,6 +742,11 @@ let playing = false;
 let playTimer = null;
 let lastGcodeState = null;   // most recent gcode_state from MQTT
 let lastSubStage = -1;       // most recent stg_cur (0=printing, nonzero=sub-stage/prep)
+// Previous tick's state for new-print lifecycle detection. Tracked separately
+// from lastGcodeState (which is overwritten early in tick()) so we can detect
+// FINISH→RUNNING transitions and mc_percent resets that signal a new job.
+let prevTickState = null;
+let prevTickMcPct = -1;
 // MQTT sync state for the within-layer animation. We re-anchor only when
 // fresh mc_percent or layer_num data arrives — between ticks the animation
 // runs free at gcode-real speed (using gcode F values), so it stays smooth
@@ -880,7 +886,11 @@ async function loadGcode(taskKey) {
   clearScene();
   setOverlay('Loading new print…', 'loading');
   try {
-    const res = await fetch('/api/gcode/current', { cache: 'no-store' });
+    const gcodeUrl = forceNocache
+      ? '/api/gcode/current?nocache=1'
+      : '/api/gcode/current';
+    forceNocache = false;
+    const res = await fetch(gcodeUrl, { cache: 'no-store' });
     if (!res.ok) {
       // 502 typically means the printer hasn't written the new job's file
       // to /cache/ yet (race between MQTT job_id update and the FTPS file
@@ -1112,6 +1122,11 @@ async function tick() {
     const layerNum = Number(print.layer_num) || 0;
     const printStage = Number(print.mc_print_stage) || 0;
     const subStage = Number(print.stg_cur) || 0;
+    // Capture previous tick's state BEFORE overwriting, so we can detect
+    // print lifecycle transitions (FINISH→RUNNING, progress resets).
+    const _prevState = prevTickState;
+    const _prevMcPct = prevTickMcPct;
+
     lastGcodeState = state;
     lastSubStage = subStage;
     // Active print = printer is actually depositing model material.
@@ -1125,6 +1140,11 @@ async function tick() {
     // statically so the user sees what's coming.
     const mcPctRaw = Number(print.mc_percent) || 0;
     const mcRemain = Number(print.mc_remaining_time) || 0;
+
+    // Update previous-tick trackers for next iteration.
+    prevTickState = state;
+    prevTickMcPct = mcPctRaw;
+
     const isEffectivelyDone = state === 'RUNNING' && mcPctRaw >= 99 && mcRemain <= 0;
     // Active print = RUNNING + stg_cur===0 (no sub-stage). We no longer
     // require layerNum>0 because layer_num can lag behind stg_cur clearing.
@@ -1138,6 +1158,26 @@ async function tick() {
     // a sub-stage is active (calibrating/heating). Show the full model.
     const isPreviewState = state === 'RUNNING' && !isActivePrint && !isEffectivelyDone && !isMidPrintSubStage;
     const isHoldState   = state === 'PAUSED' || state === 'FINISH' || isEffectivelyDone || isMidPrintSubStage;
+
+    // ── New-print lifecycle detection ──
+    // Detect when a new print starts even if the task_id hasn't changed
+    // (reprints of the same file, or firmware that reuses IDs). Two signals:
+    //   1. State transition: done/idle/failed → running/prepare
+    //   2. Progress reset: mc_percent drops from ≥90 to <50 while state
+    //      stays RUNNING (firmware sometimes skips the FINISH state entirely)
+    if (currentTaskKey && _prevState != null) {
+      const fromDone = _prevState === 'FINISH' || _prevState === 'IDLE' || _prevState === 'FAILED';
+      const toActive = state === 'RUNNING' || state === 'PREPARE';
+      const justStarted = toActive && fromDone;
+      const progressReset = state === 'RUNNING' && mcPctRaw < 50 && _prevMcPct >= 90;
+      if (justStarted || progressReset) {
+        // Force a fresh gcode load on the next taskKey check. Also flag
+        // the fetch to bypass the server-side cache so reprints with the
+        // same task_id get fresh gcode from the printer.
+        currentTaskKey = null;
+        forceNocache = true;
+      }
+    }
 
     if (!taskId || (!isActivePrint && !isPreviewState && !isHoldState)) {
       if (currentTaskKey) {

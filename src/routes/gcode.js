@@ -56,7 +56,13 @@ function buildGcodeRouter({ getConfig, paths }) {
     const cacheKey = `${taskId}_p${plateIdx}.gcode`;
     const cachePath = path.join(CACHE_DIR, cacheKey);
 
-    if (fs.existsSync(cachePath)) {
+    // ?nocache=1 forces a fresh FTP fetch even if the cache key exists.
+    // The gcode-viz widget sends this when it detects a new print lifecycle
+    // transition (FINISH→RUNNING or mc_percent reset) because the printer
+    // may reuse task_id for reprints of the same file but with different
+    // slicer settings.
+    const skipCache = req.query.nocache === '1';
+    if (!skipCache && fs.existsSync(cachePath)) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return fs.createReadStream(cachePath).pipe(res);
     }
