@@ -880,11 +880,15 @@ function clearScene() {
 
 async function loadGcode(taskKey) {
   inFlight = true;
+  // Hide the 3D canvas while we fetch + parse so the camera doesn't orbit
+  // around an empty scene (looks like random flying). The overlay sits
+  // outside the canvas so it stays visible.
+  canvas.style.visibility = 'hidden';
   // Drop the previous print's geometry immediately so the user doesn't see
   // it lingering while the new gcode fetches. The overlay then signals
   // we're working on it.
   clearScene();
-  setOverlay('Loading new print…', 'loading');
+  setOverlay('Preparing — loading print…', 'loading');
   try {
     const gcodeUrl = forceNocache
       ? '/api/gcode/current?nocache=1'
@@ -930,6 +934,10 @@ async function loadGcode(taskKey) {
     }
     setLabel(verifyLayers ? 1 : totalLayers, renderCap);
     setOverlay('');
+    // Gcode is parsed, geometry built, and camera auto-fitted — safe to
+    // reveal the canvas now. The first rendered frame will already show the
+    // correct model at the right zoom level.
+    canvas.style.visibility = 'visible';
   } catch (e) {
     currentTaskKey = null;
     // Keep the loading style — we'll be retrying every poll cycle until the
