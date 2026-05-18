@@ -287,7 +287,7 @@
       "settings": {
         "ffmpeg_options": "protocol_whitelist=file,udp,rtp",
         "hw_decode": true,
-        "local_file": "C:/Users/windows-server/AppData/Roaming/BambuStudio/cameratools/ffmpeg.sdp"
+        "local_file": "ffmpeg.sdp"
       },
       "mixers": 255,
       "sync": 0,
