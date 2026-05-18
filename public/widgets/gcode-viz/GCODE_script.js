@@ -851,7 +851,7 @@ function setLabel(layer, total) {
 // take 1-2 s for a fresh print, longer if the printer hasn't written the
 // file to /cache/ yet and we have to retry).
 function clearScene() {
-  preview.processGCode('M83\n');           // seed parser with one no-op so layers[] empties
+  preview.clear();                         // reset parser + geometry — old layers are gone
   preview.endLayer = 0;
   layerPaths = [];
   cumZ = [];
