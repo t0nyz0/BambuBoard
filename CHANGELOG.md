@@ -9,6 +9,9 @@ All notable changes to this project are documented in this file. The format foll
 ### Changed
 - **Gcode visualization: larger loading overlay and hidden canvas during fetch** (`public/widgets/gcode-viz/index.html`, `public/widgets/gcode-viz/GCODE_script.js`) — the "Preparing — preview loaded" / "Loading new print…" overlay text doubled in size (16px → 32px, weight 600) so it's readable at a glance in OBS scenes. The 3D canvas is now hidden (`visibility: hidden`) while fetching and parsing new gcode so the camera doesn't orbit around an empty scene — the canvas reappears only after geometry is built and the camera is auto-fitted. **Why:** the old 16px text was barely visible in stream overlays, and the camera flying around an empty void during loads looked broken.
 
+### Fixed
+- **Gcode visualization skipped support layers** (`public/widgets/gcode-viz/GCODE_script.js`) — the MQTT-to-parsed-layer mapping used a fixed offset which assumed a 1:1 layer count between MQTT's `total_layer_num` and gcode-preview's parsed layers. When supports are enabled, gcode-preview splits on Z changes with extrusion and can produce extra layers for support interfaces at intermediate Z heights — the offset broke and the visualization jumped ahead, skipping support geometry. Replaced with proportional mapping: `round((layerNum / mqttTotal) * parsedLayers)`, which scales correctly whether or not supports add extra layers. **Why:** on prints with supports, the nozzle appeared to skip support lines and jump to the next model perimeters.
+
 ---
 
 ## v3.0.3 — 2026-05-08
