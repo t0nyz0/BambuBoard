@@ -62,7 +62,7 @@
       "versioned_id": "ffmpeg_source",
       "settings": {
         "ffmpeg_options": "protocol_whitelist=file,udp,rtp",
-        "local_file": "<SDP_PATH>",
+        "local_file": "ffmpeg.sdp",
         "hw_decode": false,
         "looping": false,
         "clear_on_media_end": false,

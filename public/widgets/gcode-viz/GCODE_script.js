@@ -851,7 +851,7 @@ function setLabel(layer, total) {
 // take 1-2 s for a fresh print, longer if the printer hasn't written the
 // file to /cache/ yet and we have to retry).
 function clearScene() {
-  preview.processGCode('M83\n');           // seed parser with one no-op so layers[] empties
+  preview.clear();                         // reset parser + geometry — old layers are gone
   preview.endLayer = 0;
   layerPaths = [];
   cumZ = [];
@@ -880,11 +880,15 @@ function clearScene() {
 
 async function loadGcode(taskKey) {
   inFlight = true;
+  // Hide the 3D canvas while we fetch + parse so the camera doesn't orbit
+  // around an empty scene (looks like random flying). The overlay sits
+  // outside the canvas so it stays visible.
+  canvas.style.visibility = 'hidden';
   // Drop the previous print's geometry immediately so the user doesn't see
   // it lingering while the new gcode fetches. The overlay then signals
   // we're working on it.
   clearScene();
-  setOverlay('Loading new print…', 'loading');
+  setOverlay('Preparing — loading print…', 'loading');
   try {
     const gcodeUrl = forceNocache
       ? '/api/gcode/current?nocache=1'
@@ -930,6 +934,10 @@ async function loadGcode(taskKey) {
     }
     setLabel(verifyLayers ? 1 : totalLayers, renderCap);
     setOverlay('');
+    // Gcode is parsed, geometry built, and camera auto-fitted — safe to
+    // reveal the canvas now. The first rendered frame will already show the
+    // correct model at the right zoom level.
+    canvas.style.visibility = 'visible';
   } catch (e) {
     currentTaskKey = null;
     // Keep the loading style — we'll be retrying every poll cycle until the
@@ -1234,9 +1242,24 @@ async function tick() {
       return;
     }
 
-    const modelToParsed = (n) => Math.min(totalLayers, n + modelLayerOffset);
+    // Map MQTT's model layer_num to gcode-preview's parsed layer index.
+    // Bambu's MQTT total_layer_num counts the slicer's CHANGE_LAYER markers
+    // (model layers). gcode-preview splits on Z changes with extrusion, which
+    // can produce MORE layers when supports exist at intermediate Z heights
+    // (support interface, support base, etc.). A simple offset breaks on those
+    // prints — the viz skips support layers and jumps ahead. Proportional
+    // mapping handles both cases: when counts match (no supports) it's
+    // equivalent, and when they differ (supports) it scales correctly.
+    const mqttTotal = Number(print.total_layer_num) || 0;
+    const modelToParsed = (n) => {
+      if (mqttTotal > 0 && totalLayers > 0) {
+        return Math.min(totalLayers, Math.round((n / mqttTotal) * (totalLayers - modelLayerOffset) + modelLayerOffset));
+      }
+      // Fallback: offset-based when we don't have a total from MQTT.
+      return Math.min(totalLayers, n + modelLayerOffset);
+    };
     const target = state === 'FINISH'
-      ? (Number(print.total_layer_num) ? modelToParsed(Number(print.total_layer_num)) : (layerNum || totalLayers))
+      ? (mqttTotal ? modelToParsed(mqttTotal) : (layerNum || totalLayers))
       : modelToParsed(layerNum);
     advanceTo(target);
 

@@ -546,7 +546,7 @@
                 "looping": false,
                 "clear_on_media_end": false,
                 "restart_on_activate": true,
-                "local_file": "<SDP_PATH>"
+                "local_file": "ffmpeg.sdp"
             },
             "mixers": 255,
             "sync": 0,
