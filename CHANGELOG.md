@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## v3.0.6 — 2026-05-24
+
+### Fixed
+- **Gcode visualization camera sat at a near-top-down angle on tall prints** (`public/widgets/gcode-viz/GCODE_script.js`) — `orbitHeightBase` was computed as `sz + footprint * 0.2`, tying camera elevation to total print height. A 300mm-tall print drove orbitHeight to ~332 against an orbitRadius of ~157, giving an elevation angle of ~65° — effectively top-down, with the bed flat to the camera. Replaced with `orbitHeightBase = orbitRadiusBase * tan(30°)` (new `ORBIT_ELEVATION_DEG` constant) so the elevation stays at a stable side angle regardless of print height. The lookAt still follows the smoothed nozzle position so the active layer area stays centered as the print grows. **Why:** the intended fixed side-angle view was being silently overridden by the print-height-dependent formula — verified live during a 16h print where elevation went from 64.8° back to 30°.
+- **"Preview" overlay stayed on screen while the printer was already drawing the first layer** (`public/widgets/gcode-viz/GCODE_script.js`) — `isActivePrint` required `stg_cur === 0`, but Bambu fires transient sub-stages (15 = nozzle cleaning, 11 = first-layer inspection) even after layer 1 has begun depositing material, which dropped the viz back into `isPreviewState`. The overlay text `"Preparing — preview loaded"` was also never explicitly cleared when transitioning out of preview state. Fixed by adding a `printerStarted` signal (`layer_num > 0 || mc_percent > 1`) to `isActivePrint` / `isMidPrintSubStage`, deduping `setOverlay` so it's safe to call every poll, and calling `setOverlay('')` whenever the active branch runs. **Why:** the overlay text contradicted what was happening on screen during the first minute of every print.
+- **Gcode viz reloaded the model multiple times during print preparation** (`public/widgets/gcode-viz/GCODE_script.js`) — the early-return branch called `clearScene()` whenever `gcode_state` wasn't one of the recognized active states, which included `PREPARE`. The Bambu firmware bounces between `PREPARE` and `RUNNING+stg_cur≠0` during warm-up, bed leveling, and nozzle cleaning, so each transition wiped the model and the next tick re-fetched it. Restructured so `clearScene()` only fires when the task itself disappears or changes; `PREPARE` / `SLICING` now share the pre-print preview branch (load once, show full toolpath statically with a stable `"Preparing print…"` overlay). Also removed the `setOverlay('')` from inside `loadGcode` so the caller controls the overlay text — avoids a one-frame flash between "loading…" and the prep message. Added a `target > 0` guard before `advanceTo` so the brief moment after prep clears (but before `layer_num` ticks to 1) doesn't collapse the static preview to an empty scene. **Why:** during the 1–2 minutes of warm-up + calibration, the widget visibly re-loaded the model several times — the new flow loads it once and holds it.
+
+---
+
 ## v3.0.5 — 2026-05-10
 
 ### Changed
