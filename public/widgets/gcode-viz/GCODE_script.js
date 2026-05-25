@@ -16,6 +16,14 @@ const PLAY_LAYERS_PER_SEC = 8;
 // the H2D's chamber camera looks at the bed — same prints, same left/right
 // orientation across both views.
 const ORBIT_THETA_FIXED = Math.PI * 1.7;        // ~306° / -54° — looks from the opposite side of the bed vs the previous take
+// Elevation angle (degrees above the bed plane) for the orbiting camera.
+// Derived directly here so orbitHeight stays proportional to orbitRadius
+// regardless of print height — the previous formula tied orbitHeight to
+// total print height (sz), which pushed the angle to ~65° (effectively
+// top-down) on tall prints. ~30° gives a stable side-ish view that matches
+// what the chamber camera shows.
+const ORBIT_ELEVATION_DEG = 30;
+const ORBIT_ELEVATION_TAN = Math.tan(ORBIT_ELEVATION_DEG * Math.PI / 180);
 // Nozzle simulation speed multiplier vs gcode feedrate. Self-calibrates
 // based on observed mc_percent advancement rate so it tracks the real
 // printer including filament-swap delays, accel/decel overhead, and any
@@ -834,7 +842,15 @@ function syncFilamentColor(print) {
 
 // kind: 'hint' (small bottom hint, default), 'loading' (centered pill with
 // pulsing dot), 'error' (small red bottom hint).
+// Dedupes by tracking last text+kind so it's safe to call every tick — the
+// active-print branch calls setOverlay('') each poll to ensure stale prep
+// text doesn't linger after the printer starts depositing material.
+let _lastOverlayText = null;
+let _lastOverlayKind = null;
 function setOverlay(text, kind = 'hint') {
+  if (text === _lastOverlayText && kind === _lastOverlayKind) return;
+  _lastOverlayText = text;
+  _lastOverlayKind = kind;
   overlay.textContent = text;
   overlay.classList.toggle('loading', kind === 'loading');
   overlay.classList.toggle('error',   kind === 'error');
@@ -933,7 +949,9 @@ async function loadGcode(taskKey) {
       setNozzleLayer(1);        // start nozzle on layer 1
     }
     setLabel(verifyLayers ? 1 : totalLayers, renderCap);
-    setOverlay('');
+    // Don't clear the overlay here — the caller (tick) sets the right
+    // message for its current state. Clearing in loadGcode would briefly
+    // flash an empty overlay before the prep "Preparing print…" gets set.
     // Gcode is parsed, geometry built, and camera auto-fitted — safe to
     // reveal the canvas now. The first rendered frame will already show the
     // correct model at the right zoom level.
@@ -1008,8 +1026,16 @@ function autoFitCamera() {
   // when it crosses the bed. The frustum-aware code in orbitTick() handles
   // real-time adjustments, but a better starting radius prevents the first
   // few seconds from clipping.
-  orbitRadiusBase = Math.max(60, footprint * 0.75 + 40);
-  orbitHeightBase = Math.max(30, sz + footprint * 0.2);
+  // Slight zoom-out (×1.12) for breathing room around the print. orbitHeight
+  // is derived from orbitRadiusBase below, so the elevation angle stays put.
+  orbitRadiusBase = Math.max(60, footprint * 0.75 + 40) * 1.12;
+  // orbitHeight derived from radius so elevation angle stays fixed at
+  // ORBIT_ELEVATION_DEG regardless of print height. Previously this was
+  // `sz + footprint * 0.2`, which tied elevation to total print height —
+  // a 300mm-tall print produced ~65° elevation (effectively top-down).
+  // The nozzleEdge urgency growth below + turbo-follow keep the nozzle
+  // framed when it rises near the top of a tall print.
+  orbitHeightBase = Math.max(20, orbitRadiusBase * ORBIT_ELEVATION_TAN);
   orbitRadius = orbitRadiusBase;
   orbitHeight = orbitHeightBase;
   // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
@@ -1075,6 +1101,12 @@ function orbitTick() {
       } else {
         smoothedNozzle.lerp(nozzleGroup.position, NOZZLE_SMOOTH_LERP);
       }
+      // Follow the nozzle (in all three axes) so the camera centers on
+      // where material is actually being deposited. The elevation angle
+      // is now set by ORBIT_ELEVATION_DEG (orbitHeight is a function of
+      // orbitRadius, not print height), so the view stays at a stable
+      // side angle whether the nozzle is on layer 1 or layer 1500 — the
+      // lookAt just rises with the active layer.
       _scratchDesired.copy(bboxCenter).lerp(smoothedNozzle, NOZZLE_FOLLOW_BIAS);
     } else {
       _scratchDesired.copy(bboxCenter);
@@ -1137,15 +1169,6 @@ async function tick() {
 
     lastGcodeState = state;
     lastSubStage = subStage;
-    // Active print = printer is actually depositing model material.
-    // Gate on THREE conditions:
-    //   1. gcode_state === 'RUNNING'
-    //   2. layer_num > 0 — prep stages keep this at 0
-    //   3. stg_cur === 0 — any nonzero value means a sub-stage is active
-    //      (auto bed leveling, nozzle preheat, extrusion calibration, etc.)
-    //      even when mc_print_stage is already 2
-    // Preview = RUNNING but still in a sub-stage — show the full model
-    // statically so the user sees what's coming.
     const mcPctRaw = Number(print.mc_percent) || 0;
     const mcRemain = Number(print.mc_remaining_time) || 0;
 
@@ -1153,18 +1176,35 @@ async function tick() {
     prevTickState = state;
     prevTickMcPct = mcPctRaw;
 
+    // printerStarted: a *printer-side* signal that the job has begun
+    // depositing material. layer_num goes 1+ once layer 1 starts; mc_percent
+    // ticks up shortly after. Used to distinguish pre-print prep (no material
+    // yet) from in-print sub-stages (cleaning, first-layer inspection, swaps)
+    // where the printer-reported sub-stage is briefly nonzero even though
+    // the print is active. Without this, the overlay text stays "Preparing —
+    // preview loaded" while the nozzle is already drawing layer 1.
+    const printerStarted = layerNum > 0 || mcPctRaw > 1;
     const isEffectivelyDone = state === 'RUNNING' && mcPctRaw >= 99 && mcRemain <= 0;
-    // Active print = RUNNING + stg_cur===0 (no sub-stage). We no longer
-    // require layerNum>0 because layer_num can lag behind stg_cur clearing.
-    const isActivePrint = state === 'RUNNING' && subStage === 0 && !isEffectivelyDone;
-    // Mid-print sub-stage (nozzle switch, bed scan, etc.) — we were already
-    // printing and a transient sub-stage kicked in. Don't show "Preparing",
-    // just freeze the nozzle. Detected by: RUNNING + subStage nonzero but
-    // we've already rendered at least one layer in this job.
-    const isMidPrintSubStage = state === 'RUNNING' && subStage !== 0 && !isEffectivelyDone && lastEndLayer > 0;
-    // Pre-print preview: RUNNING but haven't printed any layers yet and
-    // a sub-stage is active (calibrating/heating). Show the full model.
+    // Active print = RUNNING with no blocking sub-stage, OR the print has
+    // demonstrably begun (printer reports a layer / progress). The OR-clause
+    // covers transient sub-stages mid-print (nozzle clean, first-layer
+    // inspect, filament swap) so the layer counter and overlay don't revert
+    // to "preview" the moment stg_cur briefly goes nonzero.
+    const isActivePrint = state === 'RUNNING' && (subStage === 0 || printerStarted) && !isEffectivelyDone;
+    // Mid-print sub-stage (nozzle switch, bed scan, etc.) — already printing,
+    // a transient sub-stage kicked in. Animation freezes, model stays. Gated
+    // on printerStarted (a printer signal) rather than lastEndLayer (a render
+    // signal) so we don't get stuck in the "preview" branch waiting for a
+    // render that never happens because we kept early-returning.
+    const isMidPrintSubStage = state === 'RUNNING' && subStage !== 0 && !isEffectivelyDone && printerStarted;
+    // Pre-print preview: RUNNING but printer hasn't begun depositing. Show
+    // full model statically with "Preparing" overlay.
     const isPreviewState = state === 'RUNNING' && !isActivePrint && !isEffectivelyDone && !isMidPrintSubStage;
+    // PREPARE/SLICING are firmware prep states — treat them exactly like
+    // pre-print preview (load the model proactively, show full toolpath +
+    // "Preparing" overlay). Avoids the previous behavior where each transition
+    // between PREPARE and RUNNING+subStage during warm-up wiped the scene.
+    const isPrepState = state === 'PREPARE' || state === 'SLICING';
     const isHoldState   = state === 'PAUSED' || state === 'FINISH' || isEffectivelyDone || isMidPrintSubStage;
 
     // ── New-print lifecycle detection ──
@@ -1187,7 +1227,15 @@ async function tick() {
       }
     }
 
-    if (!taskId || (!isActivePrint && !isPreviewState && !isHoldState)) {
+    const taskKey = taskId ? `${taskId}_p${plateIdx}` : null;
+
+    // ── Hard reset only when the task itself goes away or changes ──
+    // The previous code wiped the scene on *any* unrecognized state (incl.
+    // PREPARE), which caused multi-reload flicker during warm-up because
+    // the printer bounces between PREPARE and RUNNING+subStage. Now we only
+    // clearScene when there's genuinely no print (taskId gone) or a different
+    // print is starting.
+    if (!taskKey) {
       if (currentTaskKey) {
         clearScene();
         currentTaskKey = null;
@@ -1196,35 +1244,65 @@ async function tick() {
         lastMcPctChangeWall = null;
         lastMcPctChangeValue = null;
       }
-      if (state === 'PREPARE' || state === 'SLICING') {
-        setOverlay('Preparing print…', 'loading');
-      } else if (state === 'FAILED') {
-        setOverlay('Print failed', 'error');
-      } else {
-        setOverlay('waiting for print…');
-      }
+      if (state === 'FAILED') setOverlay('Print failed', 'error');
+      else setOverlay('waiting for print…');
+      return;
+    }
+
+    if (currentTaskKey && currentTaskKey !== taskKey) {
+      clearScene();
+      currentTaskKey = null;
+      mcPercentLastSeen = null;
+      mqttSyncedLayer = null;
+      lastMcPctChangeWall = null;
+      lastMcPctChangeValue = null;
+    }
+
+    if (state === 'FAILED') {
+      setOverlay('Print failed', 'error');
+      return;
+    }
+
+    // No recognized state but we have a taskId — wait it out without wiping.
+    if (!isPrepState && !isActivePrint && !isPreviewState && !isHoldState) {
+      setOverlay('waiting for print…');
       return;
     }
 
     syncFilamentColor(print);
 
-    const taskKey = `${taskId}_p${plateIdx}`;
-
+    // Need to load gcode for this task? Fires for new tasks and for reprints
+    // where lifecycle detection nulled currentTaskKey above.
     if (taskKey !== currentTaskKey) {
-      if (!inFlight) await loadGcode(taskKey);
-      return;
-    }
-
-    // Preview mode: gcode is loaded, show the full model statically while
-    // the printer calibrates / heats. No nozzle, no layer tracking — just
-    // the complete toolpath so the user sees what's about to print.
-    if (isPreviewState) {
-      if (lastEndLayer !== totalLayers && totalLayers > 0) {
-        advanceTo(totalLayers);
-        setOverlay('Preparing — preview loaded', 'loading');
+      if (!inFlight) {
+        await loadGcode(taskKey);
+        // loadGcode no longer clears the overlay on success — set the right
+        // message here based on what phase we're in.
+        if (isPrepState || isPreviewState) {
+          setOverlay('Preparing print…', 'loading');
+        } else {
+          setOverlay('');
+        }
       }
       return;
     }
+
+    // Prep / pre-print preview: model is loaded, show full toolpath statically
+    // with a stable "Preparing print…" overlay. Covers PREPARE, SLICING, and
+    // RUNNING-with-pre-print-subStage in one branch so transitions between
+    // them are seamless — the model never reloads, the overlay text never
+    // flickers.
+    if (isPrepState || isPreviewState) {
+      if (lastEndLayer !== totalLayers && totalLayers > 0) {
+        advanceTo(totalLayers);
+      }
+      setOverlay('Preparing print…', 'loading');
+      return;
+    }
+
+    // Active or hold state — clear any leftover prep overlay. setOverlay
+    // dedupes internally so calling every tick is cheap.
+    setOverlay('');
 
     if (scrubActive) return;
     if (state === 'PAUSED') return;
@@ -1261,7 +1339,11 @@ async function tick() {
     const target = state === 'FINISH'
       ? (mqttTotal ? modelToParsed(mqttTotal) : (layerNum || totalLayers))
       : modelToParsed(layerNum);
-    advanceTo(target);
+    // Hold the previous render during the brief transitional window where
+    // we've entered the active branch but layer_num hasn't ticked to 1 yet.
+    // Otherwise advanceTo(0) collapses the static prep preview to an empty
+    // scene for ~1 tick, which the user sees as a flash.
+    if (target > 0) advanceTo(target);
 
     // Sync the within-layer nozzle animation to MQTT progress, with a
     // configurable replay delay (REPLAY_DELAY_S) so the visualization
