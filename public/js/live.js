@@ -18,6 +18,17 @@
   const stage = document.getElementById('stage');
   const msg = document.getElementById('live-msg');
 
+  // `?transparent=1` makes the page + stage backgrounds transparent so an OBS
+  // Browser Source composites /live over whatever's behind it (and per-widget
+  // semi-transparent backdrops blend with the OBS canvas/other sources).
+  // Default is opaque black — better for viewing /live directly in a browser.
+  const TRANSPARENT = /^(1|true|yes)$/i.test(new URLSearchParams(location.search).get('transparent') || '');
+  if (TRANSPARENT) {
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+    stage.style.background = 'transparent';
+  }
+
   let CANVAS_W = 1920;
   let CANVAS_H = 1080;
 
@@ -93,6 +104,29 @@
     });
   }
 
+  // For cross-origin image sources (e.g. the trademark logo on S3) we can't
+  // reach into contentDocument, so approximate OBS's body-level settings.css
+  // by applying the common backdrop properties (background, border-radius,
+  // padding, …) to the wrapper element. Without this, a transparent PNG with
+  // dark artwork (the H2D logo is black text on transparency) renders
+  // black-on-black against the page — the OBS css supplies the dark rounded
+  // backdrop that makes it legible. Ported from scene-editor.js.
+  function applyObsCssApprox(wrapper, css) {
+    if (!css) return;
+    const bodyMatch = css.match(/body\s*\{([^}]*)\}/);
+    const rules = (bodyMatch ? bodyMatch[1] : css).trim();
+    if (!rules) return;
+    const ALLOW = ['background', 'background-color', 'border-radius', 'padding', 'margin', 'box-shadow', 'border'];
+    rules.split(';').forEach(decl => {
+      const ix = decl.indexOf(':');
+      if (ix < 0) return;
+      const prop = decl.slice(0, ix).trim().toLowerCase();
+      const val = decl.slice(ix + 1).trim();
+      if (ALLOW.includes(prop) && val) wrapper.style.setProperty(prop, val);
+    });
+    wrapper.style.boxSizing = 'border-box';
+  }
+
   // ---- Scene loading ----
 
   async function pickSceneSlug() {
@@ -133,6 +167,7 @@
     if (id === 'color_source') {
       wrap.style.background = obsColorToCss(settings.color);
     } else if (id === 'image_source' || id === 'image_source_v2') {
+      applyObsCssApprox(wrap, settings.css);
       const img = document.createElement('img');
       img.src = settings.file || settings.url || '';
       img.style.width = '100%';
@@ -150,6 +185,10 @@
     } else if (id === 'browser_source' && typeof settings.url === 'string') {
       const url = settings.url;
       if (looksLikeImageUrl(url)) {
+        // Cross-origin image: apply the OBS css backdrop to the wrapper so a
+        // transparent logo (black artwork on transparency) gets its designed
+        // dark rounded box instead of disappearing into the page.
+        applyObsCssApprox(wrap, settings.css);
         const img = document.createElement('img');
         img.src = url;
         img.style.width = '100%';
