@@ -161,6 +161,27 @@
     wrap.style.width = sz.w + 'px';
     wrap.style.height = sz.h + 'px';
 
+    // Rotation around the alignment anchor (OBS rot is degrees, +ve clockwise
+    // = CSS). Mirrors scene-editor.js renderItem.
+    if (item.rot) {
+      wrap.style.transformOrigin = `${(ox * 100).toFixed(2)}% ${(oy * 100).toFixed(2)}%`;
+      wrap.style.transform = `rotate(${item.rot}deg)`;
+    }
+    // Blend mode. OBS "default"/"normal" = CSS default; apply only known-safe
+    // mix-blend-mode values so an unknown name can't break layout.
+    const bt = item.blend_type;
+    if (bt && bt !== 'normal' && bt !== 'default') {
+      const safe = ['lighten', 'multiply', 'screen', 'darken', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'overlay'];
+      if (safe.includes(bt)) wrap.style.mixBlendMode = bt;
+    }
+    // Crop: clip the cropped edges. OBS crop values are in source (natural)
+    // pixels; convert to rendered pixels via the item's scale factors.
+    const cl = item.crop_left || 0, ct = item.crop_top || 0;
+    const cr = item.crop_right || 0, cb = item.crop_bottom || 0;
+    if (cl || ct || cr || cb) {
+      wrap.style.clipPath = `inset(${ct * sz.scaleY}px ${cr * sz.scaleX}px ${cb * sz.scaleY}px ${cl * sz.scaleX}px)`;
+    }
+
     const id = src.id;
     const settings = src.settings || {};
 
@@ -185,9 +206,22 @@
     } else if (id === 'browser_source' && typeof settings.url === 'string') {
       const url = settings.url;
       if (looksLikeImageUrl(url)) {
-        // Cross-origin image: apply the OBS css backdrop to the wrapper so a
-        // transparent logo (black artwork on transparency) gets its designed
-        // dark rounded box instead of disappearing into the page.
+        // Back-compat shim: the old default H2D logo was an external
+        // black-on-white JPEG (eu-trademark.s3.amazonaws.com/019117180) with
+        // no transparency. Swap it for the local transparent white PNG and
+        // DON'T apply the source's dark-backdrop CSS, so the logo floats over
+        // the scene. Fixes existing saved scenes without editing user data.
+        if (/019117180|eu-trademark\.s3\.amazonaws\.com/.test(url)) {
+          const img = document.createElement('img');
+          img.src = '/assets/logo-h2d.png';
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'contain';
+          wrap.appendChild(img);
+          return wrap;
+        }
+        // Other cross-origin images: apply the OBS css backdrop to the wrapper
+        // so a transparent logo/badge gets its designed box.
         applyObsCssApprox(wrap, settings.css);
         const img = document.createElement('img');
         img.src = url;
@@ -263,6 +297,7 @@
       if (item.visible === false) return;
       const src = sourcesByName[item.name];
       if (!src) return;
+      if (src.enabled === false) return; // OBS source disabled — skip
       const el = buildItem(item, src);
       if (el) { stage.appendChild(el); placed++; }
     });

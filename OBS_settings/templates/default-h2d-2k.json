@@ -330,10 +330,10 @@
             "id": "browser_source",
             "versioned_id": "browser_source",
             "settings": {
-                "url": "https://eu-trademark.s3.amazonaws.com/019117180",
+                "url": "http://<HOST>/assets/logo-h2d.png",
                 "width": 500,
                 "height": 161,
-                "css": "body { border-radius:15px; background: rgb(0 0 0 / 95%); margin: 0px auto; overflow: hidden; font-size: 28px; }"
+                "css": "body { margin: 0px auto; overflow: hidden; background: transparent; }"
             },
             "mixers": 255,
             "sync": 0,
