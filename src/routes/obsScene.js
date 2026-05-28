@@ -10,6 +10,10 @@ function buildObsSceneRouter({ paths }) {
   const router = express.Router();
   const TEMPLATES_DIR = path.join(paths.root, 'OBS_settings', 'templates');
   const SCENES_DIR = path.join(paths.data, 'scenes');
+  // Pointer to the currently-published scene that `/live` renders by default.
+  // Runtime state (data/ is gitignored), so it's a small standalone file rather
+  // than part of the committed config.
+  const ACTIVE_FILE = path.join(paths.data, 'active-scene.json');
 
   fs.mkdirSync(SCENES_DIR, { recursive: true });
 
@@ -205,6 +209,52 @@ function buildObsSceneRouter({ paths }) {
       res.json({ ok: true });
     } catch (e) {
       if (e.code === 'ENOENT') return res.status(404).json({ error: 'not found' });
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // -------- Active ("published") scene --------
+  // `/live` renders this scene by default. The editor's "Set as Live" sets it,
+  // and /live polls it to auto-update when a new scene is published.
+
+  async function readActiveSlug() {
+    try {
+      const j = JSON.parse(await fsp.readFile(ACTIVE_FILE, 'utf-8'));
+      return j && typeof j.slug === 'string' ? j.slug : null;
+    } catch (_) { return null; }
+  }
+
+  // GET /api/obs/active → { slug, updatedAt } (updatedAt = scene file mtime, so
+  // /live can detect a re-save of the same active scene). slug is null when
+  // unset or when the pointed-at scene has been deleted.
+  router.get('/active', async (req, res) => {
+    try {
+      let slug = await readActiveSlug();
+      let updatedAt = null;
+      if (slug) {
+        try {
+          updatedAt = (await fsp.stat(path.join(SCENES_DIR, `${slug}.json`))).mtimeMs;
+        } catch (_) { slug = null; } // pointed-at scene gone
+      }
+      res.json({ slug, updatedAt });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/obs/active { slug } → mark a scene as the published/live scene.
+  router.post('/active', async (req, res) => {
+    const { slug } = req.body || {};
+    if (!slug || !SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
+    try {
+      await fsp.access(path.join(SCENES_DIR, `${slug}.json`));
+    } catch (_) {
+      return res.status(404).json({ error: 'scene not found' });
+    }
+    try {
+      await fsp.writeFile(ACTIVE_FILE, JSON.stringify({ slug }, null, 2));
+      res.json({ ok: true, slug });
+    } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });

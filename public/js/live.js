@@ -129,15 +129,23 @@
 
   // ---- Scene loading ----
 
+  // Explicit ?scene= override (used by the editor's "Preview live"); when set,
+  // we pin to that scene and disable active-scene polling.
+  const FORCED_SCENE = new URLSearchParams(location.search).get('scene');
+
   async function pickSceneSlug() {
-    const params = new URLSearchParams(location.search);
-    const want = params.get('scene');
-    if (want) return want;
-    // No scene specified — use the most recently updated saved scene.
-    const res = await fetch('/api/obs/scenes', { cache: 'no-store' });
-    const list = await res.json();
-    if (!Array.isArray(list) || !list.length) return null;
-    return list[0].slug; // API already sorts by updatedAt desc
+    if (FORCED_SCENE) return FORCED_SCENE;
+    // Default: the published ("active") scene. Falls back to the most recently
+    // updated saved scene when nothing has been published yet.
+    try {
+      const a = await (await fetch('/api/obs/active', { cache: 'no-store' })).json();
+      if (a && a.slug) return a.slug;
+    } catch (_) { /* fall through to most-recent */ }
+    try {
+      const list = await (await fetch('/api/obs/scenes', { cache: 'no-store' })).json();
+      if (Array.isArray(list) && list.length) return list[0].slug; // sorted updatedAt desc
+    } catch (_) { /* none */ }
+    return null;
   }
 
   function activeSceneOf(json) {
@@ -290,6 +298,11 @@
     const sourcesByName = {};
     (json.sources || []).forEach(s => { if (s && s.name) sourcesByName[s.name] = s; });
 
+    // Rebuild from scratch (this runs on first load AND whenever the published
+    // scene changes). Clearing here — only after a successful fetch/parse —
+    // means a transient network blip never blanks an already-good render.
+    stage.innerHTML = '';
+
     const items = (scene.settings && scene.settings.items) || [];
     // OBS renders items bottom-to-top in array order; later items sit on top.
     let placed = 0;
@@ -308,5 +321,34 @@
   }
 
   window.addEventListener('resize', fitStage);
-  render();
+
+  // Auto-update: poll the published scene's identity (slug + mtime) and only
+  // re-render when it actually changes. Critical — re-rendering rebuilds the
+  // camera iframe, and reconnecting every poll would trip the printer's RTSP
+  // connection limit, so an unchanged scene must leave the DOM (and the live
+  // camera) untouched. A pinned ?scene= preview renders once and doesn't poll.
+  const POLL_MS = 4000;
+  let lastKey = null;
+
+  async function tick() {
+    if (document.hidden) return;
+    let key;
+    if (FORCED_SCENE) {
+      key = `forced:${FORCED_SCENE}`;
+    } else {
+      try {
+        const a = await (await fetch('/api/obs/active', { cache: 'no-store' })).json();
+        key = a && a.slug ? `${a.slug}@${a.updatedAt || 0}` : 'fallback';
+      } catch (_) {
+        return; // transient — keep current render, try next tick
+      }
+    }
+    if (key !== lastKey) {
+      lastKey = key;
+      await render();
+    }
+  }
+
+  tick();
+  setInterval(tick, POLL_MS);
 })();
