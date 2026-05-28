@@ -1,0 +1,7 @@
+{
+  "name": "Live camera",
+  "description": "Live chamber-camera feed rendered directly in the browser via the built-in RTSP relay — no OBS or Bambu Studio required. Requires LAN Mode Liveview enabled on the printer (X1 / X1C / H2D). P1 / A1 use a different camera protocol not yet supported by the relay.",
+  "recommendedSize": { "w": 640, "h": 360 },
+  "tags": ["camera", "video", "live", "chamber"],
+  "requiresCap": "hasCameraRtsp"
+}

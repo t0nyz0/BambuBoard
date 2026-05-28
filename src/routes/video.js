@@ -62,25 +62,47 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
       });
     });
 
-    // WS /api/printer/video — WebSocket MPEG-TS stream
-    const proxy = createProxy({
-      url: () => {
-        const config = getConfig();
-        const p = config.printer || {};
-        return `rtsps://bblp:${p.accessCode}@${p.url}:322/streaming/live/1`;
-      },
-      transport: 'tcp',
-      additionalFlags: [
-        '-rtsp_transport', 'tcp',
-        '-allowed_media_types', 'video',
-        // Don't buffer too much — keep latency low
-        '-fflags', 'nobuffer',
-        '-analyzeduration', '1000000',
-        '-probesize', '500000',
-      ],
-    });
+    // WS /api/printer/video — WebSocket MPEG-TS stream.
+    //
+    // IMPORTANT: rtsp-relay's `url` option must be a STRING. Earlier this was
+    // a function (`url: () => …`), but rtsp-relay (1.9.0) never invokes it —
+    // it uses `url` verbatim as both the Inbound map key and the ffmpeg `-i`
+    // argument. A function coerced to a string yields garbage, so ffmpeg
+    // failed to open the input instantly and the relay produced no video
+    // (clients only ever received rtsp-relay's 8-byte `jsmp` header). We now
+    // build the URL string from the current config per WebSocket connection
+    // and cache one proxy per resolved URL, so rtsp-relay still shares a
+    // single ffmpeg across viewers AND a printer IP/access-code change is
+    // picked up on the next connection (a new URL → a new cached proxy).
+    function buildStreamUrl() {
+      const p = getConfig().printer || {};
+      return `rtsps://bblp:${p.accessCode}@${p.url}:322/streaming/live/1`;
+    }
 
-    app.ws('/api/printer/video', proxy);
+    const proxyByUrl = {};
+    function getProxyFor(url) {
+      if (!proxyByUrl[url]) {
+        proxyByUrl[url] = createProxy({
+          url,
+          // `transport: 'tcp'` makes rtsp-relay place `-rtsp_transport tcp`
+          // BEFORE `-i` (where it belongs). Do NOT also put it in
+          // additionalFlags — those are appended AFTER `-i` and rtsp-relay
+          // warns about it.
+          transport: 'tcp',
+          additionalFlags: [
+            '-allowed_media_types', 'video',
+            // Keep latency low.
+            '-fflags', 'nobuffer',
+          ],
+        });
+      }
+      return proxyByUrl[url];
+    }
+
+    app.ws('/api/printer/video', (ws, req) => {
+      const url = buildStreamUrl();
+      return getProxyFor(url)(ws, req);
+    });
 
     console.log('[bambuboard] RTSP video relay ready at ws://*/api/printer/video');
   } catch (err) {

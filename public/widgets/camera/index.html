@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BambuBoard — Live Camera</title>
+    <link rel="stylesheet" type="text/css" href="../styles.css" />
+    <script src="../_customizer.js"></script>
+    <script src="../../assets/js/jsmpeg.min.js"></script>
+    <style>
+      /* Transparent body so the widget composites over whatever sits behind
+         the OBS browser-source / dashboard iframe, matching gcode-viz.
+         The video canvas itself gets a black backing so letterbox bars
+         around the feed read as "camera off" rather than transparent. */
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent !important; }
+      .cam-stage { position: relative; width: 100vw; height: 100vh; background: #000; }
+      .cam-stage canvas {
+        display: block; width: 100% !important; height: 100% !important;
+        object-fit: contain; background: #000;
+      }
+      /* Centered status message — large enough to read at a glance in an OBS
+         scene. Mirrors gcode-viz's loading overlay style. */
+      .cam-overlay {
+        position: absolute; inset: 0; display: none;
+        align-items: center; justify-content: center; text-align: center;
+        padding: 16px; box-sizing: border-box;
+        color: #e6e8ee; font: 600 18px/1.4 'Open Sans', sans-serif;
+        text-shadow: 0 1px 2px rgba(0,0,0,.6);
+      }
+      .cam-overlay.show { display: flex; }
+      .cam-overlay .inner { max-width: 90%; }
+      .cam-overlay .dot {
+        display: inline-block; width: 12px; height: 12px; margin-right: 10px;
+        border-radius: 50%; background: #ffd166;
+        box-shadow: 0 0 10px 2px rgba(255,209,102,0.55);
+        animation: cam-pulse 1.2s ease-in-out infinite; vertical-align: middle;
+      }
+      .cam-overlay.error .dot { background: #f0a; box-shadow: 0 0 10px 2px rgba(255,0,170,0.45); }
+      .cam-overlay .hint { display: block; margin-top: 10px; font-size: 13px; font-weight: 400; opacity: 0.8; }
+      @keyframes cam-pulse {
+        0%,100% { opacity: 0.4; transform: scale(0.85); }
+        50%     { opacity: 1.0; transform: scale(1.10); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cam-stage">
+      <canvas id="camCanvas"></canvas>
+      <div class="cam-overlay show" id="camOverlay">
+        <div class="inner"><span class="dot"></span><span id="camMsg">Connecting to camera…</span><span class="hint" id="camHint"></span></div>
+      </div>
+    </div>
+    <script src="CAMERA_script.js"></script>
+  </body>
+</html>
