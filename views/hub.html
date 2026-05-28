@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>BambuBoard — Export to OBS</title>
+  <title>BambuBoard — Live</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="/css/theme.css">
   <link rel="stylesheet" href="/css/components.css">
@@ -11,117 +11,43 @@
 <body>
   <main class="page">
 
-    <section class="hero" id="hero">
-      <!-- Filled by hub.js -->
+    <section class="hero">
+      <h1>You're live</h1>
+      <p class="text-dim">
+        BambuBoard composites your layout — camera and every widget — into one page.
+        Add it to OBS as a <strong>single Browser Source</strong>, or open it anywhere.
+        Edit the layout and hit <strong>🔴 Go Live</strong>; OBS updates on its own.
+      </p>
     </section>
 
-    <!-- Step 4 instructions: how to import a scene file into OBS Studio +
-         enable the printer's LAN-only camera feed so the OBS camera source
-         actually receives video. -->
-    <section class="card" id="obs-import-card" style="margin-bottom: var(--space-5)">
-      <h3 class="card-title">How to use this in OBS Studio</h3>
-
-      <div class="setup-steps" style="display: grid; gap: var(--space-4); margin-top: var(--space-2)">
-
-        <!-- Step A: Import the scene file -->
-        <div>
-          <div style="font-weight: 600; margin-bottom: var(--space-2); color: var(--color-text)">
-            <span style="display:inline-block; width:24px; height:24px; line-height:24px; text-align:center; border-radius:50%; background:var(--color-accent); color:#fff; font-size:12px; font-weight:700; margin-right:8px">A</span>
-            Import the scene file into OBS
-          </div>
-          <ol style="padding-left: 2em; line-height: 1.7; margin: 0; color: var(--color-text-dim)">
-            <li>Download a scene file below (your saved scene, or a default template — they appear with download buttons).</li>
-            <li>Open OBS Studio (download free at <a href="https://obsproject.com/download" target="_blank" rel="noopener">obsproject.com</a> if you don't have it).</li>
-            <li>In the OBS top menu, click <strong>Scene Collection → Import…</strong>.</li>
-            <li>In the dialog, click the <strong>…</strong> next to "Collection Path", browse to your downloaded <code class="text-mono">.json</code>, and click OK.</li>
-            <li>Switch to the imported collection via <strong>Scene Collection</strong> menu (it appears in the list with the name "BambuBoard <span id="export-version">3.0.0</span>" or similar).</li>
-            <li>Your scene is now active — widgets should populate with live data within a few seconds.</li>
-          </ol>
-        </div>
-
-        <!-- Step B: Start the virtual camera in Bambu Studio -->
-        <div>
-          <div style="font-weight: 600; margin-bottom: var(--space-2); color: var(--color-text)">
-            <span style="display:inline-block; width:24px; height:24px; line-height:24px; text-align:center; border-radius:50%; background:var(--color-accent); color:#fff; font-size:12px; font-weight:700; margin-right:8px">B</span>
-            Start the printer camera stream (Bambu Studio)
-          </div>
-          <p class="text-dim" style="margin: 0 0 var(--space-2)">
-            Bambu Lab's official way to feed the printer camera into OBS is through Bambu Studio's <strong>virtual camera</strong>, which writes an RTP stream that OBS reads via a Media Source (next step).
-            <strong>Note:</strong> currently supported on <strong>X1, X1C, X1E</strong>. H2D, H2S, and P2S are not yet supported by Bambu Lab's virtual camera per their wiki — for those, use a direct RTSP source instead (see notes at bottom).
-          </p>
-          <ol style="padding-left: 2em; line-height: 1.7; margin: 0; color: var(--color-text-dim)">
-            <li>Open <strong>Bambu Studio</strong> and go to the <strong>Device</strong> tab.</li>
-            <li>Click the <strong>Camera Settings</strong> gear icon (top-right of the camera panel).</li>
-            <li>Toggle <strong>Go Live</strong> ON. First time only: Bambu Studio prompts you to install <em>Virtual Camera Tools</em> — accept and let it install.</li>
-            <li>Closing Bambu Studio doesn't stop the stream — the virtual camera tool keeps running in the background.</li>
-          </ol>
-        </div>
-
-        <!-- Step C: Add the Media Source in OBS -->
-        <div>
-          <div style="font-weight: 600; margin-bottom: var(--space-2); color: var(--color-text)">
-            <span style="display:inline-block; width:24px; height:24px; line-height:24px; text-align:center; border-radius:50%; background:var(--color-accent); color:#fff; font-size:12px; font-weight:700; margin-right:8px">C</span>
-            Point the bundled <em>Printer Camera</em> source at your SDP file
-          </div>
-          <p class="text-dim" style="margin: 0 0 var(--space-2)">
-            The BambuBoard scene already ships with a <strong>Printer Camera</strong> Media Source pre-configured with the right FFmpeg options. You just need to set the <strong>Local File</strong> path to the <code class="text-mono">ffmpeg.sdp</code> on <em>your</em> machine (the path is machine-specific, so we can't bake it in).
-          </p>
-          <ol style="padding-left: 2em; line-height: 1.7; margin: 0; color: var(--color-text-dim)">
-            <li>In OBS, find the <strong>Printer Camera</strong> source in the Sources panel and double-click it (or right-click → Properties).</li>
-            <li>Make sure <strong>Local File</strong> is checked. In the file picker, navigate to:
-              <ul style="margin: 4px 0 0; padding-left: 1.4em">
-                <li>Windows: <code class="text-mono">C:/Users/&lt;you&gt;/AppData/Roaming/BambuStudio/cameratools/ffmpeg.sdp</code></li>
-                <li>macOS: <code class="text-mono">/Users/&lt;you&gt;/Library/Application Support/BambuStudio/cameratools/ffmpeg.sdp</code></li>
-              </ul>
-            </li>
-            <li>Confirm <strong>FFmpeg Options</strong> reads <code class="text-mono">protocol_whitelist=file,udp,rtp</code> (already set by the template — required to read RTP from an SDP file).</li>
-            <li>Click OK. The live camera feed should appear immediately if Bambu Studio's virtual camera is running (Step B).</li>
-          </ol>
-          <p class="text-dim" style="margin: var(--space-2) 0 0; font-size: 12px">
-            Full Bambu Lab guide with screenshots:
-            <a href="https://wiki.bambulab.com/en/software/bambu-studio/virtual-camera" target="_blank" rel="noopener">Bambu Lab Wiki — Virtual Camera</a>
-          </p>
-          <p class="text-dim" style="margin: var(--space-2) 0 0; font-size: 12px">
-            <strong>H2D / H2S / P2S users:</strong> Bambu Studio's virtual camera doesn't support these models yet. Workaround: enable LAN Only Liveview on the printer (Settings → Network). Then in the <em>Printer Camera</em> source properties, <strong>uncheck Local File</strong>, set <strong>Input</strong> to <code class="text-mono">rtsps://bblp:&lt;ACCESS_CODE&gt;@&lt;PRINTER_IP&gt;:322/streaming/live/1</code>, and clear the FFmpeg Options field — see <a href="https://bambulab.com/en/support" target="_blank" rel="noopener">Bambu Lab Support</a> for firmware requirements.
-          </p>
-        </div>
-
-        <!-- Step D: Keep BambuBoard running -->
-        <div>
-          <div style="font-weight: 600; margin-bottom: var(--space-2); color: var(--color-text)">
-            <span style="display:inline-block; width:24px; height:24px; line-height:24px; text-align:center; border-radius:50%; background:var(--color-accent); color:#fff; font-size:12px; font-weight:700; margin-right:8px">D</span>
-            Keep BambuBoard running while streaming
-          </div>
-          <p class="text-dim" style="margin: 0">
-            Each widget in OBS is a Browser Source pointing at this BambuBoard server. The server must be running for widgets to receive live data — leave it running on the same machine (or a Pi / always-on host on your network) for the duration of your stream.
-          </p>
-        </div>
-
+    <section class="card" style="margin-bottom: var(--space-5)">
+      <h3 class="card-title">Add to OBS — one Browser Source</h3>
+      <p class="text-dim" id="active-line">&nbsp;</p>
+      <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin:var(--space-3) 0">
+        <input id="live-url" type="text" readonly
+          style="flex:1; min-width:280px; padding:8px 10px; font-family:var(--font-mono,monospace); font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
+        <button id="copy-url" class="btn" type="button">Copy URL</button>
+        <a id="download-obs" class="btn btn-primary" href="/api/obs/single-source">Download OBS scene</a>
       </div>
+      <ol class="text-dim" style="padding-left:1.4em; line-height:1.7; margin:0">
+        <li>In OBS: <strong>+ → Browser</strong>, paste the URL above, set the size to your canvas (e.g. 1920×1080). That's it — no camera source, no SDP.</li>
+        <li>Prefer importing? Use the <strong>Download OBS scene</strong> button, then <strong>Scene Collection → Import</strong> — it's just that one Browser Source.</li>
+        <li>Design your overlay in the <a href="/scene-editor">Layout editor</a> and hit <strong>🔴 Go Live</strong> — this page and OBS update automatically.</li>
+      </ol>
     </section>
 
-    <!-- Saved scenes are most prominent: this is what the user just made. -->
-    <div class="section-header">
-      <h2>Your saved scenes</h2>
-      <span class="section-meta">Scenes you've customized in the Layout editor.</span>
-    </div>
-    <div class="scenes-row" id="scenes-row"></div>
-
-    <div class="section-header">
-      <h2>Default templates</h2>
-      <span class="section-meta">Pre-built scenes for each printer type. Use as a starting point.</span>
-    </div>
-    <div class="scenes-row" id="templates-row"></div>
-
-    <!-- Widget gallery is de-emphasized at the bottom — useful for users who
-         want to add a single widget directly to OBS without building a scene. -->
-    <details class="section-header" id="gallery-section" style="display: block; margin-top: var(--space-6)">
-      <summary style="cursor: pointer; list-style: none">
-        <h2 style="display: inline-block; margin: 0">Browse individual widgets</h2>
-        <span class="section-meta">&nbsp;Click to expand. Each widget can be added to OBS as a Browser Source.</span>
-      </summary>
-      <div class="gallery" id="gallery" style="margin-top: var(--space-3)"></div>
-    </details>
+    <section class="card">
+      <div class="section-header" style="margin-top:0">
+        <h2 style="margin:0">Live preview</h2>
+        <span class="section-meta">&nbsp;What OBS is showing right now.</span>
+      </div>
+      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:var(--radius,6px); overflow:hidden; margin-top:var(--space-3)">
+        <iframe id="live-frame" src="/live" title="Live preview" style="position:absolute; inset:0; width:100%; height:100%; border:0"></iframe>
+      </div>
+      <p class="text-dim" style="margin-top:var(--space-2)">
+        <a href="/live" target="_blank" rel="noopener">Open full /live ↗</a>
+      </p>
+    </section>
 
   </main>
 

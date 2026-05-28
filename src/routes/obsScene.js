@@ -259,6 +259,72 @@ function buildObsSceneRouter({ paths }) {
     }
   });
 
+  // -------- One-click OBS helper --------
+  // GET /api/obs/single-source — a minimal OBS scene collection containing a
+  // single Browser Source pointing at <HOST>/live. This is the entire OBS
+  // setup now: import it (or just add one Browser Source to this URL by hand).
+  // Mirrors the proven top-level structure of the shipped templates so OBS
+  // imports it cleanly.
+  router.get('/single-source', (req, res) => {
+    const liveUrl = `http://${hostFromReq(req)}/live`;
+    const collection = {
+      name: `BambuBoard ${PKG_VERSION}`,
+      groups: [],
+      scene_order: [{ name: 'BambuBoard' }],
+      current_scene: 'BambuBoard',
+      current_program_scene: 'BambuBoard',
+      canvases: [],
+      current_transition: 'Cut',
+      transition_duration: 300,
+      transitions: [],
+      quick_transitions: [
+        { name: 'Cut', duration: 300, hotkeys: [], id: 1, fade_to_black: false },
+        { name: 'Fade', duration: 300, hotkeys: [], id: 2, fade_to_black: false },
+      ],
+      saved_projectors: [],
+      preview_locked: false,
+      scaling_enabled: false,
+      scaling_level: -9,
+      scaling_off_x: 0,
+      scaling_off_y: 0,
+      'virtual-camera': { type2: 3 },
+      resolution: { x: 1920, y: 1080 },
+      migration_resolution: { x: 1920, y: 1080 },
+      version: 2,
+      sources: [
+        {
+          prev_ver: 503316480,
+          name: 'BambuBoard Live',
+          id: 'browser_source',
+          versioned_id: 'browser_source',
+          settings: { url: liveUrl, width: 1920, height: 1080 },
+          enabled: true, mixers: 255, sync: 0, flags: 0, volume: 1, balance: 0.5,
+          muted: false, monitoring_type: 0, private_settings: {},
+        },
+        {
+          prev_ver: 503316480,
+          name: 'BambuBoard',
+          id: 'scene',
+          versioned_id: 'scene',
+          settings: {
+            custom_size: false,
+            id_counter: 1,
+            items: [{
+              name: 'BambuBoard Live', visible: true, locked: false, rot: 0,
+              align: 5, bounds_type: 0, bounds_align: 0,
+              crop_left: 0, crop_top: 0, crop_right: 0, crop_bottom: 0,
+              id: 1, pos: { x: 0, y: 0 }, scale: { x: 1, y: 1 }, bounds: { x: 0, y: 0 },
+              scale_filter: 'disable', blend_method: 'default', blend_type: 'normal',
+            }],
+          },
+        },
+      ],
+    };
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="bambuboard-live.json"');
+    res.send(JSON.stringify(collection, null, 2));
+  });
+
   return router;
 }
 
