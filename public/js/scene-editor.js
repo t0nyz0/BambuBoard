@@ -245,8 +245,8 @@ function updateUndoButtons () {
 
   els.fileIn().addEventListener('change', onFileUpload);
   document.getElementById('save-btn').addEventListener('click', onSave);
-  document.getElementById('download-btn').addEventListener('click', onDownload);
-  document.getElementById('save-continue-btn').addEventListener('click', onSaveAndContinue);
+  document.getElementById('preview-btn').addEventListener('click', onPreview);
+  document.getElementById('golive-btn').addEventListener('click', onGoLive);
   document.getElementById('reset-btn').addEventListener('click', () => { if (state.original) loadCollection(structuredClone(state.original)); });
   document.getElementById('undo-btn').addEventListener('click', undo);
   document.getElementById('redo-btn').addEventListener('click', redo);
@@ -1551,25 +1551,65 @@ function sanitizeSceneName (raw) {
     .slice(0, 64);
 }
 
+// Persist the current edit to /api/obs/scenes under `name`. Returns the saved
+// slug (or null on failure). Shared by Save and Go Live.
+async function saveSceneAs (name) {
+  const out = applyChangesToCollection();
+  try {
+    const r = await fetch('/api/obs/scenes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, json: out }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return j.ok ? (j.slug || name) : null;
+  } catch (_) { return null; }
+}
+
 async function onSave () {
   if (!state.original) return window.toast('Nothing loaded', 'error');
-  const raw = prompt('Save scene as:', '');
+  const raw = prompt('Save layout as:', state.sceneName || '');
   if (!raw) return;
   const name = sanitizeSceneName(raw);
   if (!name) return window.toast('Save failed: name had no usable characters', 'error');
-  const out = applyChangesToCollection();
-  const r = await fetch('/api/obs/scenes', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, json: out }),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (j.ok) {
+  const slug = await saveSceneAs(name);
+  if (slug) {
+    state.sceneName = slug;
     window.toast(`Saved as "${name}"`);
-    // Refresh the loader's "Saved scenes" group so the new entry appears
-    // without a full page reload.
-    refreshSavedScenes(j.slug || null);
+    refreshSavedScenes(slug); // update loader dropdown without a reload
   } else {
-    window.toast('Save failed: ' + (j.error || ''), 'error');
+    window.toast('Save failed', 'error');
+  }
+}
+
+// Open the live output (the currently-published scene) in a new tab.
+function onPreview () {
+  window.open('/live', '_blank', 'noopener');
+}
+
+// Headline action: save the current layout and publish it as the live output
+// (/api/obs/active). /live (and any OBS Browser Source pointed at it) picks the
+// change up on its next poll — no OBS re-import, no scene file to download.
+async function onGoLive () {
+  if (!state.original) return window.toast('Nothing to publish — load a layout first', 'error');
+  let name = state.sceneName;
+  if (!name) {
+    const raw = prompt('Name this layout to go live:', '');
+    name = raw ? sanitizeSceneName(raw) : null;
+    if (!name) return;
+  }
+  const slug = await saveSceneAs(name);
+  if (!slug) return window.toast('Go Live failed while saving', 'error');
+  state.sceneName = slug;
+  refreshSavedScenes(slug);
+  try {
+    const r = await fetch('/api/obs/active', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug }),
+    });
+    const j = await r.json().catch(() => ({}));
+    window.toast(j.ok ? `🔴 "${name}" is now live` : 'Go Live failed: ' + (j.error || ''), j.ok ? 'success' : 'error');
+  } catch (e) {
+    window.toast('Go Live failed: ' + e.message, 'error');
   }
 }
 
@@ -1615,52 +1655,6 @@ async function refreshSavedScenes (selectSlug) {
   }
 }
 
-async function onDownload () {
-  if (!state.original) return window.toast('Nothing loaded', 'error');
-  const out = applyChangesToCollection();
-  // Substitute <HOST> with the current server so the downloaded JSON has
-  // real URLs that OBS can load — the /raw endpoint deliberately leaves
-  // <HOST> as a placeholder for the editor, but downloads must be concrete.
-  const host = window.location.host;
-  let json = JSON.stringify(out, null, 2);
-  json = json.replace(/<HOST>/g, host);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const fname = (state.original.name || 'bambuboard-scene').replace(/[^a-z0-9_\-]/gi, '_') + '.json';
-  a.href = url; a.download = fname; a.click();
-  URL.revokeObjectURL(url);
-  window.toast('Downloaded ' + fname);
-}
-
-// Workflow Step 3 → Step 4 transition. Saves the current scene with a default
-// timestamped name (so the user doesn't have to think of one), then navigates
-// to the Export page (/) where they can download it for OBS.
-async function onSaveAndContinue () {
-  if (!state.original) return window.toast('Nothing to save — load a template first', 'error');
-  const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '');
-  // Sanitize against the server's SAFE_NAME regex (no `<` `>` `:` etc).
-  // Older loaded templates may still have a literal `<VERSION>` baked
-  // into state.original.name and the server would 400 those.
-  const name = sanitizeSceneName((state.original.name || 'MyScene') + '-' + stamp);
-  const out = applyChangesToCollection();
-  try {
-    const r = await fetch('/api/obs/scenes', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, json: out }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!j.ok) {
-      window.toast('Save failed: ' + (j.error || ''), 'error');
-      return;
-    }
-  } catch (e) {
-    window.toast('Save failed: ' + e.message, 'error');
-    return;
-  }
-  // Pass the just-saved slug via hash so the Export page can highlight it.
-  location.href = '/#saved=' + encodeURIComponent(name);
-}
 
 function escape (s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
 
