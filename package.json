@@ -1,6 +1,6 @@
 {
   "name": "bambuboard",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "description": "BambuBoard — OBS dashboard widgets for Bambu Lab printers (X1, X1C, P1, P1P, A1, H2D)",
   "main": "src/server.js",
   "scripts": {

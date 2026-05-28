@@ -66,6 +66,12 @@ async function updateUI(telemetryObject) {
       nozzleTargetTempC = telemetryObject.nozzle_target_temper || 0;
     }
 
+    // A1/P1/X1 report nozzle_temper as a float (e.g. 27.8125); the packed
+    // H2D format yields integers. Round so the display matches the bed widget
+    // and ha-bambulab rather than showing a long decimal like "27.8125".
+    nozzleCurrentTempC = Math.round(nozzleCurrentTempC);
+    nozzleTargetTempC = Math.round(nozzleTargetTempC);
+
     // Active-extruder badge — bright green when printing, grey/dim when idle
     const isPrinting = currentState === 'RUNNING' || currentState === 'PREPARE' || currentState === 'PAUSE';
     try {

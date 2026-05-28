@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+### Fixed
+- **Nozzle temperature showed a long decimal on A1 / P1 / X1 printers** (`public/widgets/nozzle-temp/NOZZLE_script.js`, `public/widgets/nozzle-temp-2/NOZZLE_script.js`) — these printers report `nozzle_temper` as a float (e.g. `27.8125`), and the current-temp display rendered it raw, so the Celsius readout showed something like "27.8125" instead of "28". H2D was unaffected because its newer packed-bits format (`nozzleInfo.temp`) yields integers. The target temp and Fahrenheit conversions were already rounded; only the current Celsius value leaked the decimals. Fixed by rounding `nozzleCurrentTempC` / `nozzleTargetTempC` right after reading them, matching the bed widget (`BED_script.js` already does `Math.round(bed_temper)`) and the ha-bambulab Home Assistant integration (`models.py` rounds `nozzle_temper` on read). **Why:** a user on an A1 reported the nozzle temp decimal looked wrong — the widget was the only temp display not rounding the legacy float field.
+
+---
+
 ## v3.0.6 — 2026-05-24
 
 ### Fixed
