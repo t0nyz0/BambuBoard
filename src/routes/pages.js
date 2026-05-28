@@ -31,6 +31,11 @@ function buildPagesRouter({ paths, getConfig }) {
   router.get('/setup',        (req, res) => res.sendFile(path.join(VIEWS, 'setup.html')));
   router.get('/customize',    (req, res) => res.sendFile(path.join(VIEWS, 'customize.html')));
   router.get('/scene-editor', (req, res) => res.sendFile(path.join(VIEWS, 'scene-editor.html')));
+  // Composited broadcast output: renders a saved scene as a single full-page
+  // view (camera + every widget, positioned exactly as designed). The whole
+  // point is that an OBS scene needs just ONE Browser Source pointing here —
+  // no per-widget sources, no camera media source, no SDP.
+  router.get('/live',         (req, res) => res.sendFile(path.join(VIEWS, 'live.html')));
   router.get('/login',        (req, res) => res.sendFile(path.join(VIEWS, 'login.html')));
 
   return router;

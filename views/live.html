@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BambuBoard — Live</title>
+    <!-- JSMpeg is used by the embedded camera widget; load it here too so the
+         camera iframe shares the decoder if needed. -->
+    <style>
+      html, body {
+        margin: 0; padding: 0; height: 100%; width: 100%;
+        overflow: hidden; background: #000;
+      }
+      /* The stage is the scene's native canvas (e.g. 1920×1080). It is scaled
+         to fit the window via transform, so it looks right both in a normal
+         browser tab and in an OBS Browser Source sized to the canvas
+         resolution (where the scale resolves to 1:1). */
+      #stage {
+        position: absolute; top: 0; left: 0;
+        transform-origin: top left;
+        overflow: hidden;
+        background: #000;
+      }
+      .live-item {
+        position: absolute;
+        overflow: hidden;
+      }
+      .live-item iframe {
+        border: 0; display: block;
+        transform-origin: top left;
+      }
+      #live-msg {
+        position: absolute; inset: 0; display: flex;
+        align-items: center; justify-content: center; text-align: center;
+        color: #e6e8ee; font: 600 20px/1.5 'Open Sans', system-ui, sans-serif;
+        padding: 24px; box-sizing: border-box;
+      }
+      #live-msg.hidden { display: none; }
+      #live-msg a { color: #ffd166; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="live-msg">Loading scene…</div>
+    <script src="/assets/js/jsmpeg.min.js"></script>
+    <script src="/js/live.js"></script>
+  </body>
+</html>
