@@ -29,23 +29,23 @@
       locked: s => !s || !s.setupComplete },
     { num: 3, label: 'Layout',  href: '/scene-editor',  match: p => p.startsWith('/scene-editor'),
       locked: s => !s || !s.setupComplete },
-    { num: 4, label: 'Export',  href: '/',              match: p => p === '/',
+    { num: 4, label: 'Go Live', href: '/',              match: p => p === '/',
       locked: s => !s || !s.setupComplete },
   ];
 
   // Pages where the stepper is hidden — these aren't part of the workflow.
-  const STEPPER_HIDDEN_ON = ['/dashboard', '/login', '/customize'];
+  const STEPPER_HIDDEN_ON = ['/login'];
 
   function build() {
     const path = location.pathname.replace(/\/$/, '') || '/';
-    // Reordered to match the workflow: Setup → Layout → Export → Dashboard.
-    // (Customize is dropped from the main nav; it's reachable from the Export
-    // page's per-widget tile.)
+    // Leads with the core loop: Live (the published output / "go live" page) is
+    // the primary destination, Layout is the editor, Setup is config. The old
+    // Export hub and the standalone Dashboard are gone — /live is both the
+    // output and the de-facto dashboard now.
     const items = [
-      { href: '/setup',        label: 'Setup',     match: p => p.startsWith('/setup') },
-      { href: '/scene-editor', label: 'Layout',    match: p => p.startsWith('/scene-editor') },
-      { href: '/',             label: 'Export',    match: p => p === '/' },
-      { href: '/dashboard',    label: 'Dashboard', match: p => p.startsWith('/dashboard') },
+      { href: '/',             label: 'Live',   match: p => p === '/' },
+      { href: '/scene-editor', label: 'Layout', match: p => p.startsWith('/scene-editor') },
+      { href: '/setup',        label: 'Setup',  match: p => p.startsWith('/setup') },
     ];
 
     // Brand mark — designed to actually stand out in the top-left.
