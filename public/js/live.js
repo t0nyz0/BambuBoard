@@ -155,6 +155,21 @@
     return scenes.find(s => s.name === wantName) || scenes[0];
   }
 
+  // Default layout when nothing has been published/saved. Picks the shipped
+  // template for the detected printer type; the download endpoint substitutes
+  // <HOST> so widget URLs are concrete.
+  async function loadDefaultJson() {
+    let type = 'X1';
+    try {
+      const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
+      type = (st.printer && st.printer.type) || 'X1';
+    } catch (_) { /* default to X1 */ }
+    const slug = type === 'H2D' ? 'default-h2d' : 'default-x1';
+    const res = await fetch(`/api/obs/templates/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`default template "${slug}" HTTP ${res.status}`);
+    return JSON.parse(await res.text());
+  }
+
   function buildItem(item, src) {
     const sz = itemSize(item, src);
     const { ox, oy } = alignOffsets(item.align);
@@ -265,25 +280,21 @@
   }
 
   async function render() {
-    let slug;
+    let slug, json;
     try {
       slug = await pickSceneSlug();
+      if (slug) {
+        const res = await fetch(`/api/obs/scenes/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        json = JSON.parse(await res.text());
+      } else {
+        // Nothing published or saved yet — show a sensible default so a fresh
+        // install isn't blank. Templates are host-substituted by the download
+        // endpoint and the camera ffmpeg_source is swapped for our widget.
+        json = await loadDefaultJson();
+      }
     } catch (e) {
-      showMsg('Could not list scenes: ' + e.message);
-      return;
-    }
-    if (!slug) {
-      showMsg('No saved scenes yet. Design one in the <a href="/scene-editor">scene editor</a>, then load <code>/live?scene=&lt;name&gt;</code>.');
-      return;
-    }
-
-    let json;
-    try {
-      const res = await fetch(`/api/obs/scenes/${encodeURIComponent(slug)}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      json = JSON.parse(await res.text());
-    } catch (e) {
-      showMsg(`Could not load scene "${slug}": ${e.message}`);
+      showMsg('Could not load scene: ' + e.message);
       return;
     }
 

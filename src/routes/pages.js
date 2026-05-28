@@ -27,7 +27,9 @@ function buildPagesRouter({ paths, getConfig }) {
   });
 
   router.get('/',             (req, res) => res.sendFile(path.join(VIEWS, 'hub.html')));
-  router.get('/dashboard',    (req, res) => res.sendFile(path.join(VIEWS, 'dashboard.html')));
+  // The standalone dashboard was retired in 3.1.0 — /live (a published scene,
+  // or the default layout) is the monitor now. Redirect old bookmarks.
+  router.get('/dashboard',    (req, res) => res.redirect(302, '/live'));
   router.get('/setup',        (req, res) => res.sendFile(path.join(VIEWS, 'setup.html')));
   router.get('/customize',    (req, res) => res.sendFile(path.join(VIEWS, 'customize.html')));
   router.get('/scene-editor', (req, res) => res.sendFile(path.join(VIEWS, 'scene-editor.html')));
