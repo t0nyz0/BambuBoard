@@ -20,7 +20,12 @@ let CANVAS_H = 1080;
 
 const state = {
   original: null,        // the loaded scene-collection JSON
-  sceneName: null,       // currently-selected scene name
+  sceneName: null,       // currently-selected OBS scene name *inside* the collection
+  savedName: null,       // the saved-scene file name this layout was loaded from / last saved as
+                         // (distinct from sceneName: an .obs collection's internal scene is
+                         // usually named "Scene", but the saved file may be "Scene2" etc.)
+  suggestedName: null,   // a friendly default name (template label / uploaded filename) used to
+                         // auto-name on Go Live so publishing a template needs no save prompt
   sources: {},           // name → source object (lookup)
   items: [],             // scene items, in render order
   selectedIndex: -1,
@@ -355,6 +360,13 @@ async function onLoaderChange (e) {
   const r = await fetch(url);
   if (!r.ok) return window.toast('Load failed', 'error');
   const json = await r.json();
+  // Remember which saved-scene file this came from so Save / Go Live re-publish
+  // under the right name. Templates have no saved file yet (savedName=null), but
+  // we keep their label as a suggestedName so Go Live can auto-save without a
+  // prompt instead of nagging the user to name it first.
+  const label = e.target.selectedOptions[0]?.textContent || slug;
+  state.savedName = kind === 'scn' ? label : null;
+  state.suggestedName = label;
   loadCollection(json);
 }
 
@@ -363,8 +375,11 @@ function onFileUpload (e) {
   if (!f) return;
   const fr = new FileReader();
   fr.onload = () => {
-    try { loadCollection(JSON.parse(fr.result)); }
-    catch (err) { window.toast('Invalid JSON: ' + err.message, 'error'); }
+    try {
+      state.savedName = null;
+      state.suggestedName = (f.name || '').replace(/\.[^.]+$/, '') || null;
+      loadCollection(JSON.parse(fr.result));
+    } catch (err) { window.toast('Invalid JSON: ' + err.message, 'error'); }
   };
   fr.readAsText(f);
 }
@@ -1567,13 +1582,13 @@ async function saveSceneAs (name) {
 
 async function onSave () {
   if (!state.original) return window.toast('Nothing loaded', 'error');
-  const raw = prompt('Save layout as:', state.sceneName || '');
+  const raw = prompt('Save layout as:', state.savedName || state.suggestedName || state.sceneName || '');
   if (!raw) return;
   const name = sanitizeSceneName(raw);
   if (!name) return window.toast('Save failed: name had no usable characters', 'error');
   const slug = await saveSceneAs(name);
   if (slug) {
-    state.sceneName = slug;
+    state.savedName = name;
     window.toast(`Saved as "${name}"`);
     refreshSavedScenes(slug); // update loader dropdown without a reload
   } else {
@@ -1591,15 +1606,17 @@ function onPreview () {
 // change up on its next poll — no OBS re-import, no scene file to download.
 async function onGoLive () {
   if (!state.original) return window.toast('Nothing to publish — load a layout first', 'error');
-  let name = state.sceneName;
-  if (!name) {
-    const raw = prompt('Name this layout to go live:', '');
-    name = raw ? sanitizeSceneName(raw) : null;
-    if (!name) return;
-  }
+  // Going live needs a persisted scene for /live (and OBS) to fetch by slug, so
+  // we always save first — but silently. Prefer the saved-scene name this layout
+  // came from; otherwise auto-name from the template/upload label (or "Live
+  // Scene"). No prompt — publishing a template should "just go live". The user
+  // can rename later via Save.
+  const name = state.savedName
+    || sanitizeSceneName(state.suggestedName || '')
+    || 'Live Scene';
   const slug = await saveSceneAs(name);
   if (!slug) return window.toast('Go Live failed while saving', 'error');
-  state.sceneName = slug;
+  state.savedName = name;
   refreshSavedScenes(slug);
   try {
     const r = await fetch('/api/obs/active', {
