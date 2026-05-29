@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file. The format foll
   - **Home is a lean Live page:** the OBS A/B/C/D import wizard, SDP/virtual-camera steps, multi-source template/scene download grids, and the widget gallery are gone. `/` now shows the `/live` URL with a copy button, a one-click single-source `.obs` download (`GET /api/obs/single-source`), an embedded live preview, and which scene is published.
   - **`/live` shows a default layout** (the shipped `default-h2d`/`default-x1` template for the detected printer) when nothing is published yet.
 
+### Fixed
+- **P2S reported wrong capabilities (no chamber temp, no camera)** (`src/lib/caps.js`, `public/js/caps.js`) — P2S was mapped to `P1S`, so BambuBoard hid the chamber-temperature widget and gated off the camera. Per ha-bambulab (`pybambu/models.py` — P2S is in both `CHAMBER_TEMPERATURE` and `CAMERA_RTSP`), the P2S has both. Added a dedicated `P2S` capability entry (chamber temp + RTSP camera, single nozzle, up to 4 AMS) and pointed the detection map at it instead of `P1S`. **Why:** P2S owners were missing two real features.
+
 ### Removed
 - **Standalone dashboard and the OBS-export wizard** — `/dashboard` (hand-built telemetry page) now 302-redirects to `/live`, and `views/dashboard.html` + `public/js/dashboard.js` are deleted; the published scene (or the default layout) is the monitor now. The `/customize` v3.1 stub redirects to the Layout editor and `views/customize.html` is deleted. Shipped templates remain as **editor starter layouts**, no longer advertised as OBS downloads.
 

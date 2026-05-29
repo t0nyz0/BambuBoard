@@ -7,6 +7,7 @@ const PRINTER_CAPS = {
   X1C: { hasChamberTemp: true,  hasCameraRtsp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'X1 Carbon' },
   P1P: { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P1P'     },
   P1S: { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P1S'     },
+  P2S: { hasChamberTemp: true,  hasCameraRtsp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P2S'     },
   P1:  { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 256, y: 256, z: 256 }, label: 'P1'      },
   A1:  { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, bedSize: { x: 256, y: 256, z: 256 }, label: 'A1'      },
   A1M: { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, bedSize: { x: 180, y: 180, z: 180 }, label: 'A1 Mini' },
@@ -28,7 +29,7 @@ const HA_BAMBULAB_TYPE_MAP = {
   X1E: 'X1C',     // X1E shares X1C-class capabilities; we don't have a dedicated entry
   P1P: 'P1P',
   P1S: 'P1S',
-  P2S: 'P1S',     // no P2 variant; treat as P1S
+  P2S: 'P2S',     // P2S has its own caps: chamber temp + RTSP camera (per ha-bambulab)
   A1: 'A1',
   A1MINI: 'A1M',
   H2D: 'H2D',
