@@ -120,9 +120,49 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
       return proxyByUrl[url];
     }
 
+    // ── Reconnect hardening ──
+    // rtsp-relay kills ffmpeg the instant the client count hits 0 and respawns
+    // on the next connect. Rapid churn (page reloads, OBS source restarts, tab
+    // open/close) therefore rapidly tears down + re-pulls the printer's RTSP
+    // stream — and Bambu's RTSP server allows only a couple of concurrent
+    // connections, so a respawn can race the previous teardown and stall the
+    // feed (the "white/black camera" we hit during dev).
+    //
+    // Fix: hold a server-side keepalive subscriber per stream so ffmpeg stays
+    // alive through brief gaps. When the last real viewer leaves we wait
+    // GRACE_MS before releasing the holder; a reconnect within the window
+    // reuses the still-running ffmpeg (and its single RTSP connection).
+    const GRACE_MS = 20000;
+    const keepalive = {}; // url -> { count, timer, holder }
+
+    // A minimal ws-like object rtsp-relay's handler accepts: it counts as a
+    // client (keeping ffmpeg up) and discards the frames it's sent.
+    function makeHolder() {
+      const h = new (require('events').EventEmitter)();
+      h.OPEN = 1;
+      h.readyState = 1;
+      h.send = () => {};
+      h.close = () => { h.readyState = 3; h.emit('close'); };
+      return h;
+    }
+
     app.ws('/api/printer/video', (ws, req) => {
       const url = buildStreamUrl();
-      return getProxyFor(url)(ws, req);
+      const proxy = getProxyFor(url);
+      const ka = keepalive[url] || (keepalive[url] = { count: 0, timer: null, holder: null });
+      if (ka.timer) { clearTimeout(ka.timer); ka.timer = null; } // cancel pending release
+      if (!ka.holder) { ka.holder = makeHolder(); proxy(ka.holder, req); } // pin ffmpeg up
+      ka.count += 1;
+      ws.on('close', () => {
+        ka.count -= 1;
+        if (ka.count <= 0 && !ka.timer) {
+          ka.timer = setTimeout(() => {
+            ka.timer = null;
+            if (ka.count <= 0 && ka.holder) { ka.holder.close(); ka.holder = null; }
+          }, GRACE_MS);
+        }
+      });
+      return proxy(ws, req);
     });
 
     console.log('[bambuboard] RTSP video relay ready at ws://*/api/printer/video');
