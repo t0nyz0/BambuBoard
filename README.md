@@ -41,29 +41,28 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h4>1. Setup</h4>
+      <h4>Setup</h4>
       <p>Printer credentials, connection test, and optional Bambu Cloud sign-in.</p>
-      <a href="screenshots/SETUP-TAB.jpg"><img src="screenshots/SETUP-TAB.jpg" alt="Setup tab" width="100%"></a>
+      <a href="screenshots/SETUP-TAB.jpg"><img src="screenshots/SETUP-TAB.jpg" alt="Setup page" width="100%"></a>
     </td>
     <td width="50%" valign="top">
-      <h4>2. Layout</h4>
-      <p>Visual scene editor with live widget previews on a 1920×1080 OBS canvas. Drag, resize, snap to grid.</p>
-      <a href="screenshots/LAYOUT-TAB.jpg"><img src="screenshots/LAYOUT-TAB.jpg" alt="Layout tab" width="100%"></a>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h4>3. Go Live</h4>
-      <p>Publish your layout and point <strong>one</strong> OBS Browser Source at <code>/live</code>. No per-widget sources, no camera/SDP setup.</p>
-      <a href="screenshots/EXPORT-TAB.jpg"><img src="screenshots/EXPORT-TAB.jpg" alt="Live tab" width="100%"></a>
-    </td>
-    <td width="50%" valign="top">
-      <h4>4. /live output</h4>
-      <p>Your published scene as one page — camera + every widget. This is exactly what OBS shows; edit and re-publish and it updates on its own.</p>
-      <a href="screenshots/DASHBOARD-TAB.jpg"><img src="screenshots/DASHBOARD-TAB.jpg" alt="Live output" width="100%"></a>
+      <h4>Layout editor</h4>
+      <p>Drag widgets onto a canvas-sized preview with live telemetry — snap to grid, undo/redo, layers — then hit 🔴 Go Live to publish.</p>
+      <a href="screenshots/LAYOUT-TAB.jpg"><img src="screenshots/LAYOUT-TAB.jpg" alt="Layout editor" width="100%"></a>
     </td>
   </tr>
 </table>
+
+<!--
+  Screenshot status (3.1.0): the hero above is an accurate /live composite.
+  SETUP-TAB.jpg and LAYOUT-TAB.jpg still need a re-capture — they pre-date the
+  3.1.0 nav change (they show the old Setup·Layout·Export·Dashboard top nav, an
+  "Export" stepper, and the editor's old Download / "Save & Continue to Export"
+  toolbar instead of Save / Preview / 🔴 Go Live).
+  TODO: also add a shot of the new Live page (/) and recapture against current.
+  The old EXPORT-TAB.jpg (removed export wizard) and DASHBOARD-TAB.jpg (removed
+  dashboard) are no longer referenced and can be deleted.
+-->
 
 ---
 
