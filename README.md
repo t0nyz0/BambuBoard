@@ -2,8 +2,8 @@
 
 # BambuBoard
 
-**OBS dashboard widgets for Bambu Lab printers.**
-Live print stats overlays designed for streamers — drop a scene file into OBS Studio and you have a polished, real-time print dashboard on stream.
+**Live print overlays for Bambu Lab printers, built for streamers.**
+Design a dashboard once, hit **Go Live**, and add a *single* Browser Source to OBS — camera and all widgets composited into one page. No scene import, no SDP file, no Bambu Studio.
 
 <br>
 
@@ -23,18 +23,18 @@ Live print stats overlays designed for streamers — drop a scene file into OBS 
 
 ## Why v3? (the short story)
 
-BambuBoard started as a dashboard for OBS browser-source widgets. Over time v2 grew into a full multi-printer management app — useful, but a different product. **v3.0 returns BambuBoard to its core:** a polished single-printer dashboard built around streaming overlays, with a guided setup flow, a visual scene-layout editor, and one-click export to OBS.
+BambuBoard started as a dashboard for OBS browser-source widgets. Over time v2 grew into a full multi-printer management app — useful, but a different product. **v3 returns BambuBoard to its core:** a polished single-printer streaming dashboard, with a guided setup flow, a visual scene-layout editor, a built-in camera feed, and a one-Browser-Source path into OBS.
 
-- **Want streaming widgets, a clean overlay, and quick OBS import?** You're in the right place.
+- **Want streaming widgets, a clean overlay, and a dead-simple OBS setup?** You're in the right place.
 - **Want multi-printer fleet management?** Stay on **v2.x** — checkout the [`v2.0.1` tag](https://github.com/t0nyz0/BambuBoard/tree/v2.0.1) (`git checkout v2.0.1`) or pull the matching Docker image: `ghcr.io/t0nyz0/bambuboard:2.0.1`. v3 is intentionally single-printer.
 
-Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widget customizations) carries over. The major addition in v3 is the **scene editor** — drag widgets around an OBS-canvas-sized preview, then save & export the scene JSON in one click.
+Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widget customizations) carries over. The big additions in v3: the **scene editor** (drag widgets around a canvas-sized preview), the composited **`/live` page** (your whole scene rendered as one page), and a **built-in camera feed** — so OBS needs just one Browser Source, and the printer camera works without Bambu Studio.
 
 ---
 
 ## Screenshots
 
-> **Live H2D dashboard** — chamber camera background, gcode toolpath widget, dual nozzles, dual AMS, MakerWorld profile, and progress bar all composited as OBS browser sources.
+> **Live H2D dashboard** — chamber camera, gcode toolpath, dual nozzles, dual AMS, MakerWorld profile, and progress bar, all composited into a single `/live` page that OBS captures with one Browser Source.
 
 <a href="screenshots/LIVE-DASHBOARD-3.0.jpg"><img src="screenshots/LIVE-DASHBOARD-3.0.jpg" alt="BambuBoard 3.0 live H2D dashboard" width="100%"></a>
 
@@ -58,9 +58,9 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
       <a href="screenshots/EXPORT-TAB.jpg"><img src="screenshots/EXPORT-TAB.jpg" alt="Live tab" width="100%"></a>
     </td>
     <td width="50%" valign="top">
-      <h4>4. Dashboard</h4>
-      <p>Live print monitor — bed, chamber, nozzles, AMS, fans, MakerWorld profile. Capability-driven.</p>
-      <a href="screenshots/DASHBOARD-TAB.jpg"><img src="screenshots/DASHBOARD-TAB.jpg" alt="Dashboard tab" width="100%"></a>
+      <h4>4. /live output</h4>
+      <p>Your published scene as one page — camera + every widget. This is exactly what OBS shows; edit and re-publish and it updates on its own.</p>
+      <a href="screenshots/DASHBOARD-TAB.jpg"><img src="screenshots/DASHBOARD-TAB.jpg" alt="Live output" width="100%"></a>
     </td>
   </tr>
 </table>
@@ -69,8 +69,9 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 ## Highlights
 
-- **Drop-in OBS scene** — pre-built H2D and X1-family scene templates with widget positions, sizes, and themes already tuned for stream overlays. Download, import, done.
-- **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. New OBS-style Layers panel for drag-to-reorder z-stacking.
+- **One Browser Source → OBS** — design your overlay, hit 🔴 **Go Live**, and point a single OBS Browser Source at `/live`. BambuBoard composites the camera + every widget into one page — no scene import, no per-widget sources, no SDP. Edit and re-publish anytime; OBS updates itself.
+- **Built-in camera feed** — BambuBoard streams the printer's chamber camera itself (an in-app RTSP relay → in-browser decode), so the camera shows up in `/live` with **no Bambu Studio "Go Live" and no OBS media/SDP setup**. Just flip *LAN Mode Liveview* on the printer (X1 / X1C / H2D).
+- **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. OBS-style Layers panel for drag-to-reorder z-stacking.
 - **Live gcode toolpath widget** *(experimental / beta)* — three.js widget that fetches the active print's gcode over FTPS, parses it, and renders the toolpath in real time with a stylized hotend tracing the active layer. Multi-color prints get per-tool AMS colors. Adaptive speed calibration keeps the simulation locked to the printer's reported `mc_percent` even through filament swaps. Single-color prints work great; multi-color/multi-object timing on complex prints can still drift — open an issue if you hit a case that's clearly off.
 - **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
 - **AMS drying indicator** — `AMS 2 Pro` and `AMS HT` units get a live "DRYING · 60° · 11h" pill with an animated fan icon when actively heating filament.
@@ -179,12 +180,12 @@ BambuBoard/
 │   └── lib/caps.js       PRINTER_CAPS map + printerTypeFromMqtt()
 ├── views/                Pretty-URL HTML pages
 ├── public/
-│   ├── css/              theme, components, hub, dashboard, setup, scene-editor
-│   ├── js/               nav (with stepper), hub, dashboard, setup, scene-editor
+│   ├── css/              theme, components, hub, setup, scene-editor
+│   ├── js/               nav (with stepper), hub (Live page), live, setup, scene-editor
 │   ├── assets/           jQuery, Material Symbols, fonts (local — no CDNs)
-│   └── widgets/          OBS browser-source widgets (each its own folder)
+│   └── widgets/          browser-source widgets (each its own folder)
 ├── OBS_settings/
-│   └── templates/        Scrubbed default scenes for each printer family
+│   └── templates/        Default layout starters for each printer family
 ├── data/                 Runtime state (gitignored): data.json, accessToken.json, note.json, scenes/
 ├── scripts/              build-widget-catalog.js, etc.
 ├── config.json           Local config (gitignored)
@@ -205,7 +206,7 @@ BambuBoard/
 
 ## Widget catalog
 
-Every widget is a standalone HTML page you add as a Browser Source in OBS. The hub gallery shows live previews; the scene editor lets you drag them onto a canvas.
+Every widget is a standalone HTML page. The scene editor lets you drag them onto your canvas, and `/live` composites the whole scene into one page for OBS — so you normally don't add widgets to OBS individually. (You still can: each widget works on its own as a Browser Source if you ever want just one.)
 
 <!-- WIDGET-CATALOG-START -->
 | Widget | Description | Recommended size | Params | Cap-gated |
@@ -219,7 +220,7 @@ Every widget is a standalone HTML page you add as a Browser Source in OBS. The h
 | **Fans** (`fans`) | All four fan speeds with animated spinning icons and circular gauge rings showing speed percentage. | 420×160 | — | — |
 | **Gcode Toolpath** (`gcode-viz`) | **Experimental / beta.** Live three.js visualization of the active print's gcode, advancing layer-by-layer with a stylized hotend tracing the toolpath. Multi-color prints render per-tool AMS colors. Adaptive speed calibration keeps the sim locked to the printer's mc_percent through filament swaps. Single-color prints work great; multi-object timing on complex prints can still drift. | 640×640 | — | — |
 | **Model image** (`model-image`) | Preview image of the current model (requires Bambu Cloud auth for live MakerWorld images). | 400×300 | — | — |
-| **Notes / footer** (`notes`) | Auto-updates with the model name each print; can be manually overridden from the dashboard. | 600×40 | — | — |
+| **Notes / footer** (`notes`) | Auto-updates with the model name each print; supports a manual text override (via the /api/note endpoint). | 600×40 | — | — |
 | **Nozzle info** (`nozzle-info`) | Nozzle type, size, current speed level. | 400×120 | — | — |
 | **Nozzle temperature** (`nozzle-temp`) | Nozzle temperature with current/target and progress bar. Use ?nozzle=0 (right, default) or ?nozzle=1 (left) for dual-nozzle printers. | 400×120 | `?nozzle=0` | — |
 | **Left nozzle temperature** (`nozzle-temp-2`) | Left nozzle temperature (H2D/dual-nozzle). Legacy widget — equivalent to nozzle-temp/?nozzle=1. | 400×120 | — | `hasDualNozzle` |
@@ -256,14 +257,14 @@ Plus widget-specific params (see catalog above) — e.g. `?ams=2` to point an AM
 
 ---
 
-## OBS scene templates
+## Scene templates (layout starters)
 
-Two pre-built scenes are included, scrubbed of personal info:
+Two pre-built layouts are included, scrubbed of personal info:
 
 - **`default-x1`** — X1, X1 Carbon, P1P, P1S, A1, A1 Mini (single nozzle, single AMS layout).
 - **`default-h2d`** — H2D / H2D Pro (dual nozzle + dual AMS layout).
 
-The scene editor auto-loads the right one based on the connected printer's type. You can also download the raw JSON from the Export page and import it directly into OBS.
+The scene editor auto-loads the right one as a **starting point** based on the connected printer's type — you customize from there and publish with 🔴 Go Live. (`/live` also falls back to the matching template when nothing has been published yet.) These are layout starters, not OBS import files — OBS only ever needs the single `/live` Browser Source.
 
 Both templates use the **combined AMS widget** (chamber temp + humidity + drying status + tray contents in one card) and a uniform 3px-gap right rail: Chamber Temp → Bed Temp → Nozzle(s) → AMS → Fans, all top-to-bottom flush. Active nozzle and active filament tray are highlighted with a green left-edge accent + soft tint while printing.
 
@@ -277,7 +278,7 @@ Off by default. Enable in `/setup` to populate the `profile-info` and `model-ima
 
 ## Running offline / on a LAN
 
-All assets (jQuery, Material Symbols, fonts) are bundled locally — no external CDN dependencies. The dashboard server only needs LAN access to your printer's MQTT port (8883 by default).
+All assets (jQuery, Material Symbols, fonts) are bundled locally — no external CDN dependencies. The BambuBoard server only needs LAN access to your printer's MQTT port (8883 by default) — plus the camera port (322 for RTSP) if you use the live camera.
 
 ---
 
@@ -297,7 +298,7 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 ## Troubleshooting
 
 - **"Test connection" fails** — verify the IP, port (8883), serial number, and access code. The printer must be on the same LAN.
-- **No data appearing on dashboard** — check the printer's "LAN Mode Liveview" setting is enabled (Settings → General). Also check the "Connect" panel on `/setup` — it should show "MQTT: ✓ Connected" within 3-5s.
+- **No data in the widgets** — check the "Connect" panel on `/setup`; it should show "MQTT: ✓ Connected" within 3–5s. If not, re-verify the IP, port (8883), serial, and access code. (Widget data comes over MQTT — this is separate from the camera, which has its own item below.)
 - **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
 - **Camera is black / "Camera off"** — BambuBoard now renders the camera itself (no OBS media source, no SDP, no Bambu Studio). Enable **LAN Mode Liveview** on the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot (firmware 01.06+ for X1-class/H2D). The camera widget shows these exact steps when the feed is unavailable. P1/A1 use a different camera protocol the relay doesn't speak yet.
 - **OBS shows nothing at `/live`** — make sure the BambuBoard server is running and the Browser Source URL points at `http://<your-host>:8080/live` (not `localhost` if OBS is on another machine). Publish a scene with **🔴 Go Live**, or `/live` falls back to the default layout.
