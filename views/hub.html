@@ -36,6 +36,26 @@
       </ol>
     </section>
 
+    <section class="card" style="margin-bottom: var(--space-5)">
+      <h3 class="card-title">Stream to YouTube <span style="font-size:12px;opacity:.6;font-weight:400">(beta — no OBS)</span></h3>
+      <p class="text-dim" style="margin:0 0 var(--space-2)">
+        Go live straight from your browser. Paste your YouTube <strong>stream key</strong>
+        (YouTube Studio → Go Live → Stream settings), click Start, and pick the
+        <strong>/live</strong> tab to share. BambuBoard relays it to YouTube.
+      </p>
+      <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin:var(--space-3) 0">
+        <input id="yt-key" type="password" placeholder="YouTube stream key" autocomplete="off"
+          style="flex:1; min-width:240px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
+        <button id="yt-start" class="btn btn-primary" type="button">🔴 Start</button>
+        <button id="yt-stop" class="btn" type="button" disabled>Stop</button>
+      </div>
+      <p class="text-dim" id="yt-status" style="margin:0; font-size:13px">&nbsp;</p>
+      <p class="text-dim" style="margin:var(--space-2) 0 0; font-size:12px; opacity:.7">
+        Keep the shared tab open while streaming. Encoding happens in your browser —
+        best on a desktop, not a Pi. Prefer OBS? Use the one Browser Source above instead.
+      </p>
+    </section>
+
     <section class="card">
       <div class="section-header" style="margin-top:0">
         <h2 style="margin:0">Live preview</h2>

@@ -10,6 +10,7 @@ const { buildPagesRouter } = require('./routes/pages');
 const { buildAuthRouter } = require('./routes/auth');
 const { buildObsSceneRouter } = require('./routes/obsScene');
 const { buildVideoRouter } = require('./routes/video');
+const { buildStreamRouter } = require('./routes/stream');
 const { buildGcodeRouter } = require('./routes/gcode');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -177,6 +178,10 @@ app.get('/status', (req, res) => {
 // RTSP video relay — must be mounted before the page router catch-all.
 // Uses express-ws under the hood, so this augments the app with ws() support.
 buildVideoRouter({ app, getConfig, dataPath: DATA_FILE });
+
+// YouTube/RTMP stream relay — registered after the video relay so express-ws
+// is already applied to the app.
+buildStreamRouter({ app });
 
 app.use('/', buildPagesRouter({ paths, getConfig }));
 
