@@ -13,7 +13,7 @@ Live print stats overlays designed for streamers — drop a scene file into OBS 
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
-**Setup → Connect → Layout → Export.** Four steps, signposted in the app (Connect lives on the Setup page).
+**Setup → Connect → Layout → Go Live.** Four steps, signposted in the app (Connect lives on the Setup page).
 
 [Quickstart](#quickstart--docker-recommended) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
 
@@ -53,9 +53,9 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <h4>3. Export</h4>
-      <p>One-click download of the OBS scene <code>.json</code> with step-by-step import instructions.</p>
-      <a href="screenshots/EXPORT-TAB.jpg"><img src="screenshots/EXPORT-TAB.jpg" alt="Export tab" width="100%"></a>
+      <h4>3. Go Live</h4>
+      <p>Publish your layout and point <strong>one</strong> OBS Browser Source at <code>/live</code>. No per-widget sources, no camera/SDP setup.</p>
+      <a href="screenshots/EXPORT-TAB.jpg"><img src="screenshots/EXPORT-TAB.jpg" alt="Live tab" width="100%"></a>
     </td>
     <td width="50%" valign="top">
       <h4>4. Dashboard</h4>
@@ -131,10 +131,10 @@ When you open BambuBoard for the first time, you'll be guided through:
 
 1. **Setup** (`/setup`) — Enter your printer's IP, serial number, and LAN access code. Test the connection from this page before saving.
 2. **Connect** (`/setup#connect`, same page as Setup) — BambuBoard asks the printer to identify itself via MQTT. Within a few seconds you'll see "Auto-detected: H2D" (or whichever model). The "Continue to Layout →" button lights up.
-3. **Layout** (`/scene-editor`) — A 1920×1080 canvas auto-loads the matching default template for your printer type. Drag widgets, resize, change themes, snap to grid. When you're happy, click **Save & Continue to Export**.
-4. **Export** (`/`) — Download the scene `.json` file. In OBS Studio: **Scene Collection → Import…** → pick the file. Done.
+3. **Layout** (`/scene-editor`) — A 1920×1080 canvas auto-loads the matching default template for your printer type. Drag widgets, resize, change themes, snap to grid. When you're happy, click **🔴 Go Live** to publish it.
+4. **Go Live** (`/`) — Add **one Browser Source** in OBS pointing at `http://<your-host>:8080/live` (or use the one-click "Download OBS scene" — it's just that single source). No camera media source, no SDP. Re-publish from the editor any time and OBS updates on its own.
 
-> **Match your OBS canvas to the template.** The H2D default template ships at **2560×1440 (2K)**; the X1 family default ships at **1920×1080 (1080p)**. Before importing, set OBS → **Settings → Video → Base (Canvas) Resolution** to the same size. If they don't match, OBS will scale or crop the imported scene. The scene editor warns you about this and remembers your acknowledgement per tab.
+> **Match your OBS canvas to the scene.** Set the Browser Source size (and OBS → **Settings → Video → Base (Canvas) Resolution**) to your scene's resolution — 1920×1080 by default. `/live` scales to fit, so a mismatch just letterboxes rather than breaking.
 
 You'll need before starting:
 - The printer's **IP address** (printer screen → Settings → Network).
@@ -196,9 +196,9 @@ BambuBoard/
 ## Pages
 
 - **`/setup`** — Step 1+2: Printer config, connection check, optional Bambu Cloud auth.
-- **`/scene-editor`** — Step 3: Visual scene editor. Auto-loads the matching template for your printer type.
-- **`/`** (Hub) — Step 4: Export. Saved scenes, default templates, and a collapsible widget gallery.
-- **`/dashboard`** — Live print monitor. Capability-driven layout (P1P sees no chamber temp; H2D sees both AMS units and both nozzles). Not part of the setup flow — open whenever.
+- **`/scene-editor`** — Step 3: Visual scene editor. Auto-loads the matching template for your printer type. Save, Preview, or **🔴 Go Live** to publish.
+- **`/`** (Live) — Step 4: the published output. Shows the `/live` URL + copy button, a one-click single-source OBS scene download, and a live preview.
+- **`/live`** — the composited broadcast page itself (camera + every widget). Point one OBS Browser Source here. Renders the published scene, or a default layout if nothing's published yet.
 - **`/login`** — Bambu Cloud sign-in (only used when cloud auth is enabled).
 
 ---
@@ -299,8 +299,8 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 - **"Test connection" fails** — verify the IP, port (8883), serial number, and access code. The printer must be on the same LAN.
 - **No data appearing on dashboard** — check the printer's "LAN Mode Liveview" setting is enabled (Settings → General). Also check the "Connect" panel on `/setup` — it should show "MQTT: ✓ Connected" within 3-5s.
 - **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
-- **Printer Camera source is black or empty in OBS** — the camera isn't a BambuBoard widget; it's an OBS Media Source bundled in the scene template. The default template points at the Bambu Studio cameratools SDP file (machine-specific). Open the `Printer Camera` source's properties in OBS and set the **Local File** path to your SDP file (Bambu Studio writes it when its Virtual Camera is enabled). For RTSPS direct streaming on H2D/H2S/P2S you also need: printer Settings → Network → LAN Only Liveview → ON, plus firmware 01.06+.
-- **OBS scene fails to import** — make sure you used the Export page's Download button (which substitutes `<HOST>` for you), not the raw template.
+- **Camera is black / "Camera off"** — BambuBoard now renders the camera itself (no OBS media source, no SDP, no Bambu Studio). Enable **LAN Mode Liveview** on the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot (firmware 01.06+ for X1-class/H2D). The camera widget shows these exact steps when the feed is unavailable. P1/A1 use a different camera protocol the relay doesn't speak yet.
+- **OBS shows nothing at `/live`** — make sure the BambuBoard server is running and the Browser Source URL points at `http://<your-host>:8080/live` (not `localhost` if OBS is on another machine). Publish a scene with **🔴 Go Live**, or `/live` falls back to the default layout.
 
 ---
 

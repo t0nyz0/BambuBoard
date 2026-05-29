@@ -92,7 +92,7 @@
     const nav = el('nav', { class: 'nav' }, [brand, links, el('div', { class: 'nav-spacer' }), meta]);
     document.body.insertBefore(nav, document.body.firstChild);
 
-    // Stepper (separate bar below the nav). Hidden on dashboard/login/customize.
+    // Stepper (separate bar below the nav). Hidden on /login only.
     const showStepper = !STEPPER_HIDDEN_ON.some(p => path.startsWith(p));
     if (showStepper) {
       const stepper = el('div', { class: 'bb-stepper', id: 'bb-stepper' }, []);

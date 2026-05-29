@@ -31,7 +31,8 @@ function buildPagesRouter({ paths, getConfig }) {
   // or the default layout) is the monitor now. Redirect old bookmarks.
   router.get('/dashboard',    (req, res) => res.redirect(302, '/live'));
   router.get('/setup',        (req, res) => res.sendFile(path.join(VIEWS, 'setup.html')));
-  router.get('/customize',    (req, res) => res.sendFile(path.join(VIEWS, 'customize.html')));
+  // /customize was a v3.1 stub; widget theming now lives in the Layout editor.
+  router.get('/customize',    (req, res) => res.redirect(302, '/scene-editor'));
   router.get('/scene-editor', (req, res) => res.sendFile(path.join(VIEWS, 'scene-editor.html')));
   // Composited broadcast output: renders a saved scene as a single full-page
   // view (camera + every widget, positioned exactly as designed). The whole
