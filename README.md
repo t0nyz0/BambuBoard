@@ -54,14 +54,10 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 </table>
 
 <!--
-  Screenshot status (3.1.0): the hero above is an accurate /live composite.
-  SETUP-TAB.jpg and LAYOUT-TAB.jpg still need a re-capture — they pre-date the
-  3.1.0 nav change (they show the old Setup·Layout·Export·Dashboard top nav, an
-  "Export" stepper, and the editor's old Download / "Save & Continue to Export"
-  toolbar instead of Save / Preview / 🔴 Go Live).
-  TODO: also add a shot of the new Live page (/) and recapture against current.
-  The old EXPORT-TAB.jpg (removed export wizard) and DASHBOARD-TAB.jpg (removed
-  dashboard) are no longer referenced and can be deleted.
+  Screenshot status (3.1.0): all three shots are current — captured against the
+  3.1.0 UI (Live·Layout·Setup nav, Setup→Connect→Layout→Go Live stepper, and the
+  editor's Save / Preview / 🔴 Go Live toolbar). The hero is a live /live composite.
+  TODO (nice-to-have): add a shot of the Live page (/) itself.
 -->
 
 ---

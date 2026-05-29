@@ -22,6 +22,7 @@ All notable changes to this project are documented in this file. The format foll
 - **P2S reported wrong capabilities (no chamber temp, no camera)** (`src/lib/caps.js`, `public/js/caps.js`) — P2S was mapped to `P1S`, so BambuBoard hid the chamber-temperature widget and gated off the camera. Per ha-bambulab (`pybambu/models.py` — P2S is in both `CHAMBER_TEMPERATURE` and `CAMERA_RTSP`), the P2S has both. Added a dedicated `P2S` capability entry (chamber temp + RTSP camera, single nozzle, up to 4 AMS) and pointed the detection map at it instead of `P1S`. **Why:** P2S owners were missing two real features.
 
 ### Removed
+- **Stale README screenshots** (`screenshots/EXPORT-TAB.jpg`, `screenshots/DASHBOARD-TAB.jpg`) — both showed features removed in this restructure (the OBS-export wizard and the standalone dashboard) and were no longer referenced. Re-captured `SETUP-TAB.jpg` and `LAYOUT-TAB.jpg` against the current 3.1.0 UI (new nav/stepper + the Save / Preview / 🔴 Go Live editor toolbar; serial/IP masked).
 - **Standalone dashboard and the OBS-export wizard** — `/dashboard` (hand-built telemetry page) now 302-redirects to `/live`, and `views/dashboard.html` + `public/js/dashboard.js` are deleted; the published scene (or the default layout) is the monitor now. The `/customize` v3.1 stub redirects to the Layout editor and `views/customize.html` is deleted. Shipped templates remain as **editor starter layouts**, no longer advertised as OBS downloads.
 
 ### Added
