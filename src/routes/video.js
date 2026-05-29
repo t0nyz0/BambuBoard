@@ -21,8 +21,27 @@
 
 const path = require('path');
 const fs = require('fs');
+const { capsFor } = require('../lib/caps');
 
 function buildVideoRouter({ app, getConfig, dataPath }) {
+  // Printers without an RTSP camera (P1 / A1-class use a different port-6000
+  // protocol BambuBoard doesn't relay). Returns an accurate status so the
+  // camera widget shows a model-appropriate message instead of telling the
+  // user to enable LAN Liveview (which does nothing on those printers).
+  function unsupportedCameraStatus(printer) {
+    const caps = capsFor(printer.type);
+    if (caps.hasCameraRtsp) return null;
+    return {
+      available: false,
+      relayReady: true,
+      rtspEnabled: false,
+      cameraSupported: false,
+      resolution: null,
+      url: null,
+      hint: `Live camera isn't supported on this printer model (${printer.type || 'unknown'}) yet — BambuBoard relays the RTSP stream that X1 / X1C / H2D expose. P1 / A1-class printers use a different camera protocol.`,
+    };
+  }
+
   // Read current MQTT data to check ipcam.rtsp_url status.
   function getRtspStatus() {
     try {
@@ -45,6 +64,8 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     app.get('/api/printer/video/status', (req, res) => {
       const config = getConfig();
       const printer = config.printer || {};
+      const unsupported = unsupportedCameraStatus(printer);
+      if (unsupported) return res.json(unsupported);
       const hasCredentials = !!(printer.url && printer.accessCode);
       const rtsp = getRtspStatus();
 
@@ -109,6 +130,8 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     console.warn('[bambuboard] RTSP video relay unavailable:', err.message);
     // Fallback endpoints when rtsp-relay isn't installed or fails
     app.get('/api/printer/video/status', (req, res) => {
+      const unsupported = unsupportedCameraStatus((getConfig().printer) || {});
+      if (unsupported) return res.json(unsupported);
       const rtsp = getRtspStatus();
       res.json({
         available: false,

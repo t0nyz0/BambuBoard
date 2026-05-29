@@ -31,6 +31,24 @@ loadSettings();
 // Re-fetch every 5s so changes made on the /setup page (e.g. temperature
 // unit, fan-percent toggle) propagate without reloading the iframe.
 setInterval(loadSettings, 5000);
+
+// Self-gate on printer capability: A1 / P1-class printers have no enclosed
+// chamber but still emit a spurious `chamber_temper` (~5°C), which would
+// otherwise render as a bogus tile. Hide the whole widget when the server's
+// capability map says this printer has no chamber. Defaults to visible so a
+// transient /api/status failure never hides it on a chamber-equipped printer.
+let chamberSupported = true;
+async function loadCaps() {
+  try {
+    const res = await fetch(fullServerURL + '/api/status');
+    if (!res.ok) return;
+    const s = await res.json();
+    chamberSupported = !s.caps || s.caps.hasChamberTemp !== false;
+    const root = document.querySelector('.container');
+    if (root) root.style.display = chamberSupported ? '' : 'none';
+  } catch (_) { /* keep visible on error */ }
+}
+loadCaps();
 async function retrieveData() {
   const response = await fetch(fullServerURL + "/data.json");
 
@@ -51,6 +69,7 @@ async function retrieveData() {
 
 async function updateUI(telemetryObject) {
   try {
+    if (!chamberSupported) return telemetryObject; // no chamber on this printer
     let printStatus = telemetryObject.gcode_state;
 
     if (printStatus === "RUNNING") {

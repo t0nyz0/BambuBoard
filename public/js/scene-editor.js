@@ -1993,7 +1993,15 @@ async function populateWidgetDrawer () {
   const list = document.getElementById('widget-drawer-list');
   if (!list) return;
   let widgets = [];
-  try { widgets = await fetch('/api/widgets').then(r => r.json()); } catch (_) {}
+  let caps = {};
+  try {
+    const [w, status] = await Promise.all([
+      fetch('/api/widgets').then(r => r.json()).catch(() => []),
+      fetch('/api/status').then(r => r.json()).catch(() => null),
+    ]);
+    widgets = w || [];
+    caps = (status && status.caps) || {};
+  } catch (_) {}
   // Stash the full manifest list so the inspector can look up `bindings`
   // declarations without re-fetching. Keyed by slug.
   state.widgetManifests = state.widgetManifests || {};
@@ -2002,8 +2010,19 @@ async function populateWidgetDrawer () {
   widgets.forEach(w => {
     const tile = document.createElement('div');
     tile.className = 'drawer-widget';
-    tile.draggable = true;
-    tile.title = `Drag to add ${w.name || w.slug} to the canvas`;
+    // Capability gating: dim + disable widgets the connected printer can't use
+    // (e.g. chamber-temp on A1/P1, ams2/nozzle-temp-2 on single-AMS/nozzle,
+    // camera on non-RTSP models) so they aren't dragged onto a scene where
+    // they'd render empty.
+    const incompatible = w.requiresCap && caps[w.requiresCap] === false;
+    if (incompatible) {
+      tile.style.opacity = '0.4';
+      tile.draggable = false;
+      tile.title = `Not available on this printer (needs ${w.requiresCap})`;
+    } else {
+      tile.draggable = true;
+      tile.title = `Drag to add ${w.name || w.slug} to the canvas`;
+    }
 
     const preview = document.createElement('div');
     preview.className = 'dw-preview';
