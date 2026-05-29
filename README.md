@@ -66,7 +66,7 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 - **One Browser Source → OBS** — design your overlay, hit 🔴 **Go Live**, and point a single OBS Browser Source at `/live`. BambuBoard composites the camera + every widget into one page — no scene import, no per-widget sources, no SDP. Edit and re-publish anytime; OBS updates itself.
 - **Built-in camera feed (every model)** — BambuBoard streams the printer's chamber camera itself, so it shows up in `/live` with **no Bambu Studio "Go Live" and no OBS media/SDP setup**. X1 / X1C / H2D / P2S use RTSP (flip *LAN Mode Liveview* on the printer once); P1 / A1-class use the port-6000 chamber-image protocol. The widget picks the right transport automatically.
-- **Stream to YouTube without OBS** *(beta)* — go live straight from the browser: paste your YouTube stream key, share the `/live` tab, and BambuBoard relays it (browser-encoded → server ffmpeg → RTMP). OBS is still the better choice on weak hardware (encoding happens in your browser), but you don't *need* it.
+- **Stream to YouTube without OBS** *(beta)* — go live straight from the browser. Connect your Google account and BambuBoard sets the broadcast **title, description, privacy and "made for kids"** flag like OBS's Manage Broadcast (or just paste a stream key). It captures the `/live` tab and relays it (browser-encoded → server ffmpeg → RTMP). OBS is still the better choice on weak hardware (encoding happens in your browser), but you don't *need* it. [Setup ↓](#stream-to-youtube-optional-beta)
 - **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. OBS-style Layers panel for drag-to-reorder z-stacking.
 - **Live gcode toolpath widget** *(experimental / beta)* — three.js widget that fetches the active print's gcode over FTPS, parses it, and renders the toolpath in real time with a stylized hotend tracing the active layer. Multi-color prints get per-tool AMS colors. Adaptive speed calibration keeps the simulation locked to the printer's reported `mc_percent` even through filament swaps. Single-color prints work great; multi-color/multi-object timing on complex prints can still drift — open an issue if you hit a case that's clearly off.
 - **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
@@ -173,8 +173,8 @@ BambuBoard/
 │   ├── server.js         Bootstrap
 │   ├── mqtt.js           Single-printer MQTT client + printer auto-detect
 │   ├── config.js         Load / save / migrate
-│   ├── routes/           api, pages, auth, obsScene, video (RTSP+MJPEG camera), stream (YouTube/RTMP)
-│   └── lib/              caps.js (PRINTER_CAPS + printerTypeFromMqtt), chamberImage.js (P1/A1 camera)
+│   ├── routes/           api, pages, auth, obsScene, video (RTSP+MJPEG camera), stream (RTMP relay), youtube (OAuth + broadcasts)
+│   └── lib/              caps.js (PRINTER_CAPS + printerTypeFromMqtt), chamberImage.js (P1/A1 camera), youtube.js (OAuth + Live API)
 ├── views/                Pretty-URL HTML pages
 ├── public/
 │   ├── css/              theme, components, hub, setup, scene-editor
@@ -271,6 +271,28 @@ Both templates use the **combined AMS widget** (chamber temp + humidity + drying
 ## Bambu Cloud auth (optional)
 
 Off by default. Enable in `/setup` to populate the `profile-info` and `model-image` widgets with live MakerWorld data. Sign-in flow uses email + verification code (and MFA if enabled on your Bambu account). Tokens are cached in `data/accessToken.json` (gitignored). LAN-only operation does not require this.
+
+---
+
+## Stream to YouTube (optional, beta)
+
+Go live to YouTube straight from your browser — **no OBS**. BambuBoard captures the `/live` tab, encodes it, and relays it to YouTube over RTMP. There are two ways to do it:
+
+**1. Connect account (recommended — like OBS's "Manage Broadcast").** Sign in with Google once and BambuBoard sets the broadcast **title, description, privacy** (public/unlisted/private), the **"made for kids"** flag, and **latency** for you — the completed stream is saved to your channel as a VOD automatically. One-time setup of a Google OAuth client is required:
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/), create (or pick) a project.
+2. **APIs & Services → Library** → enable the **YouTube Data API v3**.
+3. **OAuth consent screen** → *External*, and add your Google account as a **Test user** (no Google verification is needed while the app stays in "Testing").
+4. **Credentials → Create credentials → OAuth client ID → Web application**.
+5. Under **Authorized redirect URIs**, add the exact URI shown in **BambuBoard → Setup → YouTube streaming** (e.g. `http://localhost:8080/api/youtube/oauth/callback`).
+6. Paste the **Client ID** and **Client secret** into Setup → YouTube streaming and save. (Or set `BAMBUBOARD_YT_CLIENT_ID` / `BAMBUBOARD_YT_CLIENT_SECRET` env vars.)
+7. On the **Live** page, click **Connect YouTube account**, then fill in the title/privacy and hit **🔴 Go Live**.
+
+> **Do the one-time "Connect" step from the machine running BambuBoard** (open it at `http://localhost:8080`). Google only allows the OAuth redirect on `localhost`/`127.0.0.1` for non-HTTPS apps; once connected, the refresh token is stored server-side (`data/youtube-token.json`) and streaming works from any browser. Behind a real domain/HTTPS reverse proxy, set `BAMBUBOARD_YT_REDIRECT` to your public callback URL and register that instead.
+
+**2. Stream key (no Google setup).** On the Live page, expand **Advanced: use a stream key**, paste a key from YouTube Studio → Go Live, and start. The title/description/privacy stay whatever you set in YouTube Studio — BambuBoard just pushes the video.
+
+Either way, keep the shared `/live` tab open while streaming. Encoding happens in your browser, so this is best on a desktop — on weak hardware (e.g. a Pi) OBS with the single `/live` Browser Source is the better path.
 
 ---
 
