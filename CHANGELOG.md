@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
-## Unreleased
+## 3.1.0 — 2026-05-29
 
 ### Changed
 - **App restructured around the live composite — design → publish → live** (`public/js/nav.js`, `views/hub.html`, `public/js/hub.js`, `public/js/scene-editor.js`, `views/scene-editor.html`, `public/js/live.js`, `src/routes/obsScene.js`, `src/routes/pages.js`) — the product was an OBS scene-collection generator (export a 15-source scene, import it, wire up a camera media source + SDP). It's now a single-output streaming tool: you design a layout and publish it, and OBS shows it via **one Browser Source → `/live`**.
