@@ -24,6 +24,12 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
       safe.printer.accessCodeSet = !!c.printer.accessCode && c.printer.accessCode !== 'FILL_THIS_OUT';
       safe.printer.accessCode = '';
     }
+    // Never leak the Google OAuth client secret; expose only a "set?" flag.
+    if (safe.youtube) {
+      safe.youtube.clientIdSet = !!c.youtube?.clientId;
+      safe.youtube.clientSecretSet = !!c.youtube?.clientSecret;
+      safe.youtube.clientSecret = '';
+    }
     // Legacy "C" / "F" → "Celsius" / "Fahrenheit" so widgets that match on
     // the spelled-out strings work for users with old saved configs.
     const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };

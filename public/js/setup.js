@@ -65,6 +65,9 @@
   // method succeeds, so the user doesn't have to flip a toggle first.
   setupCloudPanel();
 
+  // YouTube streaming OAuth client (optional).
+  setupYouTubePanel(cfg);
+
   document.getElementById('show-ac').addEventListener('click', () => {
     const i = document.getElementById('p-ac');
     i.type = i.type === 'password' ? 'text' : 'password';
@@ -197,6 +200,77 @@
   }
   function toggle(id, on) { document.getElementById(id).classList.toggle('on', !!on); }
   function isOn(id) { return document.getElementById(id).classList.contains('on'); }
+
+  // ---- YouTube streaming OAuth-client panel ----
+  // Saves the Google OAuth client id/secret (independently of the printer
+  // settings) and shows the exact redirect URI to register plus the current
+  // connection state. The blank-secret field keeps the saved secret (the
+  // server preserves it and never returns it).
+  function setupYouTubePanel(cfg) {
+    const idEl = document.getElementById('yt-client-id');
+    const secEl = document.getElementById('yt-client-secret');
+    const redirectEl = document.getElementById('yt-redirect-uri');
+    const statusEl = document.getElementById('yt-save-status');
+    const connEl = document.getElementById('yt-conn-status');
+    const hintEl = document.getElementById('yt-secret-hint');
+    if (!idEl) return;
+
+    if (cfg && cfg.youtube) {
+      idEl.value = cfg.youtube.clientId || '';
+      if (hintEl) hintEl.textContent = cfg.youtube.clientSecretSet
+        ? '(leave blank to keep the saved one)'
+        : '(required)';
+    }
+
+    // Pull the server-derived redirect URI + connection state.
+    fetch('/api/youtube/status', { cache: 'no-store' }).then(r => r.json()).then(st => {
+      if (redirectEl) redirectEl.value = st.redirectUri || '';
+      if (connEl) {
+        if (!st.clientConfigured) connEl.textContent = 'Not configured yet — save a client below, then connect on the Live page.';
+        else if (st.connected) connEl.textContent = '✓ Connected' + (st.channel && st.channel.title ? ` as ${st.channel.title}` : '') + '. Go live from the Live page.';
+        else connEl.textContent = 'Client saved. Connect your account from the Live page → “Connect YouTube account”.';
+      }
+    }).catch(() => {});
+
+    document.getElementById('yt-guide-toggle').addEventListener('click', (e) => {
+      e.preventDefault();
+      const g = document.getElementById('yt-guide');
+      g.style.display = g.style.display === 'none' ? '' : 'none';
+    });
+
+    document.getElementById('yt-redirect-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(redirectEl.value); statusEl.textContent = 'Redirect URI copied.'; }
+      catch (_) { redirectEl.select(); statusEl.textContent = 'Press ⌘/Ctrl+C to copy.'; }
+      setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    });
+
+    document.getElementById('yt-save').addEventListener('click', async () => {
+      const youtube = { clientId: idEl.value.trim() };
+      // Only send the secret when the user typed one; blank keeps the saved value.
+      if (secEl.value.trim()) youtube.clientSecret = secEl.value.trim();
+      statusEl.textContent = 'Saving…';
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ youtube }),
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+        statusEl.textContent = 'Saved.';
+        secEl.value = '';
+        if (hintEl) hintEl.textContent = '(leave blank to keep the saved one)';
+        // refresh connection hint
+        const st = await fetch('/api/youtube/status', { cache: 'no-store' }).then(x => x.json()).catch(() => null);
+        if (st && connEl) {
+          connEl.textContent = st.connected
+            ? '✓ Connected. Go live from the Live page.'
+            : 'Client saved. Connect your account from the Live page → “Connect YouTube account”.';
+        }
+        setTimeout(() => { statusEl.textContent = ''; }, 2500);
+      } catch (e) {
+        statusEl.textContent = 'Save failed: ' + e.message;
+      }
+    });
+  }
 
   // ---- Bambu Cloud sign-in panel ----
   // Both methods always visible (status pill at top, tabs below). Token tab

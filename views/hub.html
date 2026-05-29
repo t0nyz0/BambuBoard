@@ -36,23 +36,99 @@
       </ol>
     </section>
 
-    <section class="card" style="margin-bottom: var(--space-5)">
+    <section class="card" id="yt-card" style="margin-bottom: var(--space-5)">
       <h3 class="card-title">Stream to YouTube <span style="font-size:12px;opacity:.6;font-weight:400">(beta — no OBS)</span></h3>
-      <p class="text-dim" style="margin:0 0 var(--space-2)">
-        Go live straight from your browser. Paste your YouTube <strong>stream key</strong>
-        (YouTube Studio → Go Live → Stream settings), click Start, and pick the
-        <strong>/live</strong> tab to share. BambuBoard relays it to YouTube.
-      </p>
-      <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin:var(--space-3) 0">
-        <input id="yt-key" type="password" placeholder="YouTube stream key" autocomplete="off"
-          style="flex:1; min-width:240px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
-        <button id="yt-start" class="btn btn-primary" type="button">🔴 Start</button>
-        <button id="yt-stop" class="btn" type="button" disabled>Stop</button>
+
+      <!-- Post-OAuth feedback banner (set from ?yt= query param). -->
+      <p id="yt-banner" class="text-dim" style="margin:0 0 var(--space-2); display:none"></p>
+
+      <!-- State A: no Google OAuth client configured yet. -->
+      <div id="yt-state-unconfigured" style="display:none">
+        <p class="text-dim" style="margin:0">
+          Connect your YouTube account to set the broadcast <strong>title, description,
+          privacy</strong> and the <strong>“made for kids”</strong> flag — just like OBS.
+          First add a Google OAuth client in <a href="/setup#youtube">Setup → YouTube streaming</a>.
+        </p>
       </div>
-      <p class="text-dim" id="yt-status" style="margin:0; font-size:13px">&nbsp;</p>
-      <p class="text-dim" style="margin:var(--space-2) 0 0; font-size:12px; opacity:.7">
-        Keep the shared tab open while streaming. Encoding happens in your browser —
-        best on a desktop, not a Pi. Prefer OBS? Use the one Browser Source above instead.
+
+      <!-- State B: client configured, account not connected. -->
+      <div id="yt-state-disconnected" style="display:none">
+        <p class="text-dim" style="margin:0 0 var(--space-3)">
+          Connect your YouTube account, then set the title/description/privacy and go live
+          straight from your browser — no OBS, no manual stream key.
+        </p>
+        <a id="yt-connect" class="btn btn-primary" href="/api/youtube/oauth/start">Connect YouTube account</a>
+        <p class="text-dim" style="margin:var(--space-2) 0 0; font-size:12px; opacity:.75">
+          One-time Google sign-in. Do this from the machine running BambuBoard
+          (open it at <code>http://localhost:8080</code>) — Google only allows the
+          sign-in redirect on localhost.
+        </p>
+      </div>
+
+      <!-- State C: connected — broadcast form. -->
+      <div id="yt-state-connected" style="display:none">
+        <p class="text-dim" style="margin:0 0 var(--space-3)">
+          Streaming as <strong id="yt-channel">your channel</strong> ·
+          <a href="#" id="yt-disconnect">Disconnect</a>
+        </p>
+        <div style="display:grid; gap:var(--space-3); margin-bottom:var(--space-3)">
+          <label style="display:block; font-size:13px">Title
+            <input id="yt-title" type="text" maxlength="100" placeholder="e.g. Live 3D print — H2D"
+              style="display:block; width:100%; margin-top:4px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
+          </label>
+          <label style="display:block; font-size:13px">Description
+            <textarea id="yt-desc" rows="2" maxlength="5000" placeholder="Optional"
+              style="display:block; width:100%; margin-top:4px; padding:8px 10px; font-size:13px; resize:vertical; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)"></textarea>
+          </label>
+          <div style="display:flex; gap:var(--space-3); flex-wrap:wrap">
+            <label style="font-size:13px">Privacy
+              <select id="yt-privacy" style="display:block; margin-top:4px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)">
+                <option value="unlisted">Unlisted</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </label>
+            <label style="font-size:13px">Latency
+              <select id="yt-latency" style="display:block; margin-top:4px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)">
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+                <option value="ultraLow">Ultra-low</option>
+              </select>
+            </label>
+            <label style="font-size:13px; display:flex; align-items:center; gap:6px; align-self:flex-end; padding-bottom:8px">
+              <input id="yt-kids" type="checkbox" /> This content is made for kids
+            </label>
+          </div>
+        </div>
+        <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap">
+          <button id="yt-start" class="btn btn-primary" type="button">🔴 Go Live</button>
+          <button id="yt-stop" class="btn" type="button" disabled>Stop</button>
+        </div>
+        <p class="text-dim" id="yt-status" style="margin:var(--space-2) 0 0; font-size:13px">&nbsp;</p>
+        <p id="yt-watch" style="margin:var(--space-1) 0 0; font-size:13px; display:none">
+          Live at <a id="yt-watch-link" href="#" target="_blank" rel="noopener"></a>
+        </p>
+      </div>
+
+      <!-- Advanced fallback: raw stream key (no metadata control). -->
+      <details id="yt-manual" style="margin-top:var(--space-3)">
+        <summary style="cursor:pointer; font-size:13px; opacity:.8">Advanced: use a stream key instead</summary>
+        <p class="text-dim" style="margin:var(--space-2) 0; font-size:12px">
+          Paste a YouTube <strong>stream key</strong> (YouTube Studio → Go Live → Stream settings).
+          The title/description/privacy stay whatever you set in YouTube Studio.
+        </p>
+        <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap">
+          <input id="yt-key" type="password" placeholder="YouTube stream key" autocomplete="off"
+            style="flex:1; min-width:240px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
+          <button id="yt-start-key" class="btn btn-primary" type="button">🔴 Start</button>
+          <button id="yt-stop-key" class="btn" type="button" disabled>Stop</button>
+        </div>
+        <p class="text-dim" id="yt-status-key" style="margin:var(--space-2) 0 0; font-size:13px">&nbsp;</p>
+      </details>
+
+      <p class="text-dim" style="margin:var(--space-3) 0 0; font-size:12px; opacity:.7">
+        Keep the shared <strong>/live</strong> tab open while streaming. Encoding happens in
+        your browser — best on a desktop, not a Pi. Prefer OBS? Use the one Browser Source above instead.
       </p>
     </section>
 

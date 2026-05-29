@@ -155,6 +155,42 @@
         </p>
       </section>
 
+      <!-- YouTube streaming (optional): a Google OAuth client so BambuBoard can
+           set the broadcast title/description/privacy/made-for-kids like OBS.
+           Saved independently of the printer settings below. -->
+      <section class="card" id="youtube-section">
+        <h3 class="card-title">YouTube streaming (optional)</h3>
+        <p class="text-dim" style="margin:0 0 var(--space-3)">
+          Lets BambuBoard set the broadcast <strong>title, description, privacy</strong> and
+          the <strong>“made for kids”</strong> flag (the “Connect account” path, like OBS).
+          Skip this to just paste a stream key on the Live page instead.
+          <a href="#" id="yt-guide-toggle">How to create a Google OAuth client ↗</a>
+        </p>
+        <ol class="text-dim" id="yt-guide" style="display:none; padding-left:1.4em; line-height:1.7; margin:0 0 var(--space-3); font-size:13px">
+          <li>Open the <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> and create (or pick) a project.</li>
+          <li><strong>APIs &amp; Services → Library</strong> → enable the <strong>YouTube Data API v3</strong>.</li>
+          <li><strong>OAuth consent screen</strong>: External, add yourself as a <strong>Test user</strong> (no Google review needed while in “Testing”).</li>
+          <li><strong>Credentials → Create credentials → OAuth client ID → Web application</strong>.</li>
+          <li>Under <strong>Authorized redirect URIs</strong>, add the exact URI shown below.</li>
+          <li>Copy the <strong>Client ID</strong> and <strong>Client secret</strong> into the fields below and Save.</li>
+        </ol>
+        <label class="field"><span>Client ID</span>
+          <input id="yt-client-id" class="input" type="text" autocomplete="off" placeholder="xxxxxxxx.apps.googleusercontent.com">
+        </label>
+        <label class="field"><span>Client secret <small class="text-dim" id="yt-secret-hint">(leave blank to keep the saved one)</small></span>
+          <input id="yt-client-secret" class="input" type="password" autocomplete="off" placeholder="GOCSPX-…">
+        </label>
+        <label class="field"><span>Authorized redirect URI <small class="text-dim">— add this exactly in your OAuth client</small></span>
+          <input id="yt-redirect-uri" class="input" type="text" readonly style="font-family: var(--font-mono); font-size: 12px">
+        </label>
+        <div class="btn-row" style="margin-top: var(--space-2)">
+          <button id="yt-redirect-copy" class="btn btn-ghost" type="button" style="font-size:12px">Copy redirect URI</button>
+          <button id="yt-save" class="btn btn-primary" type="button">Save YouTube client</button>
+          <span id="yt-save-status" class="text-dim" style="font-size:12px"></span>
+        </div>
+        <p class="text-dim" id="yt-conn-status" style="margin:var(--space-2) 0 0; font-size:12px; opacity:.8"></p>
+      </section>
+
       <div class="btn-row" style="justify-content:flex-end">
         <a href="/" class="btn btn-ghost">Cancel</a>
         <button id="save-btn" class="btn btn-primary" type="button">Save</button>
