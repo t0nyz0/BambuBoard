@@ -55,6 +55,12 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
         if (!incoming.printer.accessCode) merged.printer.accessCode = current.printer.accessCode;
       }
       merged.cloudAuth = { ...current.cloudAuth, ...(incoming.cloudAuth || {}) };
+      // Preserve the existing Google OAuth client secret when the client sends
+      // a blank one (publicSnapshot never returns the real value).
+      if (incoming.youtube) {
+        merged.youtube = { ...current.youtube, ...incoming.youtube };
+        if (!incoming.youtube.clientSecret) merged.youtube.clientSecret = current.youtube && current.youtube.clientSecret;
+      }
       await saveConfig(merged);
       reloadPrinter();
       res.json({ ok: true });

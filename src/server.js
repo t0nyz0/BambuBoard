@@ -11,6 +11,7 @@ const { buildAuthRouter } = require('./routes/auth');
 const { buildObsSceneRouter } = require('./routes/obsScene');
 const { buildVideoRouter } = require('./routes/video');
 const { buildStreamRouter } = require('./routes/stream');
+const { buildYouTubeRouter } = require('./routes/youtube');
 const { buildGcodeRouter } = require('./routes/gcode');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -100,6 +101,7 @@ app.get('/data.json', (req, res) => {
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
 app.use('/api/obs', buildObsSceneRouter({ paths }));
+app.use('/api/youtube', buildYouTubeRouter({ getConfig, dataDir: paths.data }));
 app.use('/api/gcode', buildGcodeRouter({ getConfig, paths }).router);
 app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 

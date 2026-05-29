@@ -17,6 +17,9 @@ const DEFAULTS = {
   BambuBoard_displayFanIcons: true,
   BambuBoard_logging: false,
   cloudAuth: { enabled: false },
+  // Google OAuth client for the "Connect YouTube account" streaming path.
+  // Empty until the user pastes their own Cloud OAuth client (see docs).
+  youtube: { clientId: '', clientSecret: '' },
   printer: {
     name: 'My Printer',
     url: '',
@@ -118,6 +121,8 @@ function applyEnvOverrides(config) {
   if (env.BAMBUBOARD_PRINTER_ACCESS_CODE) config.printer.accessCode = env.BAMBUBOARD_PRINTER_ACCESS_CODE;
   if (env.BAMBUBOARD_PRINTER_TYPE)      config.printer.type = env.BAMBUBOARD_PRINTER_TYPE;
   if (env.BAMBUBOARD_PRINTER_NAME)      config.printer.name = env.BAMBUBOARD_PRINTER_NAME;
+  if (env.BAMBUBOARD_YT_CLIENT_ID)      config.youtube.clientId = env.BAMBUBOARD_YT_CLIENT_ID;
+  if (env.BAMBUBOARD_YT_CLIENT_SECRET)  config.youtube.clientSecret = env.BAMBUBOARD_YT_CLIENT_SECRET;
   return config;
 }
 
@@ -156,6 +161,7 @@ function load() {
     ...DEFAULTS,
     ...raw,
     cloudAuth: { ...DEFAULTS.cloudAuth, ...(raw.cloudAuth || {}) },
+    youtube: { ...DEFAULTS.youtube, ...(raw.youtube || {}) },
     printer: { ...DEFAULTS.printer, ...(raw.printer || {}) },
   };
   return applyEnvOverrides(merged);
@@ -176,6 +182,13 @@ function publicSnapshot(config) {
   if (c.printer && c.printer.accessCode) {
     c.printer.accessCodeSet = !!c.printer.accessCode && c.printer.accessCode !== 'FILL_THIS_OUT';
     c.printer.accessCode = '';
+  }
+  // Never leak the Google OAuth client secret; expose only "is it set?" flags
+  // plus the (non-secret) client id so the Setup UI can prefill it.
+  if (c.youtube) {
+    c.youtube.clientIdSet = !!c.youtube.clientId;
+    c.youtube.clientSecretSet = !!c.youtube.clientSecret;
+    c.youtube.clientSecret = '';
   }
   return c;
 }
