@@ -10,15 +10,17 @@
 // H2D), the same way Home Assistant's bambulab integration does. The printer
 // must have LAN Mode Liveview enabled on its touchscreen.
 //
-// NOTE: P1 / A1 cameras use a different (port 6000 chamber-image) protocol the
-// relay doesn't speak yet, so the status check will report unavailable for
-// those models — the overlay surfaces the server-provided hint in that case.
+// Two camera transports, chosen by the server's `cameraType`:
+//   - 'rtsp'  (X1 / X1C / H2D / P2S): MPEG-TS over WebSocket, decoded by JSMpeg.
+//   - 'image' (P1 / A1-class): the port-6000 chamber-image protocol, served as
+//     multipart MJPEG at /api/printer/camera.mjpeg and rendered in an <img>.
 
 (function () {
   const canvas  = document.getElementById('camCanvas');
   const overlay = document.getElementById('camOverlay');
   const msgEl   = document.getElementById('camMsg');
   const hintEl  = document.getElementById('camHint');
+  const stage   = canvas.parentElement;
 
   // Poll cadence for the status endpoint. Fast enough to pick up the camera
   // being toggled on/off within a few seconds, slow enough to be cheap.
@@ -27,6 +29,8 @@
   let player = null;       // active JSMpeg.Player instance, or null
   let streaming = false;   // true once JSMpeg reports a source established
   let lastHint = null;
+  let img = null;          // <img> element for MJPEG (image-camera printers)
+  let mjpegActive = false;
 
   function setOverlay(show, msg, kind = 'loading', hint = '') {
     if (show) {
@@ -50,6 +54,30 @@
       player = null;
     }
     streaming = false;
+  }
+
+  // ---- MJPEG (image-camera printers) ----
+  function showMjpeg(url) {
+    if (mjpegActive) return; // already streaming; re-setting src restarts it
+    destroyPlayer();
+    if (!img) {
+      img = document.createElement('img');
+      img.id = 'camImg';
+      img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000';
+      img.addEventListener('error', () => { teardownMjpeg(); setOverlay(true, 'Camera stream interrupted — retrying…', 'loading', lastHint || ''); });
+      stage.appendChild(img);
+    }
+    canvas.style.display = 'none';
+    img.style.display = 'block';
+    img.src = url;
+    mjpegActive = true;
+    setOverlay(false);
+  }
+  function teardownMjpeg() {
+    if (!mjpegActive && !img) return;
+    if (img) { img.src = ''; img.style.display = 'none'; }
+    canvas.style.display = '';
+    mjpegActive = false;
   }
 
   function connect() {
@@ -95,6 +123,19 @@
 
     lastHint = status.hint || null;
 
+    // Image-camera printers (P1 / A1): render the MJPEG stream in an <img>.
+    if (status.cameraType === 'image') {
+      if (status.available) {
+        showMjpeg(status.mjpegUrl || '/api/printer/camera.mjpeg');
+      } else {
+        teardownMjpeg();
+        setOverlay(true, 'Camera unavailable', 'error', status.hint || '');
+      }
+      return;
+    }
+
+    // RTSP printers: JSMpeg over WebSocket.
+    teardownMjpeg();
     if (status.available) {
       if (typeof JSMpeg === 'undefined') {
         setOverlay(true, 'Video decoder failed to load', 'error');
@@ -104,9 +145,8 @@
       // leave it alone (tearing it down every poll would stutter the feed).
       if (!player) connect();
     } else {
-      // Camera not available — relay disabled, LAN Liveview off, or an
-      // image-only (P1/A1) model. Tear down any stale player and surface the
-      // server's hint so the user knows what to flip.
+      // Camera not available — relay disabled or LAN Liveview off. Tear down
+      // any stale player and surface the server's hint.
       destroyPlayer();
       const msg = status.relayReady === false
         ? 'Video relay unavailable'

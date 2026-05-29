@@ -24,21 +24,39 @@ const fs = require('fs');
 const { capsFor } = require('../lib/caps');
 
 function buildVideoRouter({ app, getConfig, dataPath }) {
-  // Printers without an RTSP camera (P1 / A1-class use a different port-6000
-  // protocol BambuBoard doesn't relay). Returns an accurate status so the
-  // camera widget shows a model-appropriate message instead of telling the
-  // user to enable LAN Liveview (which does nothing on those printers).
-  function unsupportedCameraStatus(printer) {
+  // Grace window: keep a stream (ffmpeg / chamber socket) alive this long after
+  // the last viewer leaves, so brief client gaps (reloads, OBS restarts) reuse
+  // it instead of churning the printer's limited camera connection.
+  const GRACE_MS = 20000;
+
+  // Camera status, capability-aware. X1 / X1C / H2D / P2S expose RTSP (relayed
+  // via ffmpeg + WebSocket/JSMpeg); P1 / A1-class expose the port-6000 JPEG
+  // stream (served as MJPEG). `cameraType` tells the widget which to use.
+  function buildCameraStatus(printer, rtspRelayOk) {
     const caps = capsFor(printer.type);
-    if (caps.hasCameraRtsp) return null;
+    const hasCredentials = !!(printer.url && printer.accessCode);
+    if (!caps.hasCameraRtsp) {
+      return {
+        available: hasCredentials,
+        cameraType: 'image',
+        relayReady: true, // MJPEG path is independent of rtsp-relay
+        mjpegUrl: '/api/printer/camera.mjpeg',
+        hint: hasCredentials ? null : 'Printer credentials not set — finish Setup first.',
+      };
+    }
+    const rtsp = getRtspStatus();
     return {
-      available: false,
-      relayReady: true,
-      rtspEnabled: false,
-      cameraSupported: false,
-      resolution: null,
-      url: null,
-      hint: `Live camera isn't supported on this printer model (${printer.type || 'unknown'}) yet — BambuBoard relays the RTSP stream that X1 / X1C / H2D expose. P1 / A1-class printers use a different camera protocol.`,
+      available: hasCredentials && rtsp.enabled && rtspRelayOk,
+      cameraType: 'rtsp',
+      relayReady: rtspRelayOk,
+      rtspEnabled: rtsp.enabled,
+      resolution: rtsp.resolution,
+      url: hasCredentials ? `rtsps://${printer.url}:322/streaming/live/1` : null,
+      hint: !rtspRelayOk
+        ? 'The video relay (ffmpeg) failed to initialize on the server.'
+        : (!rtsp.enabled
+          ? 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.'
+          : null),
     };
   }
 
@@ -56,31 +74,74 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     }
   }
 
+  // ── Chamber-image (P1 / A1) MJPEG endpoint ──
+  // One shared TLS stream per printer, fanned out to all viewers as
+  // multipart/x-mixed-replace JPEG (which <img> renders natively). Same grace
+  // period as the RTSP relay so brief client gaps don't churn the port-6000
+  // connection. Independent of rtsp-relay, so it works even if that failed.
+  const { ChamberImageStream } = require('../lib/chamberImage');
+  const chamber = { stream: null, clients: 0, grace: null, key: '' };
+
+  function ensureChamberStream(printer) {
+    const key = `${printer.url}|${printer.accessCode}`;
+    if (chamber.stream && chamber.key !== key) { chamber.stream.stop(); chamber.stream = null; }
+    if (!chamber.stream) {
+      chamber.key = key;
+      chamber.stream = new ChamberImageStream({ host: printer.url, accessCode: printer.accessCode });
+      chamber.stream.on('error', () => {}); // reconnects internally; don't crash
+      chamber.stream.start();
+    }
+    return chamber.stream;
+  }
+
+  app.get('/api/printer/camera.mjpeg', (req, res) => {
+    const printer = getConfig().printer || {};
+    if (capsFor(printer.type).hasCameraRtsp) {
+      return res.status(404).json({ error: 'This printer uses RTSP; connect to the WebSocket relay instead.' });
+    }
+    if (!printer.url || !printer.accessCode) {
+      return res.status(503).json({ error: 'Printer credentials not set.' });
+    }
+    const BOUNDARY = 'bambuframe';
+    res.writeHead(200, {
+      'Content-Type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Connection: 'close',
+    });
+
+    if (chamber.grace) { clearTimeout(chamber.grace); chamber.grace = null; }
+    const stream = ensureChamberStream(printer);
+    chamber.clients += 1;
+
+    const onFrame = (jpeg) => {
+      if (res.writableEnded) return;
+      res.write(`--${BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
+      res.write(jpeg);
+      res.write('\r\n');
+    };
+    if (stream.lastFrame) onFrame(stream.lastFrame); // paint immediately
+    stream.on('frame', onFrame);
+
+    req.on('close', () => {
+      stream.removeListener('frame', onFrame);
+      chamber.clients -= 1;
+      if (chamber.clients <= 0 && !chamber.grace) {
+        chamber.grace = setTimeout(() => {
+          chamber.grace = null;
+          if (chamber.clients <= 0 && chamber.stream) { chamber.stream.stop(); chamber.stream = null; }
+        }, GRACE_MS);
+      }
+    });
+  });
+
   try {
     const rtspRelay = require('rtsp-relay');
     const { proxy: createProxy } = rtspRelay(app);
 
     // GET /api/printer/video/status — health check
     app.get('/api/printer/video/status', (req, res) => {
-      const config = getConfig();
-      const printer = config.printer || {};
-      const unsupported = unsupportedCameraStatus(printer);
-      if (unsupported) return res.json(unsupported);
-      const hasCredentials = !!(printer.url && printer.accessCode);
-      const rtsp = getRtspStatus();
-
-      res.json({
-        available: hasCredentials && rtsp.enabled,
-        relayReady: true,
-        rtspEnabled: rtsp.enabled,
-        resolution: rtsp.resolution,
-        url: hasCredentials
-          ? `rtsps://${printer.url}:322/streaming/live/1`
-          : null,
-        hint: !rtsp.enabled
-          ? 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.'
-          : null,
-      });
+      res.json(buildCameraStatus(getConfig().printer || {}, true));
     });
 
     // WS /api/printer/video — WebSocket MPEG-TS stream.
@@ -130,9 +191,8 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     //
     // Fix: hold a server-side keepalive subscriber per stream so ffmpeg stays
     // alive through brief gaps. When the last real viewer leaves we wait
-    // GRACE_MS before releasing the holder; a reconnect within the window
-    // reuses the still-running ffmpeg (and its single RTSP connection).
-    const GRACE_MS = 20000;
+    // GRACE_MS (shared with the chamber-image path) before releasing the
+    // holder; a reconnect within the window reuses the still-running ffmpeg.
     const keepalive = {}; // url -> { count, timer, holder }
 
     // A minimal ws-like object rtsp-relay's handler accepts: it counts as a
@@ -168,20 +228,10 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     console.log('[bambuboard] RTSP video relay ready at ws://*/api/printer/video');
   } catch (err) {
     console.warn('[bambuboard] RTSP video relay unavailable:', err.message);
-    // Fallback endpoints when rtsp-relay isn't installed or fails
+    // Fallback status when rtsp-relay isn't available. Image-camera printers
+    // (P1/A1) still work via the MJPEG path, which doesn't use rtsp-relay.
     app.get('/api/printer/video/status', (req, res) => {
-      const unsupported = unsupportedCameraStatus((getConfig().printer) || {});
-      if (unsupported) return res.json(unsupported);
-      const rtsp = getRtspStatus();
-      res.json({
-        available: false,
-        relayReady: false,
-        rtspEnabled: rtsp.enabled,
-        error: 'rtsp-relay not available: ' + err.message,
-        hint: !rtsp.enabled
-          ? 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot.'
-          : 'The rtsp-relay package failed to initialize.',
-      });
+      res.json(buildCameraStatus(getConfig().printer || {}, false));
     });
   }
 }
