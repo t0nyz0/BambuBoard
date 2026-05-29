@@ -69,7 +69,8 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 ## Highlights
 
 - **One Browser Source → OBS** — design your overlay, hit 🔴 **Go Live**, and point a single OBS Browser Source at `/live`. BambuBoard composites the camera + every widget into one page — no scene import, no per-widget sources, no SDP. Edit and re-publish anytime; OBS updates itself.
-- **Built-in camera feed** — BambuBoard streams the printer's chamber camera itself (an in-app RTSP relay → in-browser decode), so the camera shows up in `/live` with **no Bambu Studio "Go Live" and no OBS media/SDP setup**. Just flip *LAN Mode Liveview* on the printer (X1 / X1C / H2D).
+- **Built-in camera feed (every model)** — BambuBoard streams the printer's chamber camera itself, so it shows up in `/live` with **no Bambu Studio "Go Live" and no OBS media/SDP setup**. X1 / X1C / H2D / P2S use RTSP (flip *LAN Mode Liveview* on the printer once); P1 / A1-class use the port-6000 chamber-image protocol. The widget picks the right transport automatically.
+- **Stream to YouTube without OBS** *(beta)* — go live straight from the browser: paste your YouTube stream key, share the `/live` tab, and BambuBoard relays it (browser-encoded → server ffmpeg → RTMP). OBS is still the better choice on weak hardware (encoding happens in your browser), but you don't *need* it.
 - **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. OBS-style Layers panel for drag-to-reorder z-stacking.
 - **Live gcode toolpath widget** *(experimental / beta)* — three.js widget that fetches the active print's gcode over FTPS, parses it, and renders the toolpath in real time with a stylized hotend tracing the active layer. Multi-color prints get per-tool AMS colors. Adaptive speed calibration keeps the simulation locked to the printer's reported `mc_percent` even through filament swaps. Single-color prints work great; multi-color/multi-object timing on complex prints can still drift — open an issue if you hit a case that's clearly off.
 - **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
@@ -156,7 +157,8 @@ Printer type is **auto-detected from MQTT** when BambuBoard connects — no need
 | X1 | `X1` | Chamber temp | ⚠️ Should work — community feedback welcome |
 | X1E | `X1C` (mapped) | Chamber temp | ⚠️ Should work — community feedback welcome |
 | P1P | `P1P` | — | ⚠️ Should work — community feedback welcome |
-| P1S, P2S | `P1S` | — | ⚠️ Should work — community feedback welcome |
+| P1S | `P1S` | — | ⚠️ Should work — community feedback welcome |
+| P2S | `P2S` | Chamber temp | ⚠️ Should work — community feedback welcome |
 | A1 | `A1` | Single AMS | ⚠️ Should work — community feedback welcome |
 | A1 Mini | `A1M` | Single AMS | ⚠️ Should work — community feedback welcome |
 | H2C, H2S, X2D | `H2D` (mapped) | Chamber temp, dual nozzle, dual AMS | ⚠️ Should work — community feedback welcome |
@@ -175,8 +177,8 @@ BambuBoard/
 │   ├── server.js         Bootstrap
 │   ├── mqtt.js           Single-printer MQTT client + printer auto-detect
 │   ├── config.js         Load / save / migrate
-│   ├── routes/           api, pages, auth, obsScene, video
-│   └── lib/caps.js       PRINTER_CAPS map + printerTypeFromMqtt()
+│   ├── routes/           api, pages, auth, obsScene, video (RTSP+MJPEG camera), stream (YouTube/RTMP)
+│   └── lib/              caps.js (PRINTER_CAPS + printerTypeFromMqtt), chamberImage.js (P1/A1 camera)
 ├── views/                Pretty-URL HTML pages
 ├── public/
 │   ├── css/              theme, components, hub, setup, scene-editor
@@ -215,7 +217,8 @@ Every widget is a standalone HTML page. The scene editor lets you drag them onto
 | **AMS #2 humidity (legacy)** (`ams-temp-2`) | Standalone humidity + chamber-temp + drying readout for the second AMS. Superseded by the combined `ams2` widget which now includes this header above the trays. Kept for back-compat with custom scenes. | 400×120 | — | `hasDualAMS` |
 | **AMS #2** (`ams2`) | Combined AMS #2 card (H2D only): chamber temp + humidity + drying status + 4 tray rows. Same layout as the primary `ams` widget but reads `ams.ams[0]` (firmware id=0, which is the user-facing 'AMS #2' on H2D — Bambu's MQTT enumeration is reversed from the labeled hardware). | 400×460 | — | `hasDualAMS` |
 | **Bed temperature** (`bed-temp`) | Heat-bed temp with target + progress bar. | 400×120 | — | — |
-| **Chamber temperature** (`chamber-temp`) | Enclosed-chamber temperature (X1, X1C, H2D). | 400×120 | — | `hasChamberTemp` |
+| **Live camera** (`camera`) | Live chamber-camera feed rendered directly in the browser — no OBS or Bambu Studio required. X1 / X1C / H2D / P2S stream over RTSP (needs LAN Mode Liveview enabled on the printer); P1 / A1-class stream via the port-6000 chamber-image protocol. The widget picks the right transport automatically. | 640×360 | — | — |
+| **Chamber temperature** (`chamber-temp`) | Enclosed-chamber temperature (X1, X1C, H2D, P2S). Hides itself on printers with no chamber. | 400×120 | — | `hasChamberTemp` |
 | **Fans** (`fans`) | All four fan speeds with animated spinning icons and circular gauge rings showing speed percentage. | 420×160 | — | — |
 | **Gcode Toolpath** (`gcode-viz`) | **Experimental / beta.** Live three.js visualization of the active print's gcode, advancing layer-by-layer with a stylized hotend tracing the toolpath. Multi-color prints render per-tool AMS colors. Adaptive speed calibration keeps the sim locked to the printer's mc_percent through filament swaps. Single-color prints work great; multi-object timing on complex prints can still drift. | 640×640 | — | — |
 | **Model image** (`model-image`) | Preview image of the current model (requires Bambu Cloud auth for live MakerWorld images). | 400×300 | — | — |
@@ -230,7 +233,7 @@ Every widget is a standalone HTML page. The scene editor lets you drag them onto
 | **Version stamp** (`version`) | Shows BambuBoard version in a corner. | 200×30 | — | — |
 | **Wi-Fi signal** (`wifi`) | Wireless signal strength. | 200×80 | — | — |
 
-_19 widgets — generated by `scripts/build-widget-catalog.js`._
+_20 widgets — generated by `scripts/build-widget-catalog.js`._
 <!-- WIDGET-CATALOG-END -->
 
 Regenerate this table after adding/changing widgets:
@@ -238,7 +241,7 @@ Regenerate this table after adding/changing widgets:
 npm run build:widget-catalog
 ```
 
-Cap-gated widgets are greyed out in the hub gallery for incompatible printer types (e.g. `chamber-temp` is hidden on P1P which has no chamber).
+Cap-gated widgets are dimmed (and can't be dragged) in the scene editor's widget drawer for incompatible printer types, and several self-hide at runtime too — e.g. `chamber-temp` won't render on a P1P, which has no chamber.
 
 ---
 
@@ -277,7 +280,7 @@ Off by default. Enable in `/setup` to populate the `profile-info` and `model-ima
 
 ## Running offline / on a LAN
 
-All assets (jQuery, Material Symbols, fonts) are bundled locally — no external CDN dependencies. The BambuBoard server only needs LAN access to your printer's MQTT port (8883 by default) — plus the camera port (322 for RTSP) if you use the live camera.
+All assets (jQuery, Material Symbols, fonts) are bundled locally — no external CDN dependencies. The BambuBoard server only needs LAN access to your printer's MQTT port (8883 by default) — plus, if you use the live camera, the camera port (322 for RTSP on X1/X1C/H2D/P2S, or 6000 for the chamber-image stream on P1/A1).
 
 ---
 
@@ -299,7 +302,7 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 - **"Test connection" fails** — verify the IP, port (8883), serial number, and access code. The printer must be on the same LAN.
 - **No data in the widgets** — check the "Connect" panel on `/setup`; it should show "MQTT: ✓ Connected" within 3–5s. If not, re-verify the IP, port (8883), serial, and access code. (Widget data comes over MQTT — this is separate from the camera, which has its own item below.)
 - **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
-- **Camera is black / "Camera off"** — BambuBoard now renders the camera itself (no OBS media source, no SDP, no Bambu Studio). Enable **LAN Mode Liveview** on the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot (firmware 01.06+ for X1-class/H2D). The camera widget shows these exact steps when the feed is unavailable. P1/A1 use a different camera protocol the relay doesn't speak yet.
+- **Camera is black / "Camera off"** — BambuBoard renders the camera itself (no OBS media source, no SDP, no Bambu Studio). On RTSP models (X1 / X1C / H2D / P2S), enable **LAN Mode Liveview** on the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot (firmware 01.06+). The camera widget shows these exact steps when the feed is unavailable. P1 / A1-class printers use the port-6000 chamber-image stream instead — no toggle needed, just a valid access code.
 - **OBS shows nothing at `/live`** — make sure the BambuBoard server is running and the Browser Source URL points at `http://<your-host>:8080/live` (not `localhost` if OBS is on another machine). Publish a scene with **🔴 Go Live**, or `/live` falls back to the default layout.
 
 ---
