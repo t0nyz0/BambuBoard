@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+### Fixed
+- **Gcode viz flickered between "Preparing print…" and "Waiting for printer…" as a print started** (`public/widgets/gcode-viz/GCODE_script.js`) — during pre-print prep the printer often hasn't published the sliced gcode to its FTP cache yet, so `loadGcode()` fetches and 502s every poll. It set its own overlay messages ("Preparing — loading print…" then, on failure, "Waiting for printer to publish gcode…") which fought the caller's phase message ("Preparing print…"), cycling through three strings each ~800ms retry. `loadGcode()` is now purely mechanical and takes a single caller-owned `overlayMsg` used for both the loading state and a failed attempt, so the overlay stays rock-steady across retries until the gcode appears. **Why:** the pre-print state looked broken/looping instead of calmly waiting.
+
+---
+
 ## 3.1.3 — 2026-07-05
 
 ### Changed

@@ -927,7 +927,15 @@ function clearScene() {
   fastTick();                               // commit the empty state to the GPU
 }
 
-async function loadGcode(taskKey) {
+// loadGcode is purely mechanical: fetch + parse + build. It does NOT decide
+// what overlay text to show — the caller owns that and passes a single stable
+// `overlayMsg` used for both the loading state and a failed attempt. This is
+// deliberate: during pre-print prep the printer often hasn't published the
+// gcode yet, so this fetches and 502s repeatedly. If loadGcode set its own
+// messages ("loading…" then "waiting for printer…"), they'd fight the caller's
+// phase message ("Preparing print…") and flicker between three strings every
+// poll. One caller-owned message = a rock-steady overlay across retries.
+async function loadGcode(taskKey, overlayMsg = 'Loading print…') {
   inFlight = true;
   dbg(`loadGcode START task=${taskKey} nocache=${forceNocache ? 1 : 0}`);
   // Hide the 3D canvas while we fetch + parse so the camera doesn't orbit
@@ -938,7 +946,7 @@ async function loadGcode(taskKey) {
   // it lingering while the new gcode fetches. The overlay then signals
   // we're working on it.
   clearScene();
-  setOverlay('Preparing — loading print…', 'loading');
+  setOverlay(overlayMsg, 'loading');
   try {
     const gcodeUrl = forceNocache
       ? '/api/gcode/current?nocache=1'
@@ -996,12 +1004,12 @@ async function loadGcode(taskKey) {
     currentTaskKey = null;
     failedTaskKey = taskKey;   // don't retry this taskKey in FINISH state
     dbg(`loadGcode FAIL task=${taskKey}: ${e.message}`);
-    // Keep the loading style — we'll be retrying every poll cycle until the
-    // file shows up, so this is a "still working on it" state, not a
-    // permanent error. The pulsing dot signals activity. The tick loop
-    // suppresses the retry once state hits FINISH so we don't loop forever
-    // after a print completes and the printer clears its FTP cache.
-    setOverlay(e.message || 'Loading failed — retrying…', 'loading');
+    // Re-assert the SAME caller-owned message (setOverlay dedupes, so this is
+    // a no-op when unchanged) rather than swapping in a distinct error string.
+    // Keeping it identical to the pre-load message is what stops the
+    // "Preparing print…" ↔ "Waiting for printer…" flicker during prep, when
+    // the printer hasn't published the gcode yet and we retry each poll.
+    setOverlay(overlayMsg, 'loading');
   } finally {
     inFlight = false;
   }
@@ -1336,15 +1344,19 @@ async function tick() {
         setOverlay('Print complete — waiting for next print…', 'waiting');
         return;
       }
+      // Single stable message for the whole load, chosen by phase. Set it
+      // BEFORE the await so it's already showing during the fetch, and pass
+      // it into loadGcode so a failed attempt re-asserts the same string —
+      // no flicker across retries while the printer publishes the gcode.
+      const prep = isPrepState || isPreviewState;
+      const loadMsg = prep ? 'Preparing print…' : 'Loading print…';
+      setOverlay(loadMsg, 'loading');
       if (!inFlight) {
-        await loadGcode(taskKey);
-        // loadGcode no longer clears the overlay on success — set the right
-        // message here based on what phase we're in.
-        if (isPrepState || isPreviewState) {
-          setOverlay('Preparing print…', 'loading');
-        } else {
-          setOverlay('');
-        }
+        await loadGcode(taskKey, loadMsg);
+        // Once an active-print load actually succeeds, clear the overlay so
+        // the model + nozzle are visible. On failure currentTaskKey stays
+        // null, so we leave the stable message up and retry next poll.
+        if (!prep && currentTaskKey === taskKey) setOverlay('');
       }
       return;
     }
