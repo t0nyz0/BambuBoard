@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+### Fixed
+- **Gcode viz stuck flashing "Preparing — loading print…" after a print completes** (`public/widgets/gcode-viz/GCODE_script.js`) — when the widget observed a `task_id` it hadn't loaded (e.g. opening the widget while state=FINISH, or an auto-cali task briefly reporting between prints), `loadGcode()` would fire, the FTPS fetch would 502 because the printer had already rotated its `/cache/`, and the catch handler reset `currentTaskKey = null` — so the next tick 800ms later retried, and retried, forever. Added a `failedTaskKey` marker: when a load fails, the tick loop skips further retries for that same taskKey while state is FINISH and shows a "Print complete — waiting for next print…" hint instead. Lifecycle detection (justStarted / progressReset) clears the marker so a real new print reloads normally. **Why:** the pulsing loading dot was flashing indefinitely on completed prints instead of resting quietly.
+
+---
+
 ## 3.1.0 — 2026-05-29
 
 ### Changed

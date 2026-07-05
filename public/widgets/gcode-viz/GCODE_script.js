@@ -739,6 +739,11 @@ function verifyAdvanceTick() {
 }
 
 let currentTaskKey = null;
+// Tracks a taskKey whose gcode fetch failed. Prevents an infinite retry loop
+// when the print is FINISHed and the printer has rotated its FTP cache — the
+// file is gone and no amount of retrying will get it back. Cleared on any
+// state change to RUNNING/PREPARE or on lifecycle-detected new print.
+let failedTaskKey = null;
 let lastEndLayer = -1;
 let inFlight = false;
 let forceNocache = false;  // set by lifecycle detection to bust server cache
@@ -934,6 +939,7 @@ async function loadGcode(taskKey) {
     trailBuf.length = 0;
     lastTrailPos = null;
     currentTaskKey = taskKey;
+    failedTaskKey = null;   // clear failure marker on any successful load
     lastEndLayer = -1;
     totalLayers = preview.layers?.length || 0;
     const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
@@ -958,9 +964,12 @@ async function loadGcode(taskKey) {
     canvas.style.visibility = 'visible';
   } catch (e) {
     currentTaskKey = null;
+    failedTaskKey = taskKey;   // don't retry this taskKey in FINISH state
     // Keep the loading style — we'll be retrying every poll cycle until the
     // file shows up, so this is a "still working on it" state, not a
-    // permanent error. The pulsing dot signals activity.
+    // permanent error. The pulsing dot signals activity. The tick loop
+    // suppresses the retry once state hits FINISH so we don't loop forever
+    // after a print completes and the printer clears its FTP cache.
     setOverlay(e.message || 'Loading failed — retrying…', 'loading');
   } finally {
     inFlight = false;
@@ -1223,6 +1232,7 @@ async function tick() {
         // the fetch to bypass the server-side cache so reprints with the
         // same task_id get fresh gcode from the printer.
         currentTaskKey = null;
+        failedTaskKey = null;   // new print — allow retries even if the previous task failed
         forceNocache = true;
       }
     }
@@ -1274,6 +1284,16 @@ async function tick() {
     // Need to load gcode for this task? Fires for new tasks and for reprints
     // where lifecycle detection nulled currentTaskKey above.
     if (taskKey !== currentTaskKey) {
+      // Bail out of the retry loop when the print is already FINISHed and
+      // we've already tried and failed on this taskKey. The printer typically
+      // rotates its FTP /cache/ once a job completes, so the file simply
+      // isn't there anymore — retrying every 800ms just shows a permanent
+      // "Preparing — loading print…" flash. Wait for the next print to start
+      // (lifecycle detection above will null failedTaskKey when that happens).
+      if (state === 'FINISH' && failedTaskKey === taskKey) {
+        setOverlay('Print complete — waiting for next print…', 'hint');
+        return;
+      }
       if (!inFlight) {
         await loadGcode(taskKey);
         // loadGcode no longer clears the overlay on success — set the right
