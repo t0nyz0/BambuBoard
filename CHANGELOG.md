@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## 3.1.3 — 2026-07-05
+
+### Changed
+- **Gcode viz waiting state now uses transparent black to match the other widgets** (`public/widgets/gcode-viz/index.html`) — the "waiting for print" backdrop introduced in 3.1.2 was a grey `rgba(30,33,40,0.55)` with a blur; changed to a flat transparent black `rgba(0,0,0,0.8)` (no blur) to match the `rgb(0 0 0 / 80%)` panel convention used across the other BambuBoard widgets. **Why:** visual consistency with the rest of the dashboard.
+
+---
+
 ## 3.1.2 — 2026-07-05
 
 ### Changed
