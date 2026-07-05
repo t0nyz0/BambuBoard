@@ -38,6 +38,19 @@
         0%,100% { opacity: 0.4; transform: scale(0.85); }
         50%     { opacity: 1.0; transform: scale(1.10); }
       }
+      /* Idle "waiting on print" state — fills the widget with a semi-transparent
+         backdrop so the user sees an obvious "nothing loaded yet" panel rather
+         than a black void. Used when the printer is idle, a print just
+         finished, or we can't fetch gcode for the current task. */
+      .gcode-overlay.waiting {
+        inset: 0; transform: none;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(30, 33, 40, 0.55);
+        backdrop-filter: blur(3px);
+        color: #d8dbe0;
+        font-size: 26px; font-weight: 500; letter-spacing: 0.5px;
+        opacity: 1;
+      }
       .gcode-overlay.error { color: #f0a; opacity: 1; }
       .gcode-debug {
         display: none;
@@ -50,6 +63,21 @@
         flex-direction: column; gap: 6px;
       }
       .gcode-debug.show { display: flex; }
+      /* Rolling event log — only shown with ?debug=1. Top-left, monospace,
+         scrollable, semi-transparent so the scene stays visible behind it. */
+      .gcode-log {
+        display: none;
+        position: absolute; left: 12px; top: 12px;
+        width: 46%; max-width: 560px; max-height: 55%;
+        margin: 0; padding: 8px 10px;
+        overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+        background: rgba(12,14,18,.78); color: #b6e3c0;
+        font: 11px/1.45 ui-monospace, Menlo, Consolas, monospace;
+        border: 1px solid rgba(255,255,255,.08); border-radius: 6px;
+        backdrop-filter: blur(4px);
+        pointer-events: auto;
+      }
+      .gcode-log.show { display: block; }
       .gcode-debug .row { display: flex; gap: 10px; align-items: center; }
       .gcode-debug input[type=range] { flex: 1; }
       .gcode-debug button {
@@ -73,7 +101,8 @@
   <body>
     <div class="gcode-stage">
       <canvas id="gcodeCanvas"></canvas>
-      <div class="gcode-overlay" id="gcodeOverlay">waiting for print…</div>
+      <div class="gcode-overlay waiting" id="gcodeOverlay" style="display:flex">Waiting for print…</div>
+      <pre class="gcode-log" id="gcodeLog"></pre>
       <div class="gcode-debug" id="gcodeDebug">
         <div class="row">
           <span class="tag">Layer</span>

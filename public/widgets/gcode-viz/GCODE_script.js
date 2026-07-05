@@ -64,6 +64,32 @@ const nextEl = document.getElementById('gcodeNext');
 const labelEl = document.getElementById('gcodeLabel');
 const pathEl = document.getElementById('gcodePath');
 const pathLabelEl = document.getElementById('gcodePathLabel');
+const logEl = document.getElementById('gcodeLog');
+
+// Rolling debug log. Always captured into a ring buffer (cheap, ~240 lines)
+// so it can be inspected from the console anytime via window.__log(); mirrored
+// to an on-screen panel only when ?debug=1. Use dbg() for one-off events and
+// logPhase() for state-machine phases (deduped so an unchanged phase doesn't
+// spam a line every 800ms poll).
+const _logBuf = [];
+const LOG_MAX = 240;
+function dbg(msg) {
+  const t = new Date();
+  const stamp = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}:${String(t.getSeconds()).padStart(2, '0')}`;
+  _logBuf.push(`${stamp}  ${msg}`);
+  if (_logBuf.length > LOG_MAX) _logBuf.shift();
+  if (debug && logEl) {
+    logEl.textContent = _logBuf.join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+let _lastLoggedPhase = null;
+function logPhase(name) {
+  if (name === _lastLoggedPhase) return;
+  _lastLoggedPhase = name;
+  dbg(`▶ ${name}`);
+}
+window.__log = () => _logBuf.slice();
 
 // Resolve bed size from the connected printer's caps so the visualization
 // works for any Bambu model (X1/X1C/P1/A1/A1M/H2D/…), not just the H2D it was
@@ -859,7 +885,9 @@ function setOverlay(text, kind = 'hint') {
   overlay.textContent = text;
   overlay.classList.toggle('loading', kind === 'loading');
   overlay.classList.toggle('error',   kind === 'error');
-  overlay.style.display = text ? 'block' : 'none';
+  overlay.classList.toggle('waiting', kind === 'waiting');
+  // 'waiting' uses a full-widget flex backdrop; everything else is block.
+  overlay.style.display = text ? (kind === 'waiting' ? 'flex' : 'block') : 'none';
 }
 
 function setLabel(layer, total) {
@@ -901,6 +929,7 @@ function clearScene() {
 
 async function loadGcode(taskKey) {
   inFlight = true;
+  dbg(`loadGcode START task=${taskKey} nocache=${forceNocache ? 1 : 0}`);
   // Hide the 3D canvas while we fetch + parse so the camera doesn't orbit
   // around an empty scene (looks like random flying). The overlay sits
   // outside the canvas so it stays visible.
@@ -962,9 +991,11 @@ async function loadGcode(taskKey) {
     // reveal the canvas now. The first rendered frame will already show the
     // correct model at the right zoom level.
     canvas.style.visibility = 'visible';
+    dbg(`loadGcode OK task=${taskKey} layers=${totalLayers} gcodeTime=${Math.round(totalGcodeTime)}s bytes=${text.length}`);
   } catch (e) {
     currentTaskKey = null;
     failedTaskKey = taskKey;   // don't retry this taskKey in FINISH state
+    dbg(`loadGcode FAIL task=${taskKey}: ${e.message}`);
     // Keep the loading style — we'll be retrying every poll cycle until the
     // file shows up, so this is a "still working on it" state, not a
     // permanent error. The pulsing dot signals activity. The tick loop
@@ -1185,6 +1216,11 @@ async function tick() {
     prevTickState = state;
     prevTickMcPct = mcPctRaw;
 
+    // Log raw state changes so the log shows the printer's own lifecycle.
+    if (state !== _prevState) {
+      dbg(`state ${_prevState ?? '∅'} → ${state}  (task=${taskId ?? '∅'} layer=${layerNum} mc=${mcPctRaw}% stg=${subStage})`);
+    }
+
     // printerStarted: a *printer-side* signal that the job has begun
     // depositing material. layer_num goes 1+ once layer 1 starts; mc_percent
     // ticks up shortly after. Used to distinguish pre-print prep (no material
@@ -1231,6 +1267,7 @@ async function tick() {
         // Force a fresh gcode load on the next taskKey check. Also flag
         // the fetch to bypass the server-side cache so reprints with the
         // same task_id get fresh gcode from the printer.
+        dbg(`lifecycle: NEW PRINT (${justStarted ? 'justStarted' : 'progressReset'}) → force reload, nocache`);
         currentTaskKey = null;
         failedTaskKey = null;   // new print — allow retries even if the previous task failed
         forceNocache = true;
@@ -1247,6 +1284,7 @@ async function tick() {
     // print is starting.
     if (!taskKey) {
       if (currentTaskKey) {
+        dbg('no taskId — clearing scene');
         clearScene();
         currentTaskKey = null;
         mcPercentLastSeen = null;
@@ -1254,12 +1292,13 @@ async function tick() {
         lastMcPctChangeWall = null;
         lastMcPctChangeValue = null;
       }
-      if (state === 'FAILED') setOverlay('Print failed', 'error');
-      else setOverlay('waiting for print…');
+      if (state === 'FAILED') { logPhase('idle: FAILED (no task)'); setOverlay('Print failed', 'error'); }
+      else { logPhase(`idle: ${state ?? '∅'} (no task)`); setOverlay('Waiting for print…', 'waiting'); }
       return;
     }
 
     if (currentTaskKey && currentTaskKey !== taskKey) {
+      dbg(`task changed ${currentTaskKey} → ${taskKey} — clearing scene`);
       clearScene();
       currentTaskKey = null;
       mcPercentLastSeen = null;
@@ -1269,13 +1308,15 @@ async function tick() {
     }
 
     if (state === 'FAILED') {
+      logPhase('FAILED');
       setOverlay('Print failed', 'error');
       return;
     }
 
     // No recognized state but we have a taskId — wait it out without wiping.
     if (!isPrepState && !isActivePrint && !isPreviewState && !isHoldState) {
-      setOverlay('waiting for print…');
+      logPhase(`unrecognized: ${state} (task present, holding)`);
+      setOverlay('Waiting for print…', 'waiting');
       return;
     }
 
@@ -1291,7 +1332,8 @@ async function tick() {
       // "Preparing — loading print…" flash. Wait for the next print to start
       // (lifecycle detection above will null failedTaskKey when that happens).
       if (state === 'FINISH' && failedTaskKey === taskKey) {
-        setOverlay('Print complete — waiting for next print…', 'hint');
+        logPhase(`finish-hold: fetch failed for ${taskKey}, waiting for next print`);
+        setOverlay('Print complete — waiting for next print…', 'waiting');
         return;
       }
       if (!inFlight) {
@@ -1313,6 +1355,7 @@ async function tick() {
     // them are seamless — the model never reloads, the overlay text never
     // flickers.
     if (isPrepState || isPreviewState) {
+      logPhase(`prep/preview: ${state} sub=${subStage} (model loaded, ${totalLayers} layers)`);
       if (lastEndLayer !== totalLayers && totalLayers > 0) {
         advanceTo(totalLayers);
       }
@@ -1322,6 +1365,7 @@ async function tick() {
 
     // Active or hold state — clear any leftover prep overlay. setOverlay
     // dedupes internally so calling every tick is cheap.
+    logPhase(state === 'FINISH' ? 'finished (showing full model)' : (state === 'PAUSED' ? 'paused' : 'printing'));
     setOverlay('');
 
     if (scrubActive) return;
@@ -1419,8 +1463,16 @@ async function tick() {
       }
     }
   } catch (e) {
+    dbg(`tick ERROR: ${e.message}`);
     setOverlay(`status poll failed: ${e.message}`, 'error');
   }
+}
+
+// Show the on-screen log panel whenever ?debug=1. Independent of debugBar so
+// the log appears even if the scrubber row isn't wired.
+if (debug && logEl) {
+  logEl.classList.add('show');
+  dbg(`gcode-viz debug log ready — bed ${bed.x}×${bed.y}×${bed.z}, poll ${POLL_MS}ms`);
 }
 
 if (debug && debugBar) {
