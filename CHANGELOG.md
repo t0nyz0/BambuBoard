@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## 3.1.2 — 2026-07-05
+
+### Changed
+- **Gcode viz: styled "waiting for print" state instead of a blank/black void** (`public/widgets/gcode-viz/index.html`, `public/widgets/gcode-viz/GCODE_script.js`) — when no print is loaded (idle, just finished, or gcode couldn't be fetched), the widget now fills with a semi-transparent dark-grey backdrop (`rgba(30,33,40,0.55)` + blur) and centered 26px text ("Waiting for print…" / "Print complete — waiting for next print…") instead of showing tiny unstyled hint text over an empty canvas. **Why:** after the 3.1.1 infinite-retry fix stopped the flashing, the idle state showed nothing legible — this makes "nothing loaded yet" an obvious, on-brand panel.
+
+### Added
+- **Gcode viz: built-in debug log (`?debug=1`)** (`public/widgets/gcode-viz/index.html`, `public/widgets/gcode-viz/GCODE_script.js`) — appending `?debug=1` to the widget URL now shows a live, scrollable event log (top-left) alongside the existing layer scrubber. It records every state-machine transition (`state X → Y`), gcode-load attempt and result (`loadGcode START / OK / FAIL` with byte count and layer count), new-print lifecycle detection, and which overlay phase is active (idle / prep / printing / finish-hold). Events are always captured into a 240-entry ring buffer regardless of the flag — dump them from the browser console anytime via `window.__log()`. **Why:** the Gcode Toolpath widget is experimental and stuck-loading reports (e.g. gcode fetch failing during a print) were impossible to diagnose remotely; this surfaces the exact failure.
+
+---
+
 ## 3.1.1 — 2026-05-10
 
 ### Fixed
