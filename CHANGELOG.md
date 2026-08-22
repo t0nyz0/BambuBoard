@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+### Changed
+- **Gcode Toolpath now logs the *real* fetch failure instead of a generic "waiting" message** (`public/widgets/gcode-viz/GCODE_script.js`, `src/services/printerFiles.js`) — investigated the reports of the widget stuck on "Waiting for printer to publish gcode…" (#24, #25). **No concrete bug was found in our fetch path:** there are no hardcoded hosts/serials/IPs, and the sliced-gcode location is derived correctly from live MQTT print state. The most likely explanation is environmental — the sliced `.gcode.3mf` isn't at `/cache/<subtask_name>.gcode.3mf` when a job is started from **Bambu Handy / MakerWorld (cloud)** rather than Bambu Studio over LAN, or FTPS (port 990) is unreachable. What blocked confirming it was diagnostics: the widget collapsed every server `502` into the same "Waiting for printer to publish gcode…" string and threw the server's error detail away. It now reads the 502 body and logs the actual reason to the widget debug log — `ECONNREFUSED`/unreachable (FTP blocked), FTP `550` (file not in `/cache/`, i.e. likely a cloud/Handy print), or "entry not found in 3mf" (plate mismatch) — and the server-side error names the remote path it tried and adds a plain-language hint. **Why:** better logging so affected users can report the actual failure and we can pin the root cause. Purely additive — no change to the success path or the on-screen overlay, so it can't affect a working setup.
+
+---
+
 ## 3.1.4 — 2026-07-05
 
 ### Fixed

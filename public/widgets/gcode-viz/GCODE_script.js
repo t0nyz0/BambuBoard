@@ -959,6 +959,16 @@ async function loadGcode(taskKey, overlayMsg = 'Loading print…') {
       // being available). The next tick will retry automatically; show a
       // friendlier message in the meantime.
       const status = res.status;
+      // Surface the server's REAL reason in the debug log (the on-screen
+      // overlay stays friendly). The 502 body carries { error, detail } from
+      // the FTPS fetch — e.g. ECONNREFUSED (FTP port 990 blocked), FTP 550
+      // (sliced file not at /cache/<subtask>.gcode.3mf — common when the job
+      // was started from Handy/MakerWorld cloud instead of Bambu Studio over
+      // LAN), or "entry not found in 3mf" (plate index mismatch). Without this
+      // every failure looked identical and was impossible to diagnose.
+      let detail = '';
+      try { const j = await res.json(); detail = j.detail || j.error || ''; } catch (_) {}
+      dbg(`loadGcode HTTP ${status}${detail ? ' — ' + detail : ''}`);
       const friendly = status === 502
         ? 'Waiting for printer to publish gcode…'
         : `Loading failed (HTTP ${status})`;

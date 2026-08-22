@@ -61,9 +61,33 @@ function extractEntryFromZip(zipBuffer, entryPath) {
 async function fetchPlateGcode({ host, port, accessCode, subtaskName, plateIdx }) {
   // basic-ftp takes the literal path — don't URL-encode (that's HTTP territory).
   const remote = `/cache/${subtaskName}.gcode.3mf`;
-  const zipBuf = await downloadGcode3mf({ host, port, accessCode, remotePath: remote });
+
+  // Enrich errors so the widget's debug log shows WHAT failed, not just that
+  // "something" did. basic-ftp attaches `.code` on both connection failures
+  // (ECONNREFUSED / ETIMEDOUT / DEPTH_ZERO_SELF_SIGNED_CERT …) and FTP reply
+  // errors (e.g. 550 = file not found). A 550 here almost always means the
+  // sliced job isn't at /cache/<subtask>.gcode.3mf — typical when the print
+  // was started from Bambu Handy / MakerWorld (cloud) rather than Bambu Studio
+  // over LAN. A connection error usually means FTPS (port 990) is unreachable.
+  let zipBuf;
+  try {
+    zipBuf = await downloadGcode3mf({ host, port, accessCode, remotePath: remote });
+  } catch (e) {
+    const code = e && e.code != null ? e.code : (e && e.message) || 'unknown';
+    const hint = String(code) === '550'
+      ? ' — sliced file not found on printer (cloud/Handy prints may not land in /cache/)'
+      : (/ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENOTFOUND|CERT/i.test(String(code))
+          ? ' — could not reach FTPS on port 990 (LAN file transfer blocked or disabled?)'
+          : '');
+    throw new Error(`FTPS download of ${remote} failed [${code}]${hint}`);
+  }
+
   const entry = `Metadata/plate_${plateIdx}.gcode`;
-  return extractEntryFromZip(zipBuf, entry);
+  try {
+    return await extractEntryFromZip(zipBuf, entry);
+  } catch (e) {
+    throw new Error(`${e.message} (plate ${plateIdx}, from ${remote})`);
+  }
 }
 
 module.exports = { fetchPlateGcode };
