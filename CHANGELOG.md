@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## 3.1.6 — 2026-08-22
+
+### Added
+- **`scripts/ftp-test.js` — a gcode-viz FTP self-test** — a standalone diagnostic that reproduces the widget's server-side fetch: it connects to the printer's FTPS file service (port 990) and lists `/cache/`, then checks whether the current print's sliced `<subtask_name>.gcode.3mf` is actually there. Run it with `docker exec bambuboard node scripts/ftp-test.js`. It isolates the two failure modes behind #24/#25 — FTP blocked/unreachable vs. the sliced file not being in `/cache/` (typical of cloud / Bambu Handy / MakerWorld prints, or a filename mismatch). Prints filenames only; the access code is never echoed. **Why:** gives affected users a one-command way to report exactly why the Gcode Toolpath can't fetch their print.
+
 ## 3.1.5 — 2026-08-22
 
 ### Changed
