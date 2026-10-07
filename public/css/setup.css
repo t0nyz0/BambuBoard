@@ -1,8 +1,8 @@
 .setup-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-4);
-  max-width: 720px;
+  gap: 20px;
+  max-width: none;
   margin: 0 auto;
 }
 .setup-grid .field-row {
@@ -29,3 +29,11 @@
 .test-result { font-size: 13px; padding: var(--space-2) 0; }
 .test-result.ok { color: var(--color-ok); }
 .test-result.error { color: var(--color-error); }
+
+.setup-grid .card + .card { margin-top: 0; }
+.advanced-connection { margin: 16px 0; }
+.cloud-section > summary, .display-preferences > summary { margin-bottom: 0; }
+.cloud-section[open] > summary, .display-preferences[open] > summary { margin-bottom: 20px; }
+#connect-camera-hint { margin-top: 12px; }
+#connect-detected { overflow-wrap: anywhere; }
+#cloud-status-pill { white-space: normal; overflow-wrap: anywhere; }

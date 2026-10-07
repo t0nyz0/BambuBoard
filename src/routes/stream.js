@@ -47,10 +47,10 @@ function buildStreamRouter({ app }) {
       ];
       ff = spawn(ffmpegPath, args);
       ff.stdin.on('error', () => {}); // EPIPE when ffmpeg exits first
-      let errTail = '';
-      ff.stderr.on('data', (d) => { errTail = (errTail + d.toString()).slice(-2000); });
+      ff.stderr.on('data', () => {});
+      ff.on('error', () => { send({ type: 'error', msg: 'Video encoder could not start on the server.' }); try { ws.close(); } catch (_) {} });
       ff.on('exit', (code, signal) => {
-        send({ type: 'ended', code, signal, detail: errTail.slice(-400) });
+        send({ type: 'ended', code, signal });
         ff = null;
         try { ws.close(); } catch (_) {}
       });

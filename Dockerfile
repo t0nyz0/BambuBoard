@@ -1,9 +1,20 @@
-FROM node:20-alpine
+FROM node:24-alpine3.24
 
 WORKDIR /usr/src/app
 
-COPY package*.json ./
-RUN npm install --omit=dev
+# Use Alpine's maintained FFmpeg instead of the older static download.
+# ffmpeg-static and rtsp-relay both honor this path, including during install.
+RUN apk upgrade --no-cache && apk add --no-cache ffmpeg
+ENV FFMPEG_BIN=/usr/bin/ffmpeg
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
+    && npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+       /opt/yarn-v* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+# The running app needs Node and FFmpeg, not package-manager tools. Removing
+# those build tools also excludes their unused dependency trees from runtime.
 
 COPY . .
 

@@ -1,9 +1,11 @@
 <div align="center">
 
+<img src="public/assets/bambuboard-prism.svg" alt="BambuBoard Prism mark" width="64" height="64">
+
 # BambuBoard
 
 **Live print overlays for Bambu Lab printers, built for streamers.**
-Design a dashboard once, hit **Go Live**, and add a *single* Browser Source to OBS — camera and all widgets composited into one page. No scene import, no SDP file, no Bambu Studio.
+Design a dashboard once, click **Publish to /live**, and add a *single* Browser Source to OBS — camera and all widgets composited into one page. No scene import, no SDP file, no Bambu Studio.
 
 <br>
 
@@ -13,7 +15,7 @@ Design a dashboard once, hit **Go Live**, and add a *single* Browser Source to O
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
-**Setup → Connect → Layout → Go Live.** Four steps, signposted in the app (Connect lives on the Setup page).
+**Setup → Connect → Layout → Publish.** First-run guidance appears during printer setup. Connect lives on the Setup page.
 
 [Quickstart](#quickstart--docker-recommended) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
 
@@ -34,40 +36,35 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
 
 ## Screenshots
 
-> **Live H2D dashboard** — chamber camera, gcode toolpath, dual nozzles, dual AMS, MakerWorld profile, and progress bar, all composited into a single `/live` page that OBS captures with one Browser Source.
+> **Live workspace** — the published camera and widgets come first. OBS setup sits below the preview, and optional direct YouTube streaming stays collapsed at the bottom.
 
-<a href="screenshots/LIVE-DASHBOARD-3.0.jpg"><img src="screenshots/LIVE-DASHBOARD-3.0.jpg" alt="BambuBoard 3.0 live H2D dashboard" width="100%"></a>
+<a href="screenshots/STUDIO-LIVE.png"><img src="screenshots/STUDIO-LIVE.png" alt="BambuBoard Live page with the Prism logo, dark theme and preview-first layout" width="100%"></a>
 
 <table>
   <tr>
     <td width="50%" valign="top">
       <h4>Setup</h4>
       <p>Printer credentials, connection test, and optional Bambu Cloud sign-in.</p>
-      <a href="screenshots/SETUP-TAB.jpg"><img src="screenshots/SETUP-TAB.jpg" alt="Setup page" width="100%"></a>
+      <a href="screenshots/STUDIO-SETUP.png"><img src="screenshots/STUDIO-SETUP.png" alt="Setup page" width="100%"></a>
     </td>
     <td width="50%" valign="top">
       <h4>Layout editor</h4>
-      <p>Drag widgets onto a canvas-sized preview with live telemetry — snap to grid, undo/redo, layers — then hit 🔴 Go Live to publish.</p>
-      <a href="screenshots/LAYOUT-TAB.jpg"><img src="screenshots/LAYOUT-TAB.jpg" alt="Layout editor" width="100%"></a>
+      <p>Arrange widgets using the canvas, Layers panel and docked inspector. Save a draft, then Publish to /live when it is ready.</p>
+      <a href="screenshots/STUDIO-LAYOUT.png"><img src="screenshots/STUDIO-LAYOUT.png" alt="Layout editor" width="100%"></a>
     </td>
   </tr>
 </table>
 
-<!--
-  Screenshot status (3.1.0): all three shots are current — captured against the
-  3.1.0 UI (Live·Layout·Setup nav, Setup→Connect→Layout→Go Live stepper, and the
-  editor's Save / Preview / 🔴 Go Live toolbar). The hero is a live /live composite.
-  TODO (nice-to-have): add a shot of the Live page (/) itself.
--->
+Screenshots show the actual app in an isolated demo installation, with sample telemetry, sample cloud responses and a recorded H2D camera feed. Saved widget themes remain independent of the app theme. [View the mobile Live page](screenshots/STUDIO-MOBILE.png).
 
 ---
 
 ## Highlights
 
-- **One Browser Source → OBS** — design your overlay, hit 🔴 **Go Live**, and point a single OBS Browser Source at `/live`. BambuBoard composites the camera + every widget into one page — no scene import, no per-widget sources, no SDP. Edit and re-publish anytime; OBS updates itself.
+- **One Browser Source → OBS** — design your overlay, click **Publish to /live**, and point a single OBS Browser Source at `/live`. BambuBoard composites the camera + every widget into one page — no scene import, no per-widget sources, no SDP. Edit and re-publish anytime; OBS updates itself.
 - **Built-in camera feed (every model)** — BambuBoard streams the printer's chamber camera itself, so it shows up in `/live` with **no Bambu Studio "Go Live" and no OBS media/SDP setup**. X1 / X1C / H2D / P2S use RTSP (flip *LAN Mode Liveview* on the printer once); P1 / A1-class use the port-6000 chamber-image protocol. The widget picks the right transport automatically.
-- **Stream to YouTube without OBS** *(beta)* — go live straight from the browser: paste your YouTube stream key, share the `/live` tab, and BambuBoard relays it (browser-encoded → server ffmpeg → RTMP). OBS is still the better choice on weak hardware (encoding happens in your browser), but you don't *need* it.
-- **Visual scene editor** — drag widgets onto a 1920×1080 preview canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. OBS-style Layers panel for drag-to-reorder z-stacking.
+- **Stream to YouTube without OBS** *(beta)* — expand the optional section at the bottom of Live, paste your YouTube stream key, and share the `/live` tab. Tab capture requires HTTPS or localhost and a supported desktop browser. Your browser encodes the capture; the BambuBoard server also transcodes it with FFmpeg before sending RTMP. A running relay does not confirm a public broadcast; check YouTube Studio. OBS is the recommended path for small hosts.
+- **Visual scene editor** — drag widgets onto a preview that matches your scene’s canvas. Snap to grid. Multi-select. Undo/redo. Live previews driven by your real telemetry. OBS-style Layers panel for drag-to-reorder z-stacking.
 - **Live gcode toolpath widget** *(experimental / beta)* — three.js widget that fetches the active print's gcode over FTPS, parses it, and renders the toolpath in real time with a stylized hotend tracing the active layer. Multi-color prints get per-tool AMS colors. Adaptive speed calibration keeps the simulation locked to the printer's reported `mc_percent` even through filament swaps. Single-color prints work great; multi-color/multi-object timing on complex prints can still drift — open an issue if you hit a case that's clearly off.
 - **MQTT auto-detection** — printer model auto-detected on connect; no need to remember whether you have an X1C or P1S. Mirrors the [ha-bambulab](https://github.com/greghesp/ha-bambulab) detection logic.
 - **AMS drying indicator** — `AMS 2 Pro` and `AMS HT` units get a live "DRYING · 60° · 11h" pill with an animated fan icon when actively heating filament.
@@ -114,7 +111,8 @@ A [`docker-compose.synology.yml`](docker-compose.synology.yml) is also available
 ```bash
 git clone https://github.com/t0nyz0/BambuBoard.git
 cd BambuBoard
-npm install
+# Use Node.js 24 LTS (nvm use, if you use nvm)
+npm ci
 npm start
 ```
 
@@ -126,12 +124,12 @@ Open `http://localhost:8080`.
 
 When you open BambuBoard for the first time, you'll be guided through:
 
-1. **Setup** (`/setup`) — Enter your printer's IP, serial number, and LAN access code. Test the connection from this page before saving.
+1. **Setup** (`/setup`) — Enter your printer’s IP, serial number, and LAN access code. Save settings, then test the connection. MQTT port and display preferences are in secondary sections.
 2. **Connect** (`/setup#connect`, same page as Setup) — BambuBoard asks the printer to identify itself via MQTT. Within a few seconds you'll see "Auto-detected: H2D" (or whichever model). The "Continue to Layout →" button lights up.
-3. **Layout** (`/scene-editor`) — A 1920×1080 canvas auto-loads the matching default template for your printer type. Drag widgets, resize, change themes, snap to grid. When you're happy, click **🔴 Go Live** to publish it.
-4. **Go Live** (`/`) — Add **one Browser Source** in OBS pointing at `http://<your-host>:8080/live` (or use the one-click "Download OBS scene" — it's just that single source). No camera media source, no SDP. Re-publish from the editor any time and OBS updates on its own.
+3. **Layout** (`/scene-editor`) — Open your saved scene or the matching default template. Drag widgets, resize, change themes, and snap to grid. **Save draft** stores your edits without changing the published output. **Publish to /live** saves and publishes the current scene.
+4. **Live** (`/`) — Add **one Browser Source** in OBS pointing at `http://<your-host>:8080/live` (or use the one-click "Download OBS scene" — it's just that single source). No camera media source, no SDP. Re-publish from the editor any time and OBS updates on its own.
 
-> **Match your OBS canvas to the scene.** Set the Browser Source size (and OBS → **Settings → Video → Base (Canvas) Resolution**) to your scene's resolution — 1920×1080 by default. `/live` scales to fit, so a mismatch just letterboxes rather than breaking.
+> **Match your OBS canvas to the scene.** The OBS scene download uses the published canvas size, including 2560×1440 and custom resolutions. If adding the source manually, set its size (and OBS → **Settings → Video → Base (Canvas) Resolution**) to the size shown under Live preview. `/live` scales to fit, so a mismatch just letterboxes rather than breaking.
 
 You'll need before starting:
 - The printer's **IP address** (printer screen → Settings → Network).
@@ -185,7 +183,8 @@ BambuBoard/
 │   └── templates/        Default layout starters for each printer family
 ├── data/                 Runtime state (gitignored): data.json, accessToken.json, note.json, scenes/
 ├── scripts/              build-widget-catalog.js, etc.
-├── config.json           Local config (gitignored)
+├── package-lock.json     Reproducible npm dependency graph
+├── data/config.json      Local config (gitignored)
 └── example.config.json
 ```
 
@@ -194,7 +193,7 @@ BambuBoard/
 ## Pages
 
 - **`/setup`** — Step 1+2: Printer config, connection check, optional Bambu Cloud auth.
-- **`/scene-editor`** — Step 3: Visual scene editor. Auto-loads the matching template for your printer type. Save, Preview, or **🔴 Go Live** to publish.
+- **`/scene-editor`** — Step 3: Visual scene editor. Auto-loads the matching template for your printer type. Save draft, Publish to /live, or open the currently published output.
 - **`/`** (Live) — Step 4: the published output. Shows the `/live` URL + copy button, a one-click single-source OBS scene download, and a live preview.
 - **`/live`** — the composited broadcast page itself (camera + every widget). Point one OBS Browser Source here. Renders the published scene, or a default layout if nothing's published yet.
 - **`/login`** — Bambu Cloud sign-in (only used when cloud auth is enabled).
@@ -262,7 +261,7 @@ Two pre-built layouts are included, scrubbed of personal info:
 - **`default-x1`** — X1, X1 Carbon, P1P, P1S, A1, A1 Mini (single nozzle, single AMS layout).
 - **`default-h2d`** — H2D / H2D Pro (dual nozzle + dual AMS layout).
 
-The scene editor auto-loads the right one as a **starting point** based on the connected printer's type — you customize from there and publish with 🔴 Go Live. (`/live` also falls back to the matching template when nothing has been published yet.) These are layout starters, not OBS import files — OBS only ever needs the single `/live` Browser Source.
+The scene editor auto-loads the right one as a **starting point** based on the connected printer's type — you customize from there and publish with **Publish to /live**. (`/live` also falls back to the matching template when nothing has been published yet.) These are layout starters, not OBS import files — OBS only ever needs the single `/live` Browser Source.
 
 Both templates use the **combined AMS widget** (chamber temp + humidity + drying status + tray contents in one card) and a uniform 3px-gap right rail: Chamber Temp → Bed Temp → Nozzle(s) → AMS → Fans, all top-to-bottom flush. Active nozzle and active filament tray are highlighted with a green left-edge accent + soft tint while printing.
 
@@ -299,14 +298,22 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 - **No data in the widgets** — check the "Connect" panel on `/setup`; it should show "MQTT: ✓ Connected" within 3–5s. If not, re-verify the IP, port (8883), serial, and access code. (Widget data comes over MQTT — this is separate from the camera, which has its own item below.)
 - **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
 - **Camera is black / "Camera off"** — BambuBoard renders the camera itself (no OBS media source, no SDP, no Bambu Studio). On RTSP models (X1 / X1C / H2D / P2S), enable **LAN Mode Liveview** on the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot (firmware 01.06+). The camera widget shows these exact steps when the feed is unavailable. P1 / A1-class printers use the port-6000 chamber-image stream instead — no toggle needed, just a valid access code.
-- **OBS shows nothing at `/live`** — make sure the BambuBoard server is running and the Browser Source URL points at `http://<your-host>:8080/live` (not `localhost` if OBS is on another machine). Publish a scene with **🔴 Go Live**, or `/live` falls back to the default layout.
+- **OBS shows nothing at `/live`** — make sure the BambuBoard server is running and the Browser Source URL points at `http://<your-host>:8080/live` (not `localhost` if OBS is on another machine). Publish a scene with **Publish to /live**, or `/live` falls back to the default layout.
 
 ---
 
 ## Development
 
+Node.js **24 LTS** is supported; `.nvmrc`, CI and Docker use that major. Commit `package-lock.json` when dependencies change and use `npm ci` for repeatable installs. Docker uses Alpine’s maintained FFmpeg; source installs use `ffmpeg-static` or an explicit `FFMPEG_BIN` path. The FFmpeg install script is approved for its locked version in `package.json`.
+
+The production Docker image removes npm/npx/Yarn after installing packages. Start it with its existing Node command and rebuild the image when dependencies change. [Studio refresh QA coverage and release checks](docs/qa-studio-refresh.md).
+
+`BAMBUBOARD_DATA_DIR=/absolute/path` isolates runtime state, useful for local development and tests. It defaults to `./data`; legacy root-file migration runs only for that default directory. Set `BAMBUBOARD_PUBLIC_URL=https://board.example.com` when downloads should use a specific reverse-proxy origin. Otherwise export URLs honor the forwarded host and protocol.
+
+Published output is a snapshot in `data/active-scene.json`. Saving or deleting a draft keeps the published output intact; publish again to update `/live`. Existing active pointers are snapshotted at startup without rewriting the saved scene. Back up the whole `data` directory before upgrading.
+
 ```bash
-npm install
+npm ci                            # Node.js 24 LTS; installs package-lock.json
 npm start                         # uses ./data/config.json (or env overrides)
 BAMBUBOARD_LOGGING=true npm start > /tmp/bb.log 2>&1 &
 tail -f /tmp/bb.log               # verbose MQTT trace
@@ -316,7 +323,13 @@ Useful npm scripts:
 
 | Script | What it does |
 |---|---|
-| `npm start` | Start the server on port 8080 (or `BAMBUBOARD_PORT`). |
+| `npm start` | Start the server on port 8080 (or `PORT` / `BAMBUBOARD_HTTP_PORT`). |
+| `npm run check` | Check server, app and widget JavaScript syntax. |
+| `npm test` | Exercise publication persistence, cloud responses, TLS MQTT/FTPS/camera fixtures and a loopback RTMP relay. |
+| `npm run test:browser` | Exercise the real app with isolated data, responsive layouts, keyboard controls and all widgets. Install Chromium with `npx playwright install chromium` first. |
+| `npm run test:ui` | Check editor regressions, publication failure/recovery, transparent widget rendering and management-page accessibility. Set `BB_BROWSERS=chromium,firefox,webkit` after installing those Playwright browsers to check all three engines. |
+| `node scripts/capture-readme.js` | Take fresh Live, Layout, Setup and mobile screenshots using an isolated MQTT demo and camera replay. The default uses a generated camera test feed; [optional local reference inputs](docs/qa-studio-refresh.md#screenshots-and-safe-fixtures) reproduce an existing layout. |
+| `npm run build:vendor` | Regenerate local jQuery, Three.js, lil-gui and toolpath bundles from the locked versions. |
 | `npm run build:widget-catalog` | Regenerate the widget catalog table in this README from each widget's `widget.json`. Run after adding/changing widgets. |
 
 ---

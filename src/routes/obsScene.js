@@ -6,7 +6,7 @@ const path = require('path');
 const SAFE_NAME = /^[a-zA-Z0-9_\-. ]{1,64}$/;
 const PKG_VERSION = require('../../package.json').version;
 
-function buildObsSceneRouter({ paths }) {
+function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   const router = express.Router();
   const TEMPLATES_DIR = path.join(paths.root, 'OBS_settings', 'templates');
   const SCENES_DIR = path.join(paths.data, 'scenes');
@@ -17,19 +17,67 @@ function buildObsSceneRouter({ paths }) {
 
   fs.mkdirSync(SCENES_DIR, { recursive: true });
 
-  function hostFromReq(req) {
-    return req.headers['x-forwarded-host'] || req.headers.host || 'localhost:8080';
+  function originFromReq(req) {
+    if (process.env.BAMBUBOARD_PUBLIC_URL) {
+      const configured = new URL(process.env.BAMBUBOARD_PUBLIC_URL);
+      if (!['http:', 'https:'].includes(configured.protocol)) throw new Error('Public URL must use HTTP or HTTPS');
+      return configured.origin;
+    }
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost:8080').split(',')[0].trim();
+    const forwarded = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const protocol = ['http', 'https'].includes(forwarded) ? forwarded : req.protocol;
+    return new URL(`${protocol}://${host}`).origin;
   }
+  function hostFromReq(req) { return new URL(originFromReq(req)).host; }
+
+  // Freeze legacy active pointers once on startup. The scene files remain
+  // unchanged; older versions still understand the slug in this record.
+  try {
+    const record = JSON.parse(fs.readFileSync(ACTIVE_FILE, 'utf8'));
+    if (SAFE_NAME.test(record.slug || '') && !record.scene) {
+      const file = path.join(SCENES_DIR, `${record.slug}.json`);
+      record.scene = JSON.parse(fs.readFileSync(file, 'utf8'));
+      record.publishedAt = fs.statSync(file).mtimeMs;
+      fs.writeFileSync(ACTIVE_FILE + '.tmp', JSON.stringify(record));
+      fs.renameSync(ACTIVE_FILE + '.tmp', ACTIVE_FILE);
+    }
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.warn('[bambuboard] could not snapshot previous published scene:', e.message);
+  }
+  async function readPublished() {
+    try {
+      const record = JSON.parse(await fsp.readFile(ACTIVE_FILE, 'utf8'));
+      if (!SAFE_NAME.test(record.slug || '')) return null;
+      const scene = record.scene || JSON.parse(await fsp.readFile(path.join(SCENES_DIR, `${record.slug}.json`), 'utf8'));
+      const updatedAt = record.publishedAt || (await fsp.stat(path.join(SCENES_DIR, `${record.slug}.json`))).mtimeMs;
+      return { slug: record.slug, scene, updatedAt };
+    } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  }
+  function resolutionOf(scene) {
+    const { x, y } = scene?.resolution || {};
+    return {
+      x: Number.isInteger(x) && x > 0 ? x : 1920,
+      y: Number.isInteger(y) && y > 0 ? y : 1080,
+    };
+  }
+  async function outputInfo() {
+    const published = await readPublished();
+    if (published) return { ...published, resolution: resolutionOf(published.scene) };
+    const template = getConfig().printer?.type === 'H2D' ? 'default-h2d' : 'default-x1';
+    const scene = JSON.parse(await fsp.readFile(path.join(TEMPLATES_DIR, `${template}.json`), 'utf8'));
+    return { slug: null, updatedAt: null, label: 'Default scene', template, scene, resolution: resolutionOf(scene) };
+  }
+
 
   // Replace `<HOST>` with the request's host and `<VERSION>` with the current
   // BambuBoard version. Templates use these as placeholders so we don't hard-
   // code stale info like "BambuBoard 1.2.4" — the served scene file always
   // matches what's actually running.
-  function substituteTemplate(jsonText, host) {
-    return jsonText.replace(/<HOST>/g, host).replace(/<VERSION>/g, PKG_VERSION);
+  function substituteTemplate(jsonText, host, origin = `http://${host}`) {
+    return jsonText.replace(/https?:\/\/<HOST>/g, origin).replace(/<HOST>/g, host).replace(/<VERSION>/g, PKG_VERSION);
   }
   // Back-compat alias.
-  const substituteHost = (jsonText, host) => substituteTemplate(jsonText, host);
+  const substituteHost = (jsonText, host, origin) => substituteTemplate(jsonText, host, origin);
 
   // -------- Templates (read-only, committed) --------
 
@@ -62,7 +110,7 @@ function buildObsSceneRouter({ paths }) {
     try {
       const full = path.join(TEMPLATES_DIR, `${slug}.json`);
       const raw = await fsp.readFile(full, 'utf-8');
-      const out = substituteHost(raw, hostFromReq(req));
+      const out = substituteHost(raw, hostFromReq(req), originFromReq(req));
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename="bambuboard-${slug}.json"`);
       res.send(out);
@@ -101,7 +149,7 @@ function buildObsSceneRouter({ paths }) {
       if (!template || !SAFE_NAME.test(template)) return res.status(400).json({ error: 'invalid template' });
       const raw = await fsp.readFile(path.join(TEMPLATES_DIR, `${template}.json`), 'utf-8');
       const host = hostFromReq(req);
-      let text = substituteHost(raw, host);
+      let text = substituteHost(raw, host, originFromReq(req));
 
       // Walk the parsed JSON, decorate any source.url that points at /widgets/<slug>/.
       // We append ?theme=...&accent=...&fontSize=... directly without using URL() so we
@@ -175,7 +223,7 @@ function buildObsSceneRouter({ paths }) {
     if (!SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
     try {
       const raw = await fsp.readFile(path.join(SCENES_DIR, `${slug}.json`), 'utf-8');
-      const out = substituteHost(raw, hostFromReq(req));
+      const out = substituteHost(raw, hostFromReq(req), originFromReq(req));
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename="${slug}.json"`);
       res.send(out);
@@ -217,46 +265,38 @@ function buildObsSceneRouter({ paths }) {
   // `/live` renders this scene by default. The editor's "Set as Live" sets it,
   // and /live polls it to auto-update when a new scene is published.
 
-  async function readActiveSlug() {
-    try {
-      const j = JSON.parse(await fsp.readFile(ACTIVE_FILE, 'utf-8'));
-      return j && typeof j.slug === 'string' ? j.slug : null;
-    } catch (_) { return null; }
-  }
-
-  // GET /api/obs/active → { slug, updatedAt } (updatedAt = scene file mtime, so
-  // /live can detect a re-save of the same active scene). slug is null when
-  // unset or when the pointed-at scene has been deleted.
+  // Publication identity is a snapshot, so saving or deleting a draft does
+  // not alter an already-published output.
   router.get('/active', async (req, res) => {
     try {
-      let slug = await readActiveSlug();
-      let updatedAt = null;
-      if (slug) {
-        try {
-          updatedAt = (await fsp.stat(path.join(SCENES_DIR, `${slug}.json`))).mtimeMs;
-        } catch (_) { slug = null; } // pointed-at scene gone
-      }
-      res.json({ slug, updatedAt });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
+      const { scene, ...info } = await outputInfo();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(info);
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
-
-  // POST /api/obs/active { slug } → mark a scene as the published/live scene.
+  router.get('/published', async (req, res) => {
+    try {
+      const { scene } = await outputInfo();
+      res.setHeader('Cache-Control', 'no-store');
+      res.type('json').send(substituteHost(JSON.stringify(scene), hostFromReq(req), originFromReq(req)));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  let publishing = Promise.resolve();
   router.post('/active', async (req, res) => {
     const { slug } = req.body || {};
     if (!slug || !SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
-    try {
-      await fsp.access(path.join(SCENES_DIR, `${slug}.json`));
-    } catch (_) {
-      return res.status(404).json({ error: 'scene not found' });
-    }
-    try {
-      await fsp.writeFile(ACTIVE_FILE, JSON.stringify({ slug }, null, 2));
-      res.json({ ok: true, slug });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
+    const operation = publishing.then(async () => {
+      const scene = JSON.parse(await fsp.readFile(path.join(SCENES_DIR, `${slug}.json`), 'utf8'));
+      const current = await readPublished();
+      const publishedAt = Math.max(Date.now(), (current?.updatedAt || 0) + 1);
+      const tmp = ACTIVE_FILE + '.tmp';
+      await fsp.writeFile(tmp, JSON.stringify({ slug, scene, publishedAt }));
+      await fsp.rename(tmp, ACTIVE_FILE);
+      return { ok: true, slug, updatedAt: publishedAt };
+    });
+    publishing = operation.catch(() => {});
+    try { res.json(await operation); }
+    catch (e) { res.status(e.code === 'ENOENT' ? 404 : 500).json({ error: e.code === 'ENOENT' ? 'scene not found' : e.message }); }
   });
 
   // -------- One-click OBS helper --------
@@ -265,8 +305,10 @@ function buildObsSceneRouter({ paths }) {
   // setup now: import it (or just add one Browser Source to this URL by hand).
   // Mirrors the proven top-level structure of the shipped templates so OBS
   // imports it cleanly.
-  router.get('/single-source', (req, res) => {
-    const liveUrl = `http://${hostFromReq(req)}/live`;
+  router.get('/single-source', async (req, res) => {
+    try {
+    const liveUrl = `${originFromReq(req)}/live`;
+    const { resolution } = await outputInfo();
     const collection = {
       name: `BambuBoard ${PKG_VERSION}`,
       groups: [],
@@ -288,8 +330,8 @@ function buildObsSceneRouter({ paths }) {
       scaling_off_x: 0,
       scaling_off_y: 0,
       'virtual-camera': { type2: 3 },
-      resolution: { x: 1920, y: 1080 },
-      migration_resolution: { x: 1920, y: 1080 },
+      resolution: { ...resolution },
+      migration_resolution: { ...resolution },
       version: 2,
       sources: [
         {
@@ -297,7 +339,7 @@ function buildObsSceneRouter({ paths }) {
           name: 'BambuBoard Live',
           id: 'browser_source',
           versioned_id: 'browser_source',
-          settings: { url: liveUrl, width: 1920, height: 1080 },
+          settings: { url: liveUrl, width: resolution.x, height: resolution.y },
           enabled: true, mixers: 255, sync: 0, flags: 0, volume: 1, balance: 0.5,
           muted: false, monitoring_type: 0, private_settings: {},
         },
@@ -323,6 +365,7 @@ function buildObsSceneRouter({ paths }) {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', 'attachment; filename="bambuboard-live.json"');
     res.send(JSON.stringify(collection, null, 2));
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   return router;

@@ -10,10 +10,9 @@ function nowLocal() { return new Date().toLocaleString(); }
 // Auto-update data/note.json with the current model name when it changes,
 // unless the user has manually overridden it (note has { manual: true }).
 let lastNoteModel = null;
-function autoUpdateNote(printObj) {
+function autoUpdateNote(printObj, dataPath) {
   try {
-    const ROOT = path.resolve(__dirname, '..');
-    const notePath = path.join(ROOT, 'data', 'note.json');
+    const notePath = path.join(path.dirname(dataPath), 'note.json');
     const candidate = (printObj.subtask_name || printObj.task_name || printObj.gcode_file || '').toString().trim();
     if (!candidate || candidate === lastNoteModel) return;
     let current = {};
@@ -27,6 +26,7 @@ function autoUpdateNote(printObj) {
 
 function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
   let client = null;
+  let reconnectTimer = null;
   let sequenceID = 20000;
   let lastPushallTime = 0;
   let status = 'offline';
@@ -43,6 +43,8 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
     get detectedType() { return detectedType; },
     get detectedModel() { return detectedModel; },
     stop() {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
       if (client) {
         try { client.removeAllListeners(); client.end(true); } catch (_) {}
         client = null;
@@ -130,7 +132,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
           fs.writeFile(dataPath, dataToWrite, (err) => {
             if (err) log(`Error writing data.json: ${err.message}`);
           });
-          autoUpdateNote(json.print);
+          autoUpdateNote(json.print, dataPath);
         } else {
           // Type-aware pushall cadence
           const caps = capsFor(printer.type);
@@ -149,13 +151,12 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
       }
     });
 
-    let reconnecting = false;
+    const connection = client;
     const onDrop = (label) => async (err) => {
       log(`MQTT ${label}${err ? ': ' + err.message : ''}. Reconnecting in 3s...`);
       status = 'offline';
-      if (reconnecting) return;
-      reconnecting = true;
-      setTimeout(() => { reconnecting = false; connect(); }, 3000);
+      if (connection !== client || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => { reconnectTimer = null; if (connection === client) connect(); }, 3000);
     };
     client.on('error', onDrop('error'));
     client.on('close', onDrop('close'));

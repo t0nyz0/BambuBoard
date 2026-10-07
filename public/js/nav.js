@@ -1,189 +1,84 @@
-// Shared top-nav injector. Include with <script src="/js/nav.js"></script>
-// in any full-page view (NOT in OBS widget pages).
-//
-// Renders two horizontal bars:
-//   1. The top nav (brand + links + status pills)
-//   2. A workflow stepper showing the 4-step setup flow
-//      (Setup → Connect → Layout → Export). The stepper is hidden on
-//      Dashboard / Login since those aren't part of the setup workflow.
+// Shared navigation for the management pages. Broadcast widgets keep their own styles.
 (function () {
-  function el(tag, attrs, children) {
-    const e = document.createElement(tag);
-    if (attrs) for (const k in attrs) {
-      if (k === 'class') e.className = attrs[k];
-      else if (k === 'text') e.textContent = attrs[k];
-      else e.setAttribute(k, attrs[k]);
-    }
-    (children || []).forEach(c => e.appendChild(c));
-    return e;
-  }
-
-  // Workflow steps. Order matches the in-app 4-step setup flow.
-  // - matchPath: which URL pathnames mark this as the active step
-  // - href:      where clicking the step takes the user
-  // - locked:    function(status) → bool. Locked steps are not clickable.
-  const STEPS = [
-    { num: 1, label: 'Setup',   href: '/setup',         match: p => p.startsWith('/setup'),
-      locked: () => false },
-    { num: 2, label: 'Connect', href: '/setup#connect', match: p => p === '/setup#connect',
-      locked: s => !s || !s.setupComplete },
-    { num: 3, label: 'Layout',  href: '/scene-editor',  match: p => p.startsWith('/scene-editor'),
-      locked: s => !s || !s.setupComplete },
-    { num: 4, label: 'Go Live', href: '/',              match: p => p === '/',
-      locked: s => !s || !s.setupComplete },
-  ];
-
-  // Pages where the stepper is hidden — these aren't part of the workflow.
-  const STEPPER_HIDDEN_ON = ['/login'];
-
-  function build() {
-    const path = location.pathname.replace(/\/$/, '') || '/';
-    // Leads with the core loop: Live (the published output / "go live" page) is
-    // the primary destination, Layout is the editor, Setup is config. The old
-    // Export hub and the standalone Dashboard are gone — /live is both the
-    // output and the de-facto dashboard now.
-    const items = [
-      { href: '/',             label: 'Live',   match: p => p === '/' },
-      { href: '/scene-editor', label: 'Layout', match: p => p.startsWith('/scene-editor') },
-      { href: '/setup',        label: 'Setup',  match: p => p.startsWith('/setup') },
-    ];
-
-    // Brand mark — designed to actually stand out in the top-left.
-    // Layered geometric mark suggesting print layers + nozzle flow:
-    //   - Bold colored hexagon-ish base (extruder body)
-    //   - Stacked layer lines emerging from it (the print)
-    //   - Connection-status dot in the corner pulses when MQTT is online
-    // Wordmark uses heavier weight + tighter tracking for visual confidence.
-    const brand = document.createElement('a');
-    brand.className = 'nav-brand';
-    brand.href = '/';
-    brand.innerHTML = `
-      <span class="bb-logo-wrap">
-        <svg class="bb-logo" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
-          <defs>
-            <linearGradient id="bb-logo-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%"  stop-color="#6dc26b"/>
-              <stop offset="100%" stop-color="#3d8c3b"/>
-            </linearGradient>
-          </defs>
-          <!-- Build plate -->
-          <rect x="3" y="25" width="26" height="3" rx="1.5" fill="currentColor" opacity="0.25"/>
-          <!-- Print layers — wider at the bottom, narrower at top, suggesting a
-               vertical extrusion. Filled with the gradient for richer color. -->
-          <rect x="6"  y="20" width="20" height="3.5" rx="1.5" fill="url(#bb-logo-grad)" opacity="0.55"/>
-          <rect x="8"  y="14" width="16" height="3.5" rx="1.5" fill="url(#bb-logo-grad)" opacity="0.78"/>
-          <rect x="10" y="8"  width="12" height="3.5" rx="1.5" fill="url(#bb-logo-grad)"/>
-          <!-- Status dot -->
-          <circle class="bb-logo-status" cx="26" cy="6" r="3.5" />
-        </svg>
-        <span class="bb-logo-text">BambuBoard</span>
-      </span>
-    `;
-
-    const links = el('div', { class: 'nav-links' }, items.map(it => {
-      return el('a', {
-        href: it.href,
-        class: 'nav-link' + (it.match(path) ? ' active' : ''),
-        text: it.label,
-      });
-    }));
-
-    const meta = el('div', { class: 'nav-meta', id: 'nav-meta' }, []);
-    const nav = el('nav', { class: 'nav' }, [brand, links, el('div', { class: 'nav-spacer' }), meta]);
-    document.body.insertBefore(nav, document.body.firstChild);
-
-    // Stepper (separate bar below the nav). Hidden on /login only.
-    const showStepper = !STEPPER_HIDDEN_ON.some(p => path.startsWith(p));
-    if (showStepper) {
-      const stepper = el('div', { class: 'bb-stepper', id: 'bb-stepper' }, []);
-      nav.parentNode.insertBefore(stepper, nav.nextSibling);
-      // First render uses an empty status; refreshStatus will fill it in.
-      renderStepper(null);
-    }
-
-    refreshStatus();
-    setInterval(refreshStatus, 5000);
-  }
-
-  function renderStepper(status) {
-    const host = document.getElementById('bb-stepper');
-    if (!host) return;
-    const path = location.pathname.replace(/\/$/, '') || '/';
-    const hash = location.hash || '';
-    host.innerHTML = '';
-    STEPS.forEach((step, i) => {
-      const active = step.match(path + hash) || step.match(path);
-      const completed = isStepComplete(step.num, status);
-      const locked = step.locked(status);
-
-      const cls = ['bb-step',
-        active ? 'is-active' : '',
-        completed ? 'is-complete' : '',
-        locked ? 'is-locked' : '',
-      ].filter(Boolean).join(' ');
-
-      const node = locked
-        ? el('span', { class: cls, title: 'Complete the previous step first' })
-        : el('a', { class: cls, href: step.href });
-
-      const circle = el('span', { class: 'bb-step-circle', text: completed ? '✓' : String(step.num) });
-      const lbl = el('span', { class: 'bb-step-label', text: step.label });
-      node.appendChild(circle);
-      node.appendChild(lbl);
-      host.appendChild(node);
-
-      if (i < STEPS.length - 1) {
-        host.appendChild(el('span', { class: 'bb-step-connector' + (completed ? ' is-complete' : '') }));
-      }
-    });
-  }
-
-  function isStepComplete(num, status) {
-    if (!status) return false;
-    if (num === 1) return !!status.setupComplete;
-    if (num === 2) return !!status.connected;
-    // Steps 3 and 4 don't have a clear "completed" state today — they're done
-    // when the user clicks "Save & Continue to Export". Could be tracked via
-    // localStorage in a future iteration. Leave as not-complete for now so
-    // the breadcrumb just shows progress through the flow.
-    return false;
-  }
-
+  const make = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  };
+  let stepper;
   async function refreshStatus() {
     try {
-      const r = await fetch('/api/status');
-      if (!r.ok) return;
-      const s = await r.json();
-
-      // Reflect connection state on the brand mark — green pulse when online,
-      // amber dim when offline, gray when unknown. This makes the logo
-      // double as a quick at-a-glance status indicator.
-      const brand = document.querySelector('.nav-brand');
-      if (brand) {
-        brand.classList.remove('is-online', 'is-offline', 'is-unknown');
-        const conn = s.status?.connection || 'unknown';
-        brand.classList.add('is-' + conn);
-      }
-
+      const results = await Promise.all([
+        fetch('/api/status', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(); return r.json(); }),
+        fetch('/api/obs/active', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+        fetch('/api/obs/scenes').then(r => r.json()).catch(() => []),
+      ]);
+      const [status, active, scenes] = results;
       const meta = document.getElementById('nav-meta');
-      if (meta) {
-        const pillClass = s.status?.connection === 'online' ? 'pill-ok'
-          : s.status?.connection === 'offline' ? 'pill-warn'
-          : 'pill-error';
-        meta.innerHTML = `
-          <span class="pill ${pillClass}">${s.printer.name || s.printer.type} · ${s.status?.connection || 'unknown'}</span>
-          <span class="pill ${s.cloudAuth.signedIn ? 'pill-info' : ''}">${s.cloudAuth.enabled ? (s.cloudAuth.signedIn ? 'Cloud: signed in' : 'Cloud: on') : 'Cloud: off'}</span>
-        `;
-      }
-      renderStepper(s);
-    } catch (_) {}
+      meta.replaceChildren();
+      const online = status.connected;
+      meta.appendChild(make('span', 'pill ' + (online ? 'pill-ok' : 'pill-warn'),
+        `${status.printer?.name || status.printer?.type || 'Printer'} · ${online ? 'connected' : 'disconnected'}`));
+      const cloud = make('span', 'pill cloud-pill' + (status.cloudAuth?.signedIn ? ' pill-info' : ''),
+        status.cloudAuth?.signedIn ? 'Cloud signed in' : 'Cloud optional');
+      meta.appendChild(cloud);
+      renderStepper(status, active, scenes);
+      window.dispatchEvent(new CustomEvent('bambuboard:status', { detail: status }));
+    } catch (_) {
+      const meta = document.getElementById('nav-meta');
+      meta.replaceChildren(make('span', 'pill pill-warn', 'Connection status unavailable'));
+    }
   }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', build);
-  } else {
-    build();
+  function renderStepper(status, active, scenes) {
+    const firstRun = new URLSearchParams(location.search).get('firstRun') === '1';
+    stepper.hidden = location.pathname === '/login' || (status.setupComplete && !firstRun);
+    if (stepper.hidden) return;
+    stepper.replaceChildren();
+    const steps = [
+      ['Setup', '/setup', status.setupComplete],
+      ['Connect', '/setup#connect', status.connected],
+      ['Layout', '/scene-editor', Array.isArray(scenes) && scenes.length > 0],
+      ['Publish', '/', !!active?.slug],
+    ];
+    steps.forEach(([label, href, done], i) => {
+      const locked = i > 0 && !status.setupComplete;
+      const item = make(locked ? 'span' : 'a', 'bb-step' + (done ? ' is-complete' : '') + (locked ? ' is-locked' : ''));
+      if (!locked) item.href = href;
+      const current = location.pathname + location.hash;
+      if (current === href || (!location.hash && location.pathname === href)) item.classList.add('is-active');
+      item.append(make('span', 'bb-step-circle', done ? '✓' : String(i + 1)), make('span', 'bb-step-label', label));
+      stepper.appendChild(item);
+      if (i < 3) stepper.appendChild(make('span', 'bb-step-connector' + (done ? ' is-complete' : '')));
+    });
   }
+  function build() {
+    const main = document.querySelector('main');
+    if (main) { main.id = 'main-content'; main.tabIndex = -1; }
+    const skip = make('a', 'skip-link', 'Skip to content'); skip.href = '#main-content';
+    const nav = make('nav', 'nav'); nav.setAttribute('aria-label', 'Main navigation');
+    const brand = make('a', 'nav-brand'); brand.href = '/';
+    brand.innerHTML = '<img class="bb-logo" src="/assets/bambuboard-prism.svg" alt="" width="34" height="36"><span class="bb-logo-text">BambuBoard</span>';
+    const links = make('div', 'nav-links');
+    [['/', 'Live', 'desktop_windows'], ['/scene-editor', 'Layout', 'dashboard'], ['/setup', 'Setup', 'tune']].forEach(([href, label, icon]) => {
+      const link = make('a', 'nav-link'); link.href = href;
+      if (location.pathname === href) { link.classList.add('active'); link.setAttribute('aria-current', 'page'); }
+      const symbol = make('span', 'nav-icon', icon); symbol.setAttribute('aria-hidden', 'true');
+      link.append(symbol, document.createTextNode(label)); links.appendChild(link);
+    });
+    const meta = make('div', 'nav-meta'); meta.id = 'nav-meta';
+    meta.append(make('span', 'pill', 'Checking printer…'));
+    nav.append(brand, links, make('div', 'nav-spacer'), meta);
+    stepper = make('div', 'bb-stepper'); stepper.id = 'bb-stepper'; stepper.hidden = true;
+    document.body.prepend(skip, nav, stepper);
+    refreshStatus();
+    setInterval(refreshStatus, 5000);
+    window.addEventListener('bambuboard:published', refreshStatus);
+    window.addEventListener('bambuboard:settings-saved', refreshStatus);
+    window.addEventListener('hashchange', refreshStatus);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
+  else build();
 })();
 
 // Toast helper used by other pages
@@ -192,6 +87,8 @@ window.toast = function (msg, kind) {
   if (!host) {
     host = document.createElement('div');
     host.className = 'toast-host';
+    host.setAttribute('role', 'status');
+    host.setAttribute('aria-live', 'polite');
     document.body.appendChild(host);
   }
   const t = document.createElement('div');

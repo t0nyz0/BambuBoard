@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+data
+config.json
+config.json.*.bak
+screenshots
+test
+scripts
+.codex
+.DS_Store

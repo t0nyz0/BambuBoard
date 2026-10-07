@@ -1,120 +1,129 @@
-// Live page — surfaces the composited /live output, the OBS URL + 1-click
-// scene download, and which scene is currently published. (Replaced the old
-// OBS-export wizard: there's no scene-collection import or camera/SDP setup
-// anymore — OBS just needs one Browser Source pointing at /live.)
+// Live workspace: show the published output first; relay is an optional action.
 (function () {
+  const $ = id => document.getElementById(id);
   const liveUrl = `${location.origin}/live`;
-
-  const urlInput = document.getElementById('live-url');
-  if (urlInput) urlInput.value = liveUrl;
-
-  const copyBtn = document.getElementById('copy-url');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(liveUrl);
-        copyBtn.textContent = 'Copied!';
-      } catch (_) {
-        // Fallback: select the field so the user can copy manually.
-        urlInput && urlInput.select();
-        copyBtn.textContent = 'Press ⌘/Ctrl+C';
-      }
-      setTimeout(() => { copyBtn.textContent = 'Copy URL'; }, 1600);
-    });
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[c]));
-  }
-
-  // Show which scene is currently published (or prompt the user to make one).
+  $('live-url').value = liveUrl;
+  $('copy-url').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(liveUrl);
+      window.toast('Source URL copied');
+    } catch (_) {
+      $('live-url').focus(); $('live-url').select();
+      window.toast('URL selected. Press ⌘/Ctrl+C to copy.');
+    }
+  });
   async function refreshActive() {
-    const line = document.getElementById('active-line');
-    if (!line) return;
     try {
-      const a = await (await fetch('/api/obs/active', { cache: 'no-store' })).json();
-      if (a && a.slug) {
-        line.innerHTML = `Currently live: <strong>${escapeHtml(a.slug)}</strong>. ` +
-          `Change it in the <a href="/scene-editor">Layout editor</a> → 🔴 Go Live.`;
-      } else {
-        line.innerHTML = `Nothing published yet — open the ` +
-          `<a href="/scene-editor">Layout editor</a>, design your overlay, and hit ` +
-          `<strong>🔴 Go Live</strong>. Until then, /live shows a default layout.`;
-      }
+      const r = await fetch('/api/obs/active', { cache: 'no-store' });
+      if (!r.ok) throw new Error();
+      const a = await r.json();
+      $('active-line').textContent = a.slug || a.label || 'Default scene';
+      $('publication-state').textContent = a.slug ? 'Published' : 'Default layout';
+      $('publication-state').className = 'pill' + (a.slug ? ' pill-ok' : '');
+      $('output-label').textContent = a.slug ? 'Published output' : 'Default output · nothing published yet';
+      const { x = 1920, y = 1080 } = a.resolution || {};
+      $('preview-viewport').style.aspectRatio = `${x} / ${y}`;
+      $('preview-dimensions').textContent = `${x} × ${y}`;
+      $('obs-dimensions').textContent = `${x} × ${y}`;
     } catch (_) {
-      line.textContent = '';
+      $('active-line').textContent = 'Could not check publication state';
+      $('publication-state').textContent = 'Unavailable';
+      $('publication-state').className = 'pill pill-warn';
     }
   }
-
+  window.addEventListener('bambuboard:status', ({ detail: s }) => {
+    $('app-version').textContent = s.version || '';
+    $('printer-notice').hidden = !!s.connected;
+    $('printer-notice').replaceChildren();
+    if (!s.connected) {
+      $('printer-notice').append('Printer disconnected. Your output remains available. ');
+      const link = document.createElement('a'); link.href = '/setup#connect'; link.textContent = 'Check connection';
+      $('printer-notice').appendChild(link);
+    }
+  });
   refreshActive();
+  setInterval(() => { if (!document.hidden) refreshActive(); }, 4000);
 
-  // ---- Stream to YouTube (browser capture → server RTMP relay) ----
-  // The browser captures the /live tab via getDisplayMedia, encodes it with
-  // MediaRecorder, and streams chunks over a WebSocket to the server, which
-  // pipes them into ffmpeg → RTMP. (DOM + cross-origin iframes can't be drawn
-  // to a <canvas>, so tab capture is the only browser-native way to grab the
-  // composited /live page.)
-  let mediaStream = null, recorder = null, streamWs = null;
-  const startBtn = document.getElementById('yt-start');
-  const stopBtn = document.getElementById('yt-stop');
-  const keyInput = document.getElementById('yt-key');
-  const ytStatusEl = document.getElementById('yt-status');
-  const ytStatus = (m) => { if (ytStatusEl) ytStatusEl.textContent = m; };
-
-  function stopYouTube() {
-    try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (_) {}
-    try { if (mediaStream) mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
-    try { if (streamWs && streamWs.readyState <= 1) streamWs.close(); } catch (_) {}
-    recorder = null; mediaStream = null; streamWs = null;
-    if (startBtn) startBtn.disabled = false;
-    if (stopBtn) stopBtn.disabled = true;
+  let capture = null, recorder = null, socket = null;
+  let running = false;
+  function supportProblem() {
+    if (!window.isSecureContext) return 'Tab sharing needs HTTPS or localhost. This HTTP LAN address cannot capture a tab. You can still use the OBS source above.';
+    if (!navigator.mediaDevices?.getDisplayMedia) return 'This browser does not support tab sharing. Use a desktop browser with tab capture or the OBS source above.';
+    if (!window.MediaRecorder) return 'This browser cannot encode shared video. Use OBS or a browser with MediaRecorder support.';
+    return '';
   }
-
-  async function startYouTube() {
-    const key = (keyInput && keyInput.value || '').trim();
-    if (!key) return ytStatus('Enter your YouTube stream key first.');
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-      return ytStatus('Your browser does not support tab capture (getDisplayMedia).');
-    }
+  function checkSupport() {
+    const problem = supportProblem();
+    $('yt-support').hidden = !problem;
+    $('yt-support').textContent = problem;
+    $('yt-start').disabled = running || !!problem;
+  }
+  const status = message => { $('yt-status').textContent = message; $('yt-active-status').textContent = message; };
+  function stopRelay(message = 'Relay stopped.') {
+    running = false;
+    const previousSocket = socket;
+    socket = null;
+    try { if (recorder?.state !== 'inactive') recorder?.stop(); } catch (_) {}
+    capture?.getTracks().forEach(track => track.stop());
+    try { previousSocket?.close(); } catch (_) {}
+    recorder = null; capture = null;
+    $('yt-stop').disabled = true;
+    $('yt-active-controls').hidden = true;
+    status(message); checkSupport();
+  }
+  async function startRelay() {
+    if (running) return;
+    const problem = supportProblem();
+    if (problem) { checkSupport(); return status(problem); }
+    const key = $('yt-key').value.trim();
+    if (!key) return status('Enter your YouTube stream key first.');
+    running = true;
+    $('yt-start').disabled = true;
+    $('yt-stop').disabled = false;
+    $('yt-active-controls').hidden = false;
+    status('Choose the /live tab to share…');
     try {
-      mediaStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
-    } catch (_) {
-      return ytStatus('Screen share was cancelled.');
-    }
-    const mime = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm', 'video/mp4']
-      .find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    streamWs = new WebSocket(`${proto}//${location.host}/api/stream/youtube`);
-    streamWs.binaryType = 'arraybuffer';
-
-    streamWs.onopen = () => {
-      streamWs.send(JSON.stringify({ key }));
-      recorder = new MediaRecorder(mediaStream, { mimeType: mime || undefined, videoBitsPerSecond: 4500000 });
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size && streamWs && streamWs.readyState === 1) {
-          e.data.arrayBuffer().then(b => { try { streamWs.send(b); } catch (_) {} });
-        }
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+      if (!running) { stream.getTracks().forEach(t => t.stop()); return; }
+      capture = stream;
+      const mime = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m));
+      if (!mime) throw new Error('No supported video encoding format. Use OBS for this browser.');
+      const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/stream/youtube`);
+      socket = ws;
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        if (socket !== ws || !running) return ws.close();
+        try {
+          recorder = new MediaRecorder(capture, { mimeType: mime, videoBitsPerSecond: 4500000 });
+          recorder.ondataavailable = async e => {
+            if (!e.data?.size) return;
+            const chunk = await e.data.arrayBuffer();
+            if (socket === ws && ws.readyState === WebSocket.OPEN) ws.send(chunk);
+          };
+          recorder.onerror = () => stopRelay('Video encoding failed. Try OBS.');
+          ws.send(JSON.stringify({ key }));
+          recorder.start(1000);
+          capture.getVideoTracks()[0]?.addEventListener('ended', () => stopRelay());
+          status('Sending video to the relay…');
+        } catch (e) { stopRelay(e.message); }
       };
-      recorder.start(1000); // 1s chunks
-      // If the user stops sharing via the browser's bar, end cleanly.
-      const vt = mediaStream.getVideoTracks()[0];
-      if (vt) vt.addEventListener('ended', stopYouTube);
-      if (startBtn) startBtn.disabled = true;
-      if (stopBtn) stopBtn.disabled = false;
-      ytStatus('🔴 Live to YouTube…');
-    };
-    streamWs.onmessage = (ev) => {
-      try {
-        const m = JSON.parse(ev.data);
-        if (m.type === 'error') ytStatus('Error: ' + m.msg);
-        else if (m.type === 'ended') { ytStatus('Stream ended' + (m.detail ? ': ' + m.detail.split('\n').pop() : '')); stopYouTube(); }
-      } catch (_) {}
-    };
-    streamWs.onerror = () => ytStatus('Stream connection error.');
+      ws.onmessage = e => {
+        if (socket !== ws) return;
+        try {
+          const m = JSON.parse(e.data);
+          if (m.type === 'started') status('Relay running. Check YouTube Studio for broadcast status.');
+          else if (m.type === 'error') stopRelay('Relay error: ' + (m.msg || 'Could not start.'));
+          else if (m.type === 'ended') stopRelay('Relay ended. Check your connection and YouTube Studio.');
+        } catch (_) {}
+      };
+      ws.onerror = () => { if (socket === ws) stopRelay('Relay connection failed.'); };
+      ws.onclose = () => { if (socket === ws) stopRelay('Relay connection closed.'); };
+    } catch (e) {
+      stopRelay(e.name === 'NotAllowedError' ? 'Screen share was cancelled or denied.' : e.message);
+    }
   }
-
-  if (startBtn) startBtn.addEventListener('click', startYouTube);
-  if (stopBtn) stopBtn.addEventListener('click', stopYouTube);
+  $('yt-start').addEventListener('click', startRelay);
+  $('yt-stop').addEventListener('click', () => stopRelay());
+  window.addEventListener('pagehide', () => stopRelay());
+  checkSupport();
 })();

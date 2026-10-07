@@ -3,7 +3,7 @@ const fsp = fs.promises;
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const DATA_DIR = path.join(ROOT, 'data');
+const DATA_DIR = process.env.BAMBUBOARD_DATA_DIR ? path.resolve(process.env.BAMBUBOARD_DATA_DIR) : path.join(ROOT, 'data');
 // Config lives inside data/ so it persists when the data directory is
 // mounted as a Docker volume. Legacy root-level config.json is migrated
 // automatically on first run (see migrateConfigToData below).
@@ -80,7 +80,7 @@ function migrateLegacyMultiPrinter(config) {
 }
 
 function migrateConfigToData() {
-  if (fs.existsSync(LEGACY_CONFIG_PATH) && !fs.existsSync(CONFIG_PATH)) {
+  if (!process.env.BAMBUBOARD_DATA_DIR && fs.existsSync(LEGACY_CONFIG_PATH) && !fs.existsSync(CONFIG_PATH)) {
     fs.copyFileSync(LEGACY_CONFIG_PATH, CONFIG_PATH);
     fs.unlinkSync(LEGACY_CONFIG_PATH);
     console.log('Migrated config.json → data/config.json');
@@ -88,6 +88,7 @@ function migrateConfigToData() {
 }
 
 function migrateLegacyDataFiles() {
+  if (process.env.BAMBUBOARD_DATA_DIR) return;
   const candidates = [
     [path.join(ROOT, 'accessToken.json'), path.join(DATA_DIR, 'accessToken.json')],
     [path.join(ROOT, 'note.json'),        path.join(DATA_DIR, 'note.json')],

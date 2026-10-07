@@ -1,0 +1,24 @@
+{
+  "versions": {
+    "jquery": "4.0.0",
+    "three": "0.186.1",
+    "lil-gui": "0.21.0",
+    "gcode-preview": "2.18.0"
+  },
+  "jsmpeg": {
+    "repository": "https://github.com/phoboslab/jsmpeg",
+    "commit": "924acfbd96fdf15e6748d1368a36d79d8f4cecf6"
+  },
+  "patches": [
+    "gcode-preview: WebGLRenderer alpha=true",
+    "gcode-preview: BatchedMesh addInstance for current Three.js"
+  ],
+  "sha256": {
+    "public/assets/js/jquery.min.js": "39a546ea9ad97f8bfaf5d3e0e8f8556adb415e470e59007ada9759dce472adaa",
+    "public/assets/js/jsmpeg.min.js": "c0286ac82193fc9c9d5490ade425db04c446d9115bfe6823bf9bc0b0703c7760",
+    "public/vendor/three.module.js": "9052042d676cb0fdc1ddfefe193053f34b7ac0513a616fdac4535d49987812ea",
+    "public/vendor/three.core.js": "9edde002b066a9a05676a6127f67735b62baf399bdea529f2f7e31657da769e6",
+    "public/vendor/lil-gui.esm.js": "5b5a58e43dd6690f4a7b9bb3dd3caf7c58430a793855c9be8f3323bed94cc5a7",
+    "public/vendor/gcode-preview.esm.js": "ab1bb6d4596748c3a5b79e1b33fa8e6d2e5aea1bc13e950458304060b9d7c157"
+  }
+}

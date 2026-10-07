@@ -29,12 +29,17 @@ const state = {
   sources: {},           // name → source object (lookup)
   items: [],             // scene items, in render order
   selectedIndex: -1,
-  customizations: {},    // widgetSlug → { theme, accent, fontSize }
+  customizations: {},    // source UUID/name → { theme, accent, fontSize, bindings }
   zoom: 1,
-  // Undo/redo: snapshots of {items, customizations} taken before each
+  // Undo/redo: snapshots of items, sources, customizations and selection before each
   // mutating action. Cmd/Ctrl+Z pops; Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) re-pushes.
   history: [],
   future: [],
+  savedCollection: null,
+  savedFingerprint: null,
+  publishedFingerprint: null,
+  loaderValue: null,
+  saving: false,
 };
 
 const SNAP_GRID = 10;       // px when shift held during drag
@@ -159,6 +164,8 @@ function snapshot () {
   state.history.push({
     items: structuredClone(state.items),
     customizations: structuredClone(state.customizations),
+    original: structuredClone(state.original),
+    selectedIndex: state.selectedIndex,
   });
   if (state.history.length > 100) state.history.shift();
   state.future.length = 0;
@@ -170,11 +177,20 @@ function undo () {
   state.future.push({
     items: structuredClone(state.items),
     customizations: structuredClone(state.customizations),
+    original: structuredClone(state.original),
+    selectedIndex: state.selectedIndex,
   });
   const prev = state.history.pop();
   state.items = prev.items;
   state.customizations = prev.customizations;
+  state.original = prev.original;
+  state.selectedIndex = prev.selectedIndex ?? -1;
+  state.sources = Object.fromEntries((state.original.sources || []).map(src => [src.name, src]));
+  CANVAS_W = state.original.resolution?.x || 1920;
+  CANVAS_H = state.original.resolution?.y || 1080;
+  updateCanvasInfoBtn(); fitZoom();
   render();
+  openInspector();
   updateUndoButtons();
 }
 
@@ -183,11 +199,20 @@ function redo () {
   state.history.push({
     items: structuredClone(state.items),
     customizations: structuredClone(state.customizations),
+    original: structuredClone(state.original),
+    selectedIndex: state.selectedIndex,
   });
   const next = state.future.pop();
   state.items = next.items;
   state.customizations = next.customizations;
+  state.original = next.original;
+  state.selectedIndex = next.selectedIndex ?? -1;
+  state.sources = Object.fromEntries((state.original.sources || []).map(src => [src.name, src]));
+  CANVAS_W = state.original.resolution?.x || 1920;
+  CANVAS_H = state.original.resolution?.y || 1080;
+  updateCanvasInfoBtn(); fitZoom();
   render();
+  openInspector();
   updateUndoButtons();
 }
 
@@ -240,6 +265,7 @@ function updateUndoButtons () {
     if (e.key === 'ArrowDown')  dy =  step;
     if (dx === 0 && dy === 0) return;
     e.preventDefault();
+    if (state.items[state.selectedIndex]?.locked) return;
     snapshot();
     const item = state.items[state.selectedIndex];
     item.pos = { x: (item.pos?.x || 0) + dx, y: (item.pos?.y || 0) + dy };
@@ -252,7 +278,7 @@ function updateUndoButtons () {
   document.getElementById('save-btn').addEventListener('click', onSave);
   document.getElementById('preview-btn').addEventListener('click', onPreview);
   document.getElementById('golive-btn').addEventListener('click', onGoLive);
-  document.getElementById('reset-btn').addEventListener('click', () => { if (state.original) loadCollection(structuredClone(state.original)); });
+  document.getElementById('reset-btn').addEventListener('click', () => { if (state.savedCollection) loadCollection(structuredClone(state.savedCollection)); });
   document.getElementById('undo-btn').addEventListener('click', undo);
   document.getElementById('redo-btn').addEventListener('click', redo);
   document.getElementById('autolayout-btn').addEventListener('click', autoLayout);
@@ -270,14 +296,18 @@ function updateUndoButtons () {
       // If this widget is currently selected, refresh the inspector to enable
       // the auto-size button now that we have a measurement.
       if (state.selectedIndex >= 0) {
-        const src = state.sources[state.items[state.selectedIndex].name];
+        const src = state.sources[state.items[state.selectedIndex]?.name];
         if (isWidgetSrc(src) && widgetSlugOf(src) === m.slug) refreshInspector();
       }
     }
   });
-  document.getElementById('inspector-close').addEventListener('click', () => closeInspector());
+  document.getElementById('inspector-close').addEventListener('click', () => {
+    state.selectedIndex = -1;
+    document.querySelectorAll('.scene-item.selected, .layer-row.selected').forEach(n => n.classList.remove('selected'));
+    closeInspector();
+  });
   document.addEventListener('click', (e) => {
-    if (e.target.closest('.scene-item') || e.target.closest('.inspector') || e.target.closest('.editor-toolbar') || e.target.closest('.widget-drawer') || e.target.closest('.layers-panel')) return;
+    if (e.target.closest('.scene-item') || e.target.closest('.inspector') || e.target.closest('.editor-toolbar') || e.target.closest('.editor-heading') || e.target.closest('.draft-name') || e.target.closest('.widget-drawer') || e.target.closest('.layers-panel')) return;
     closeInspector();
     state.selectedIndex = -1;
     document.querySelectorAll('.scene-item.selected').forEach(n => n.classList.remove('selected'));
@@ -292,6 +322,7 @@ function updateUndoButtons () {
   // Layers panel toggle (open by default — set in HTML class).
   document.getElementById('layers-panel-btn').addEventListener('click', () => {
     els.layersPanel().classList.toggle('open');
+    closeWidgetDrawer(false);
   });
   document.getElementById('layers-panel-close').addEventListener('click', () => {
     els.layersPanel().classList.remove('open');
@@ -323,6 +354,13 @@ async function populateLoader () {
   // (covers X1/P1/A1 — the largest printer family). Show a brief loading
   // indicator while the template fetches, and dispatch a window event when
   // the scene is loaded so the stepper UI can mark Step 3 as in-progress.
+  const active = await fetch('/api/obs/active').then(r => r.json()).catch(() => null);
+  const saved = scnR.find(scene => scene.slug === active?.slug) || scnR[0];
+  if (saved) {
+    sel.value = `scn:${saved.slug}`;
+    sel.dispatchEvent(new Event('change'));
+    return;
+  }
   const printerType = statusR && statusR.printer && statusR.printer.type;
   if (tplR.length) {
     let pick = null;
@@ -351,23 +389,33 @@ async function populateLoader () {
   }
 }
 
+let loadRequest = 0;
 async function onLoaderChange (e) {
   const v = e.target.value;
   if (!v) return;
-  if (v === 'upload') { els.fileIn().click(); e.target.value = ''; return; }
-  const [kind, slug] = v.split(':');
-  const url = kind === 'tpl' ? `/api/obs/templates/${slug}/raw` : `/api/obs/scenes/${slug}`;
-  const r = await fetch(url);
-  if (!r.ok) return window.toast('Load failed', 'error');
-  const json = await r.json();
+  if (hasUnsavedChanges() && !confirm('Discard unsaved draft changes and load another layout?')) { e.target.value = state.loaderValue || ''; return; }
+  if (v === 'upload') { els.fileIn().value = ''; els.fileIn().click(); e.target.value = state.loaderValue || ''; return; }
+  const requestId = ++loadRequest;
+  const divider = v.indexOf(':');
+  const kind = v.slice(0, divider), slug = v.slice(divider + 1);
   // Remember which saved-scene file this came from so Save / Go Live re-publish
   // under the right name. Templates have no saved file yet (savedName=null), but
   // we keep their label as a suggestedName so Go Live can auto-save without a
   // prompt instead of nagging the user to name it first.
   const label = e.target.selectedOptions[0]?.textContent || slug;
-  state.savedName = kind === 'scn' ? label : null;
-  state.suggestedName = label;
-  loadCollection(json);
+  try {
+    const url = kind === 'tpl' ? `/api/obs/templates/${encodeURIComponent(slug)}/raw` : `/api/obs/scenes/${encodeURIComponent(slug)}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Request returned ${r.status}`);
+    const json = await r.json();
+    if (requestId !== loadRequest) return;
+    loadCollection(json, { savedName: kind === 'scn' ? slug : null, suggestedName: label });
+    state.loaderValue = v;
+  } catch (error) {
+    if (requestId !== loadRequest) return;
+    e.target.value = state.loaderValue || '';
+    window.toast('Load failed: ' + error.message, 'error');
+  }
 }
 
 function onFileUpload (e) {
@@ -376,16 +424,27 @@ function onFileUpload (e) {
   const fr = new FileReader();
   fr.onload = () => {
     try {
-      state.savedName = null;
-      state.suggestedName = (f.name || '').replace(/\.[^.]+$/, '') || null;
-      loadCollection(JSON.parse(fr.result));
+      loadCollection(JSON.parse(fr.result), { savedName: null, suggestedName: (f.name || '').replace(/\.[^.]+$/, '') || null });
+      ++loadRequest;
+      state.loaderValue = '';
+      els.loader().value = '';
     } catch (err) { window.toast('Invalid JSON: ' + err.message, 'error'); }
   };
   fr.readAsText(f);
 }
 
-function loadCollection (json) {
+function loadCollection (json, identity = {}) {
+  const scenes = Array.isArray(json?.sources) ? json.sources.filter(s => s?.id === 'scene') : [];
+  if (!scenes.length || scenes.some(s => !s.name || !Array.isArray(s.settings?.items))) {
+    throw new Error('The file must contain an OBS scene with a sources and items array.');
+  }
+  if ('savedName' in identity) state.savedName = identity.savedName;
+  if ('suggestedName' in identity) state.suggestedName = identity.suggestedName;
   state.original = json;
+  state.sceneName = null;
+  state.items = [];
+  state.selectedIndex = -1;
+  closeInspector();
   // Honor the scene-collection's declared canvas resolution. Some users have
   // 2560×1440 or 4K canvases. Default 1920×1080 when missing.
   CANVAS_W = (json.resolution && json.resolution.x) || 1920;
@@ -401,12 +460,12 @@ function loadCollection (json) {
   state.customizations = {};
   (json.sources || []).forEach(src => {
     if (!isWidgetSrc(src)) return;
-    const slug = widgetSlugOf(src);
+    const key = customizationKeyOf(src);
     const url = (src.settings && src.settings.url) || '';
     const qIdx = url.indexOf('?');
     if (qIdx < 0) return;
     const params = new URLSearchParams(url.slice(qIdx + 1));
-    const cust = state.customizations[slug] = state.customizations[slug] || {};
+    const cust = state.customizations[key] = state.customizations[key] || {};
     params.forEach((val, key) => {
       if (CUST_KEYS.includes(key)) {
         cust[key] = val;
@@ -420,11 +479,15 @@ function loadCollection (json) {
     });
   });
   // Pick scene
-  const scenes = (json.sources || []).filter(s => s.id === 'scene');
-  if (!scenes.length) return window.toast('No scenes found in file', 'error');
   populateScenePicker(scenes);
-  selectScene(json.current_scene || scenes[0].name);
+  selectScene(scenes.some(s => s.name === json.current_scene) ? json.current_scene : scenes[0].name);
   fitZoom(); // recompute scale-to-fit after canvas dimensions change
+  state.savedCollection = applyChangesToCollection();
+  state.savedFingerprint = collectionFingerprint(state.savedCollection);
+  state.publishedFingerprint = null;
+  document.getElementById('draft-name').value = state.savedName || sanitizeSceneName(state.suggestedName || state.sceneName);
+  updateDiff();
+  refreshPublicationState();
 }
 
 function populateScenePicker (scenes) {
@@ -435,7 +498,13 @@ function populateScenePicker (scenes) {
 }
 
 function selectScene (name) {
+  if (state.sceneName && state.sceneName !== name) {
+    const previous = state.sources[state.sceneName];
+    if (previous?.settings) previous.settings.items = structuredClone(state.items);
+  }
   state.sceneName = name;
+  state.selectedIndex = -1;
+  closeInspector();
   els.scenes().value = name;
   const scene = state.sources[name];
   if (!scene) return;
@@ -459,8 +528,8 @@ function fitZoom () {
   const c = els.canvas();
   if (!shell || !wrap || !c) return;
   const avail = shell.getBoundingClientRect();
-  const maxW = Math.max(320, avail.width - 32);
-  const maxH = Math.max(240, avail.height - 32);
+  const maxW = Math.max(40, avail.width - 26);
+  const maxH = Math.max(40, avail.height - 26);
   state.zoom = Math.min(maxW / CANVAS_W, maxH / CANVAS_H, 1);
 
   // The inner canvas keeps its 1920×1080 coordinate box; transform: scale()
@@ -708,7 +777,7 @@ function renderItem (item, idx) {
       // (browser paints at settings.{width,height}, scene transform scales output).
       const slug = widgetSlugOf(src);
       const iframe = document.createElement('iframe');
-      iframe.src = widgetUrlForPreview(slug);
+      iframe.src = widgetUrlForPreview(slug, src);
       iframe.title = item.name;
       iframe.loading = 'lazy';
       iframe.style.width  = sz.naturalW + 'px';
@@ -852,21 +921,23 @@ function renderItem (item, idx) {
 }
 
 const CUST_KEYS = ['theme', 'accent', 'fontSize', 'title', 'pad'];
+function customizationKeyOf(source) { return source?.uuid || source?.name || widgetSlugOf(source); }
 
-function widgetUrlForPreview (slug) {
-  const cust = state.customizations[slug];
-  if (!cust) return `/widgets/${slug}/`;
-  const params = new URLSearchParams();
-  for (const k of CUST_KEYS) if (cust[k]) params.set(k, cust[k]);
-  // Telemetry bindings: each non-default binding becomes `bind.<id>=<path>`.
-  // _customizer.js parses these and exposes the resolved values on window.__bindings.
-  if (cust.bindings) {
-    for (const id of Object.keys(cust.bindings)) {
-      const val = cust.bindings[id];
-      if (val) params.set('bind.' + id, val);
+function widgetParams(slug, source) {
+  const url = source?.settings?.url || '';
+  const params = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '');
+  const cust = state.customizations[customizationKeyOf(source)];
+  if (cust) {
+    for (const key of CUST_KEYS) {
+      if (cust[key] != null && cust[key] !== '') params.set(key, cust[key]); else params.delete(key);
     }
+    for (const key of [...params.keys()]) if (key.startsWith('bind.')) params.delete(key);
+    for (const [id, value] of Object.entries(cust.bindings || {})) if (value) params.set('bind.' + id, value);
   }
-  const qs = params.toString();
+  return params;
+}
+function widgetUrlForPreview(slug, source = state.sources[state.items[state.selectedIndex]?.name]) {
+  const qs = widgetParams(slug, source).toString();
   return `/widgets/${slug}/` + (qs ? '?' + qs : '');
 }
 
@@ -904,7 +975,9 @@ function renderBindings (slug) {
 
   // Get current overrides for this widget; lazy-fetch latest /data.json so
   // we can resolve and preview each path's live value next to the input.
-  const cust = state.customizations[slug] = state.customizations[slug] || {};
+  const source = state.sources[state.items[state.selectedIndex]?.name];
+  const key = customizationKeyOf(source);
+  const cust = state.customizations[key] = state.customizations[key] || {};
   const overrides = cust.bindings = cust.bindings || {};
 
   // Fetch /data.json once per render so each binding can show its live value.
@@ -920,7 +993,7 @@ function renderBindings (slug) {
         if (state.selectedIndex >= 0) {
           const cur = state.items[state.selectedIndex];
           const curSrc = state.sources[cur.name];
-          if (curSrc && widgetSlugOf(curSrc) === slug) renderBindingsRows(slug, bindings, overrides);
+          if (curSrc === source) renderBindingsRows(slug, bindings, overrides);
         }
       })
       .catch(() => {});
@@ -949,6 +1022,7 @@ function renderBindingsRows (slug, bindings, overrides) {
 
     const input = document.createElement('input');
     input.type = 'text';
+    input.setAttribute('aria-label', b.label || b.id);
     input.className = 'input';
     input.style.cssText = 'font-family: var(--font-mono); font-size: 11px; padding: 4px 6px; width: 100%; box-sizing: border-box';
     input.value = overrides[b.id] || b.default || '';
@@ -968,6 +1042,7 @@ function renderBindingsRows (slug, bindings, overrides) {
     };
 
     input.addEventListener('input', () => {
+      snapshot();
       const v = input.value.trim();
       // Only mark as override if the value differs from the default — keeps
       // the URL clean when the user resets a binding to its default.
@@ -997,6 +1072,7 @@ function renderBindingsRows (slug, bindings, overrides) {
 // ---- drag / resize ----
 function attachDrag (handle, idx, resize) {
   handle.addEventListener('pointerdown', (e) => {
+    if (state.items[idx]?.locked) return;
     e.stopPropagation();
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
@@ -1061,8 +1137,9 @@ function applyToDom (idx) {
   const item = state.items[idx];
   const src = state.sources[item.name];
   const sz = itemSize(item, src);
-  node.style.left = (item.pos?.x || 0) + 'px';
-  node.style.top  = (item.pos?.y || 0) + 'px';
+  const align = alignOffsets(item.align);
+  node.style.left = ((item.pos?.x || 0) - sz.w * align.ox) + 'px';
+  node.style.top  = ((item.pos?.y || 0) - sz.h * align.oy) + 'px';
   node.style.width = sz.w + 'px';
   node.style.height = sz.h + 'px';
   const iframe = node.querySelector('iframe');
@@ -1119,6 +1196,8 @@ function renderLayersPanel () {
     const row = document.createElement('div');
     row.className = 'layer-row';
     row.dataset.idx = i;
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', `${item.name || 'Unnamed'} layer`);
     if (i === state.selectedIndex) row.classList.add('selected');
     if (item.visible === false) row.classList.add('lr-hidden');
     row.draggable = true;
@@ -1187,8 +1266,10 @@ function renderLayersPanel () {
     row.appendChild(arrows);
 
     // Name (clicking selects the item, like clicking on canvas).
-    const name = document.createElement('span');
+    const name = document.createElement('button');
+    name.type = 'button';
     name.className = 'lr-name';
+    name.setAttribute('aria-label', `Select ${item.name || 'layer'}`);
     name.textContent = item.name || '(unnamed)';
     name.title = item.name || '';
     row.appendChild(name);
@@ -1255,8 +1336,10 @@ function selectItem (idx) {
 
 function openInspector () {
   const idx = state.selectedIndex;
-  if (idx < 0) return closeInspector();
+  if (!state.items[idx]) return closeInspector();
   els.inspector().classList.add('open');
+  document.getElementById('inspector-empty').hidden = true;
+  document.getElementById('inspector-fields').hidden = false;
   refreshInspector();
 }
 
@@ -1264,6 +1347,7 @@ function refreshInspector () {
   const idx = state.selectedIndex;
   if (idx < 0) return;
   const item = state.items[idx];
+  if (!item) return closeInspector();
   const src = state.sources[item.name];
   const sz = itemSize(item, src);
   document.getElementById('insp-name').textContent = item.name;
@@ -1274,7 +1358,7 @@ function refreshInspector () {
   document.getElementById('insp-w').disabled = false;
   document.getElementById('insp-h').disabled = false;
 
-  const cust = isWidgetSrc(src) ? (state.customizations[widgetSlugOf(src)] || {}) : null;
+  const cust = isWidgetSrc(src) ? (state.customizations[customizationKeyOf(src)] || {}) : null;
   document.getElementById('cust-block').style.display = cust ? '' : 'none';
   if (cust !== null) {
     document.getElementById('cust-title').value = cust.title || '';
@@ -1331,6 +1415,8 @@ function refreshInspector () {
 
 function closeInspector () {
   els.inspector().classList.remove('open');
+  document.getElementById('inspector-empty').hidden = false;
+  document.getElementById('inspector-fields').hidden = true;
 }
 
 // Wire inspector inputs
@@ -1368,7 +1454,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!isWidgetSrc(src)) return;
       snapshot();
       const slug = widgetSlugOf(src);
-      const cust = state.customizations[slug] = state.customizations[slug] || {};
+      const keyOfSource = customizationKeyOf(src);
+      const cust = state.customizations[keyOfSource] = state.customizations[keyOfSource] || {};
       const keyMap = { font: 'fontSize', pad: 'pad' };
       const key = keyMap[k] || k;
       let val = e.target.value;
@@ -1493,60 +1580,57 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ---- diff / save / download ----
-function modifiedItemNames () {
-  if (!state.original) return [];
-  const origScene = (state.original.sources || []).find(s => s.id === 'scene' && s.name === state.sceneName);
-  const orig = (origScene?.settings?.items || []);
-  const out = [];
-  state.items.forEach((cur, i) => {
-    const o = orig[i];
-    if (!o) return;
-    const sameXY = (a, b) => Math.abs((a?.x||0) - (b?.x||0)) < 0.5 && Math.abs((a?.y||0) - (b?.y||0)) < 0.5;
-    const samePos    = sameXY(cur.pos, o.pos);
-    const sameScale  = sameXY(cur.scale, o.scale);
-    const sameBounds = sameXY(cur.bounds, o.bounds);
-    const sameFlags  = cur.visible === o.visible && cur.locked === o.locked;
-    const sameCrop   = cur.crop_left === o.crop_left && cur.crop_top === o.crop_top
-                    && cur.crop_right === o.crop_right && cur.crop_bottom === o.crop_bottom;
-    const sameMisc   = cur.scale_filter === o.scale_filter && cur.bounds_align === o.bounds_align;
-    if (!(samePos && sameScale && sameBounds && sameFlags && sameCrop && sameMisc)) out.push(cur.name);
+function collectionFingerprint(collection) {
+  const copy = structuredClone(collection);
+  (copy.sources || []).forEach(src => {
+    if (isWidgetSrc(src)) src.settings.url = src.settings.url.replace(/^https?:\/\/[^/]+/, '<HOST>');
   });
-  // Plus any widget with customizations
-  for (const slug of Object.keys(state.customizations)) {
-    if (Object.keys(state.customizations[slug]).length) out.push(`*${slug}`);
-  }
-  return out;
+  return JSON.stringify(copy);
 }
-
+function hasUnsavedChanges() {
+  return !!state.original && state.savedFingerprint !== collectionFingerprint(applyChangesToCollection());
+}
+async function refreshPublicationState() {
+  if (!state.original) return;
+  const original = state.original;
+  try {
+    const a = await fetch('/api/obs/active').then(r => r.json());
+    if (a.slug && a.slug === state.savedName) {
+      const published = await fetch('/api/obs/published').then(r => r.json());
+      if (state.original === original) state.publishedFingerprint = collectionFingerprint(published);
+    }
+  } catch (_) {}
+  updateDiff();
+}
 function updateDiff () {
-  const mod = modifiedItemNames();
-  const total = state.items.length;
-  els.diff().innerHTML = mod.length
-    ? `<span class="modified">${mod.length} modified</span> / ${total} total`
-    : `${total} items, no changes`;
+  if (!state.original) return;
+  const fingerprint = collectionFingerprint(applyChangesToCollection());
+  const changed = state.savedFingerprint !== fingerprint;
+  els.diff().textContent = `${state.items.length} layers · ${CANVAS_W} × ${CANVAS_H}`;
+  const badge = document.getElementById('draft-state');
+  const published = fingerprint === state.publishedFingerprint;
+  badge.textContent = changed ? 'Unsaved changes' : published ? 'Published to /live' : state.savedName ? 'Draft saved' : 'New draft';
+  badge.className = 'pill ' + (changed ? 'pill-warn' : published ? 'pill-ok' : '');
 }
+window.addEventListener('beforeunload', e => { if (hasUnsavedChanges()) { e.preventDefault(); e.returnValue = ''; } });
 
 function applyChangesToCollection () {
   // Clone original, then mutate items + browser-source URLs.
   const clone = structuredClone(state.original);
+  clone.current_scene = state.sceneName;
+  clone.current_program_scene = state.sceneName;
   const scene = (clone.sources || []).find(s => s.id === 'scene' && s.name === state.sceneName);
-  if (scene && scene.settings) scene.settings.items = state.items;
+  if (scene && scene.settings) scene.settings.items = structuredClone(state.items);
   // Apply customizations to browser-source URLs
   (clone.sources || []).forEach(src => {
     if (!isWidgetSrc(src)) return;
     const slug = widgetSlugOf(src);
-    const cust = state.customizations[slug];
-    const hasBindings = cust && cust.bindings && Object.keys(cust.bindings).length > 0;
-    if (!cust || (!Object.keys(cust).filter(k => k !== 'bindings').length && !hasBindings)) return;
+    const cust = state.customizations[customizationKeyOf(src)];
+    // An empty customization means the user cleared the last override.
+    // Still rebuild the URL so old parameters are actually removed.
+    if (!cust) return;
     const base = src.settings.url.split('?')[0];
-    const params = new URLSearchParams();
-    for (const k of CUST_KEYS) if (cust[k]) params.set(k, cust[k]);
-    if (hasBindings) {
-      for (const id of Object.keys(cust.bindings)) {
-        const v = cust.bindings[id];
-        if (v) params.set('bind.' + id, v);
-      }
-    }
+    const params = widgetParams(slug, src);
     src.settings.url = params.toString() ? `${base}?${params.toString()}` : base;
   });
   return clone;
@@ -1567,7 +1651,7 @@ function sanitizeSceneName (raw) {
 }
 
 // Persist the current edit to /api/obs/scenes under `name`. Returns the saved
-// slug (or null on failure). Shared by Save and Go Live.
+// slug (or null on failure). Shared by Save draft and Publish to /live.
 async function saveSceneAs (name) {
   const out = applyChangesToCollection();
   try {
@@ -1576,24 +1660,32 @@ async function saveSceneAs (name) {
       body: JSON.stringify({ name, json: out }),
     });
     const j = await r.json().catch(() => ({}));
+    if (j.ok) { state.savedCollection = out; state.savedFingerprint = collectionFingerprint(out); }
     return j.ok ? (j.slug || name) : null;
   } catch (_) { return null; }
 }
 
 async function onSave () {
+  if (state.saving) return;
   if (!state.original) return window.toast('Nothing loaded', 'error');
-  const raw = prompt('Save layout as:', state.savedName || state.suggestedName || state.sceneName || '');
-  if (!raw) return;
+  const raw = document.getElementById('draft-name').value;
+  if (!raw.trim()) return window.toast('Give your draft a name first.', 'error');
   const name = sanitizeSceneName(raw);
   if (!name) return window.toast('Save failed: name had no usable characters', 'error');
-  const slug = await saveSceneAs(name);
-  if (slug) {
-    state.savedName = name;
-    window.toast(`Saved as "${name}"`);
-    refreshSavedScenes(slug); // update loader dropdown without a reload
-  } else {
-    window.toast('Save failed', 'error');
-  }
+  setSaving(true);
+  try {
+    const slug = await saveSceneAs(name);
+    if (slug) {
+      if (state.savedName !== name) state.publishedFingerprint = null;
+      state.savedName = name;
+      document.getElementById('draft-name').value = name;
+      updateDiff();
+      window.toast(`Draft saved as "${name}"`);
+      refreshSavedScenes(slug); // update loader dropdown without a reload
+    } else {
+      window.toast('Save failed', 'error');
+    }
+  } finally { setSaving(false); }
 }
 
 // Open the live output (the currently-published scene) in a new tab.
@@ -1605,29 +1697,49 @@ function onPreview () {
 // (/api/obs/active). /live (and any OBS Browser Source pointed at it) picks the
 // change up on its next poll — no OBS re-import, no scene file to download.
 async function onGoLive () {
+  if (state.saving) return;
   if (!state.original) return window.toast('Nothing to publish — load a layout first', 'error');
-  // Going live needs a persisted scene for /live (and OBS) to fetch by slug, so
-  // we always save first — but silently. Prefer the saved-scene name this layout
+  // Publishing snapshots a persisted scene, so save the draft first.
+  // Prefer the saved-scene name this layout
   // came from; otherwise auto-name from the template/upload label (or "Live
   // Scene"). No prompt — publishing a template should "just go live". The user
   // can rename later via Save.
-  const name = state.savedName
+  const name = sanitizeSceneName(document.getElementById('draft-name').value)
+    || state.savedName
     || sanitizeSceneName(state.suggestedName || '')
     || 'Live Scene';
-  const slug = await saveSceneAs(name);
-  if (!slug) return window.toast('Go Live failed while saving', 'error');
-  state.savedName = name;
-  refreshSavedScenes(slug);
+  setSaving(true);
   try {
-    const r = await fetch('/api/obs/active', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug }),
-    });
-    const j = await r.json().catch(() => ({}));
-    window.toast(j.ok ? `🔴 "${name}" is now live` : 'Go Live failed: ' + (j.error || ''), j.ok ? 'success' : 'error');
-  } catch (e) {
-    window.toast('Go Live failed: ' + e.message, 'error');
-  }
+    const slug = await saveSceneAs(name);
+    if (!slug) return window.toast('Could not save the draft for publishing', 'error');
+    if (state.savedName !== name) state.publishedFingerprint = null;
+    state.savedName = name;
+    document.getElementById('draft-name').value = name;
+    updateDiff();
+    refreshSavedScenes(slug);
+    try {
+      const r = await fetch('/api/obs/active', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) {
+        state.publishedFingerprint = state.savedFingerprint;
+        document.getElementById('draft-name').value = name;
+        updateDiff();
+        window.dispatchEvent(new Event('bambuboard:published'));
+      }
+      window.toast(j.ok ? `Published "${name}" to /live` : 'Publish failed: ' + (j.error || ''), j.ok ? 'success' : 'error');
+    } catch (e) {
+      window.toast('Publish failed: ' + e.message, 'error');
+    }
+  } finally { setSaving(false); }
+}
+
+function setSaving(saving) {
+  state.saving = saving;
+  for (const id of ['save-btn', 'golive-btn', 'loader', 'reset-btn', 'draft-name']) document.getElementById(id).disabled = saving;
+  els.scenes().disabled = saving || (state.original?.sources || []).filter(s => s.id === 'scene').length < 2;
 }
 
 // Re-fetch /api/obs/scenes and rebuild just the "Saved scenes" optgroup in
@@ -1669,6 +1781,7 @@ async function refreshSavedScenes (selectSlug) {
   const target = selectSlug ? `scn:${selectSlug}` : prev;
   if (target && Array.from(sel.options).some(o => o.value === target)) {
     sel.value = target;
+    state.loaderValue = target;
   }
 }
 
@@ -1994,16 +2107,19 @@ function autoLayout () {
   window.toast && window.toast(`Auto-layout: arranged ${count} items`);
 }
 
-// ---- Widget drawer (right slide-out panel) ----
+// ---- Widget library (shares the left dock with Layers) ----
 // Lists all available widgets. Users drag tiles from the drawer onto the canvas
 // to add new browser sources to their scene.
 
 function toggleWidgetDrawer () {
   const drawer = document.getElementById('widget-drawer');
   drawer.classList.toggle('open');
+  if (drawer.classList.contains('open')) els.layersPanel().classList.remove('open');
+  else els.layersPanel().classList.add('open');
 }
-function closeWidgetDrawer () {
+function closeWidgetDrawer (restoreLayers = true) {
   document.getElementById('widget-drawer').classList.remove('open');
+  if (restoreLayers) els.layersPanel().classList.add('open');
 }
 
 async function populateWidgetDrawer () {
@@ -2032,6 +2148,9 @@ async function populateWidgetDrawer () {
     // camera on non-RTSP models) so they aren't dragged onto a scene where
     // they'd render empty.
     const incompatible = w.requiresCap && caps[w.requiresCap] === false;
+    tile.setAttribute('role', 'button');
+    tile.setAttribute('aria-disabled', String(!!incompatible));
+    tile.tabIndex = incompatible ? -1 : 0;
     if (incompatible) {
       tile.style.opacity = '0.4';
       tile.draggable = false;
@@ -2043,11 +2162,10 @@ async function populateWidgetDrawer () {
 
     const preview = document.createElement('div');
     preview.className = 'dw-preview';
-    const iframe = document.createElement('iframe');
-    iframe.src = `/widgets/${w.slug}/`;
-    iframe.loading = 'lazy';
-    iframe.tabIndex = -1;
-    preview.appendChild(iframe);
+    const icon = document.createElement('span');
+    icon.className = 'nav-icon'; icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = w.slug === 'camera' ? 'videocam' : 'widgets';
+    preview.appendChild(icon);
 
     const info = document.createElement('div');
     info.className = 'dw-info';
@@ -2061,9 +2179,17 @@ async function populateWidgetDrawer () {
     size.textContent = `${rw}×${rh}`;
     info.appendChild(name);
     info.appendChild(size);
+    if (incompatible || w.slug === 'gcode-viz' || ['profile-info', 'model-image'].includes(w.slug)) {
+      const note = document.createElement('div'); note.className = 'dw-note';
+      note.textContent = incompatible ? 'Unavailable for this printer' : w.slug === 'gcode-viz' ? 'Experimental toolpath' : 'Bambu Cloud content';
+      info.appendChild(note);
+    }
 
     tile.appendChild(preview);
     tile.appendChild(info);
+    const add = () => { if (!incompatible && state.original) addWidgetToScene(w.slug, w.name || w.slug, rw, rh, Math.max(0, Math.round((CANVAS_W - rw) / 2)), Math.max(0, Math.round((CANVAS_H - rh) / 2))); };
+    tile.addEventListener('click', add);
+    tile.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(); } });
 
     // Drag data: slug + recommended dimensions
     tile.addEventListener('dragstart', (e) => {
@@ -2133,7 +2259,7 @@ function addWidgetToScene (slug, name, width, height, posX, posY) {
     uuid: crypto.randomUUID ? crypto.randomUUID() : `bb-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     enabled: true,
     settings: {
-      url: `http://${location.host}/widgets/${slug}/`,
+      url: `${location.origin}/widgets/${slug}/`,
       width: width,
       height: height,
       css: '',

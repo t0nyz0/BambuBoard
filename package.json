@@ -1,11 +1,16 @@
 {
   "name": "bambuboard",
-  "version": "3.1.5",
+  "version": "3.2.0",
   "description": "BambuBoard — OBS dashboard widgets for Bambu Lab printers (X1, X1C, P1, P1P, A1, H2D)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "build:widget-catalog": "node scripts/build-widget-catalog.js"
+    "build:widget-catalog": "node scripts/build-widget-catalog.js",
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/check-syntax.js",
+    "build:vendor": "node scripts/build-vendor.js",
+    "test:browser": "node test/browser-check.js",
+    "test:ui": "node test/ui-check.js"
   },
   "keywords": [
     "bambu",
@@ -16,12 +21,34 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "basic-ftp": "^5.0.5",
-    "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "mqtt": "^5.10.3",
-    "node-fetch": "^2.7.0",
+    "basic-ftp": "^6.2.2",
+    "cors": "^2.8.6",
+    "express": "^4.22.3",
+    "ffmpeg-static": "^5.3.0",
+    "mqtt": "^5.16.0",
     "rtsp-relay": "^1.9.0",
-    "yauzl": "^3.2.0"
+    "yauzl": "^3.4.0"
+  },
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "gcode-preview": "2.18.0",
+    "jquery": "4.0.0",
+    "lil-gui": "0.21.0",
+    "mqtt-packet": "9.0.2",
+    "playwright": "1.63.0",
+    "three": "0.186.1"
+  },
+  "overrides": {
+    "gcode-preview": {
+      "three": "$three",
+      "lil-gui": "$lil-gui"
+    }
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true
   }
 }

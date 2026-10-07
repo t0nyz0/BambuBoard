@@ -3,7 +3,7 @@
 (async function init() {
   const types = await fetch('/api/printer-types').then(r => r.json()).catch(() => []);
   const cfg = await fetch('/api/settings').then(r => r.json()).catch(() => null);
-  if (!cfg) return;
+  if (!cfg) { window.toast('Could not load settings. Reload to try again.', 'error'); return; }
 
   const isFirst = new URLSearchParams(location.search).get('firstRun') === '1' || cfg._meta?.firstRun;
   if (isFirst) document.body.classList.add('first-run');
@@ -56,7 +56,7 @@
   toggle('logging', !!cfg.BambuBoard_logging);
 
   document.querySelectorAll('.toggle').forEach(t => {
-    t.addEventListener('click', () => t.classList.toggle('on'));
+    t.addEventListener('click', () => { t.classList.toggle('on'); t.setAttribute('aria-checked', String(t.classList.contains('on'))); });
   });
 
   // Bambu Cloud sign-in — wired inline in this page (was a separate /login page).
@@ -68,6 +68,7 @@
   document.getElementById('show-ac').addEventListener('click', () => {
     const i = document.getElementById('p-ac');
     i.type = i.type === 'password' ? 'text' : 'password';
+    document.getElementById('show-ac').textContent = i.type === 'password' ? 'Show' : 'Hide';
   });
 
   document.getElementById('test-btn').addEventListener('click', async () => {
@@ -103,12 +104,17 @@
       // it in the main settings save so we don't accidentally clobber.
       printer: readPrinterFields(),
     };
+    const button = document.getElementById('save-btn');
+    if (!body.printer.url || !body.printer.serialNumber || (!body.printer.accessCode && !cfg.printer?.accessCodeSet)) return window.toast('Enter the printer IP, serial number and LAN access code.', 'error');
+    button.disabled = true;
+    try {
     const r = await fetch('/api/settings', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (r.ok) {
       window.toast('Settings saved');
+      window.dispatchEvent(new Event('bambuboard:settings-saved'));
       // Reveal the Connect (Step 2) section and start polling. We replace the
       // old "redirect to / after 600ms" behavior with this two-step flow:
       // user verifies the printer connects + auto-identifies before being
@@ -118,6 +124,8 @@
       const j = await r.json().catch(() => ({}));
       window.toast('Save failed: ' + (j.error || r.status), 'error');
     }
+    } catch (e) { window.toast('Could not save settings: ' + e.message, 'error'); }
+    finally { button.disabled = false; }
   });
 
   // If the user lands on this page with valid existing credentials, show the
@@ -156,6 +164,9 @@
       const r = await fetch('/api/status');
       if (!r.ok) return;
       const s = await r.json();
+      const video = await fetch('/api/printer/video/status').then(r => r.json()).catch(() => null);
+      document.getElementById('connect-camera').textContent = video?.available ? `${video.cameraType === 'rtsp' ? 'RTSP' : 'Chamber image'} available` : 'Unavailable';
+      document.getElementById('connect-camera-hint').textContent = video?.available ? 'Camera status is separate from the MQTT connection.' : (video?.hint || 'Connect the printer and check camera access.');
       const pill = document.getElementById('connect-mqtt');
       const detected = document.getElementById('connect-detected');
       const last = document.getElementById('connect-last');
@@ -164,7 +175,7 @@
 
       const conn = s.status?.connection || 'unknown';
       pill.className = 'pill ' + (conn === 'online' ? 'pill-ok' : conn === 'offline' ? 'pill-warn' : 'pill-error');
-      pill.textContent = conn === 'online' ? '✓ Connected' : conn === 'offline' ? 'Connecting…' : 'Unknown';
+      pill.textContent = conn === 'online' ? '✓ Connected' : conn === 'offline' ? 'Disconnected' : 'Unknown';
 
       if (s.printer?.model) {
         const src = s.printer.detectedFrom === 'mqtt' ? '(auto-detected via MQTT)' : '(from config)';
@@ -195,7 +206,7 @@
       type: document.getElementById('p-type').value,
     };
   }
-  function toggle(id, on) { document.getElementById(id).classList.toggle('on', !!on); }
+  function toggle(id, on) { const node = document.getElementById(id); node.classList.toggle('on', !!on); node.setAttribute('aria-checked', String(!!on)); }
   function isOn(id) { return document.getElementById(id).classList.contains('on'); }
 
   // ---- Bambu Cloud sign-in panel ----

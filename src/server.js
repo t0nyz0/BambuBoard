@@ -18,7 +18,7 @@ const paths = {
   root: ROOT,
   views: path.join(ROOT, 'views'),
   public: path.join(ROOT, 'public'),
-  data: path.join(ROOT, 'data'),
+  data: configMod.DATA_DIR,
 };
 const DATA_FILE = path.join(paths.data, 'data.json');
 
@@ -83,6 +83,7 @@ process.env.UV_THREADPOOL_SIZE = 128;
 // Static asset mounts (these come BEFORE the page router so /css/foo.css etc. resolve)
 app.use('/css',     express.static(path.join(paths.public, 'css')));
 app.use('/js',      express.static(path.join(paths.public, 'js')));
+app.get('/assets/js/jquery-3.6.0.min.js', (req, res) => res.redirect(301, '/assets/js/jquery.min.js'));
 app.use('/assets',  express.static(path.join(paths.public, 'assets')));
 app.use('/widgets', express.static(path.join(paths.public, 'widgets')));
 app.use('/vendor',  express.static(path.join(paths.public, 'vendor')));
@@ -99,7 +100,7 @@ app.get('/data.json', (req, res) => {
 });
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
-app.use('/api/obs', buildObsSceneRouter({ paths }));
+app.use('/api/obs', buildObsSceneRouter({ paths, getConfig }));
 app.use('/api/gcode', buildGcodeRouter({ getConfig, paths }).router);
 app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 

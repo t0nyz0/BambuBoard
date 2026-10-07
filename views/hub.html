@@ -4,74 +4,71 @@
   <meta charset="utf-8">
   <title>BambuBoard — Live</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/assets/bambuboard-prism.svg">
   <link rel="stylesheet" href="/css/theme.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/hub.css">
 </head>
 <body>
-  <main class="page">
-
-    <section class="hero">
-      <h1>You're live</h1>
-      <p class="text-dim">
-        BambuBoard composites your layout — camera and every widget — into one page.
-        Add it to OBS as a <strong>single Browser Source</strong>, or open it anywhere.
-        Edit the layout and hit <strong>🔴 Go Live</strong>; OBS updates on its own.
-      </p>
-    </section>
-
-    <section class="card" style="margin-bottom: var(--space-5)">
-      <h3 class="card-title">Add to OBS — one Browser Source</h3>
-      <p class="text-dim" id="active-line">&nbsp;</p>
-      <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin:var(--space-3) 0">
-        <input id="live-url" type="text" readonly
-          style="flex:1; min-width:280px; padding:8px 10px; font-family:var(--font-mono,monospace); font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
-        <button id="copy-url" class="btn" type="button">Copy URL</button>
-        <a id="download-obs" class="btn btn-primary" href="/api/obs/single-source">Download OBS scene</a>
+  <main class="page live-page">
+    <header class="page-heading">
+      <div>
+        <p class="eyebrow">Your broadcast workspace</p>
+        <h1>Live preview</h1>
+        <p class="text-dim"><span id="active-line">Loading scene…</span> <span id="publication-state" class="pill">Checking…</span></p>
       </div>
-      <ol class="text-dim" style="padding-left:1.4em; line-height:1.7; margin:0">
-        <li>In OBS: <strong>+ → Browser</strong>, paste the URL above, set the size to your canvas (e.g. 1920×1080). That's it — no camera source, no SDP.</li>
-        <li>Prefer importing? Use the <strong>Download OBS scene</strong> button, then <strong>Scene Collection → Import</strong> — it's just that one Browser Source.</li>
-        <li>Design your overlay in the <a href="/scene-editor">Layout editor</a> and hit <strong>🔴 Go Live</strong> — this page and OBS update automatically.</li>
-      </ol>
-    </section>
-
-    <section class="card" style="margin-bottom: var(--space-5)">
-      <h3 class="card-title">Stream to YouTube <span style="font-size:12px;opacity:.6;font-weight:400">(beta — no OBS)</span></h3>
-      <p class="text-dim" style="margin:0 0 var(--space-2)">
-        Go live straight from your browser. Paste your YouTube <strong>stream key</strong>
-        (YouTube Studio → Go Live → Stream settings), click Start, and pick the
-        <strong>/live</strong> tab to share. BambuBoard relays it to YouTube.
-      </p>
-      <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin:var(--space-3) 0">
-        <input id="yt-key" type="password" placeholder="YouTube stream key" autocomplete="off"
-          style="flex:1; min-width:240px; padding:8px 10px; font-size:13px; color:var(--color-text); background:var(--color-surface,#1a1c20); border:1px solid var(--color-border,#333); border-radius:var(--radius,6px)" />
-        <button id="yt-start" class="btn btn-primary" type="button">🔴 Start</button>
-        <button id="yt-stop" class="btn" type="button" disabled>Stop</button>
+      <a class="btn btn-primary" href="/scene-editor"><span class="nav-icon" aria-hidden="true">tune</span>Edit layout</a>
+    </header>
+    <p id="printer-notice" class="connection-notice" role="status" hidden></p>
+    <section class="preview-card" aria-label="Published output preview">
+      <div class="preview-heading">
+        <span><span class="output-dot" aria-hidden="true"></span><span id="output-label">Published output</span> <small>/live</small></span>
+        <a href="/live" target="_blank" rel="noopener"><span class="nav-icon" aria-hidden="true">open_in_full</span>Open output</a>
       </div>
-      <p class="text-dim" id="yt-status" style="margin:0; font-size:13px">&nbsp;</p>
-      <p class="text-dim" style="margin:var(--space-2) 0 0; font-size:12px; opacity:.7">
-        Keep the shared tab open while streaming. Encoding happens in your browser —
-        best on a desktop, not a Pi. Prefer OBS? Use the one Browser Source above instead.
-      </p>
-    </section>
-
-    <section class="card">
-      <div class="section-header" style="margin-top:0">
-        <h2 style="margin:0">Live preview</h2>
-        <span class="section-meta">&nbsp;What OBS is showing right now.</span>
+      <div id="preview-viewport" class="preview-viewport">
+        <iframe id="live-frame" src="/live" title="Broadcast output preview"></iframe>
       </div>
-      <div style="position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:var(--radius,6px); overflow:hidden; margin-top:var(--space-3)">
-        <iframe id="live-frame" src="/live" title="Live preview" style="position:absolute; inset:0; width:100%; height:100%; border:0"></iframe>
-      </div>
-      <p class="text-dim" style="margin-top:var(--space-2)">
-        <a href="/live" target="_blank" rel="noopener">Open full /live ↗</a>
-      </p>
+      <div class="preview-footer"><span id="preview-dimensions">Loading canvas…</span><span>Camera + widgets · One Browser Source</span></div>
     </section>
-
+    <section class="card obs-card">
+      <div class="card-row"><h2>Use this scene in OBS</h2><span class="pill pill-ok">One Browser Source</span></div>
+      <p class="text-dim">Copy the source URL once. Published changes update automatically.</p>
+      <div class="obs-controls">
+        <label class="sr-only" for="live-url">OBS Browser Source URL</label>
+        <input id="live-url" class="input text-mono" type="text" readonly>
+        <button id="copy-url" class="btn" type="button"><span class="nav-icon" aria-hidden="true">content_copy</span>Copy URL</button>
+        <a id="download-obs" class="btn" href="/api/obs/single-source"><span class="nav-icon" aria-hidden="true">download</span>Download OBS scene</a>
+      </div>
+      <details class="obs-help">
+        <summary>First time using OBS?</summary>
+        <ol class="text-dim">
+          <li>In OBS, add a <strong>Browser Source</strong> and paste this URL.</li>
+          <li>Set its width and height to <strong id="obs-dimensions">your scene dimensions</strong>. Match OBS → Settings → Video → Base (Canvas) Resolution to those dimensions.</li>
+          <li>Or download the scene and choose <strong>Scene Collection → Import</strong> in OBS.</li>
+          <li>Use <strong>Publish to /live</strong> in the Layout editor when your scene is ready. Start your broadcast in OBS.</li>
+        </ol>
+      </details>
+    </section>
+    <section class="youtube-section" aria-label="Optional YouTube relay">
+      <div id="yt-active-controls" class="yt-active-controls" hidden>
+        <span id="yt-active-status" role="status">Relay starting…</span>
+        <button id="yt-stop" class="btn btn-danger" type="button" disabled>Stop relay</button>
+      </div>
+      <details id="youtube-details">
+        <summary>Direct YouTube streaming <span class="beta-label">Beta · optional</span></summary>
+        <p class="text-dim">Share the <a href="/live" target="_blank" rel="noopener">/live tab</a> from a desktop browser. BambuBoard relays it to YouTube; check YouTube Studio for broadcast status.</p>
+        <p id="yt-support" class="connection-notice" hidden></p>
+        <div class="obs-controls">
+          <label class="sr-only" for="yt-key">YouTube stream key</label>
+          <input id="yt-key" class="input" type="password" placeholder="YouTube stream key" autocomplete="off">
+          <button id="yt-start" class="btn" type="button">Start relay</button>
+        </div>
+        <p id="yt-status" class="text-dim" role="status">Ready when you are.</p>
+        <p class="text-muted">Keep the shared tab open. Your browser captures the tab and the server transcodes the video, so both need enough processing capacity.</p>
+      </details>
+    </section>
+    <footer class="workspace-footer"><span>Local connection · Cloud optional</span><span>BambuBoard <span id="app-version"></span></span></footer>
   </main>
-
-  <script src="/js/caps.js"></script>
   <script src="/js/nav.js"></script>
   <script src="/js/hub.js"></script>
 </body>

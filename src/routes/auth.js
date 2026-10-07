@@ -6,7 +6,6 @@ const express = require('express');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const fetch = require('node-fetch');
 
 function buildAuthRouter({ getConfig, saveConfig, paths }) {
   const router = express.Router();

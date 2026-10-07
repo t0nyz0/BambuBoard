@@ -3,21 +3,28 @@
 <head>
   <meta charset="utf-8">
   <title>BambuBoard — Scene editor</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/bambuboard-prism.svg">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="stylesheet" href="/css/theme.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/scene-editor.css">
 </head>
 <body>
-  <main class="page" style="max-width: none">
+  <main class="page editor-page">
+    <header class="page-heading editor-heading">
+      <div><p class="eyebrow">Scene workspace</p><h1>Layout editor</h1><p class="text-dim">Arrange your draft, then publish when it is ready for your broadcast.</p></div>
+      <div class="editor-publish-controls"><span id="draft-state" class="pill" role="status">Loading draft…</span><button id="save-btn" class="btn" type="button" title="Save without changing the published output">Save draft</button><button id="golive-btn" class="btn btn-primary" type="button">Publish to /live</button></div>
+    </header>
+    <label class="draft-name field"><span>Draft name</span><input id="draft-name" class="input" type="text" maxlength="64" placeholder="Name your scene"></label>
+
 
     <div class="editor-toolbar">
       <div class="group">
-        <select id="loader" class="select input"></select>
+        <select aria-label="Load template or saved scene" id="loader" class="select input"></select>
       </div>
       <div class="group">
         <small class="text-dim">Scene:</small>
-        <select id="scene-picker" class="select input" disabled></select>
+        <select aria-label="Scene within this collection" id="scene-picker" class="select input" disabled></select>
       </div>
       <input id="file-input" type="file" accept="application/json" style="display:none">
 
@@ -47,57 +54,53 @@
 
       <div class="group">
         <button id="reset-btn" class="btn btn-ghost" type="button">Reset</button>
-        <button id="save-btn"  class="btn" type="button" title="Save this layout (does not change what's live)">Save</button>
-        <button id="preview-btn" class="btn btn-ghost" type="button" title="Open the live output (/live) in a new tab">Preview</button>
-        <button id="golive-btn" class="btn btn-primary" type="button" title="Save this layout and publish it as the live output OBS shows">🔴 Go Live</button>
+        <button id="preview-btn" class="btn btn-ghost" type="button" title="Open the live output (/live) in a new tab">Open published output</button>
       </div>
     </div>
 
-    <div id="canvas-shell" class="canvas-shell" style="height:calc(100vh - 220px)">
+    <div class="editor-workspace">
+    <div id="canvas-shell" class="canvas-shell">
       <div id="canvas-wrap" class="scene-canvas-wrap">
         <div id="canvas" class="scene-canvas"></div>
       </div>
     </div>
 
-  </main>
 
-  <aside id="widget-drawer" class="widget-drawer">
-    <div class="widget-drawer-header">
-      <h4>Widgets</h4>
-      <button id="widget-drawer-close" class="btn btn-ghost" type="button">×</button>
-    </div>
-    <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2);padding:0 var(--space-3)">
-      Drag a widget onto the canvas to add it to the scene.
-    </p>
-    <div id="widget-drawer-list" class="widget-drawer-list"></div>
-  </aside>
-
-  <!-- Scene layers panel (OBS-Studio "Sources" dock equivalent).
-       Displayed top-of-list = top-of-stack; reordering, visibility, lock,
-       and quick layer-up/down per row. Closed by default — click the
-       Layers button in the toolbar (or any layer-related action elsewhere)
-       to reveal. Keeps the canvas uncluttered on first load. -->
-  <aside id="layers-panel" class="layers-panel">
+  <div class="editor-library">
+  <aside id="layers-panel" class="layers-panel open">
     <div class="layers-panel-header">
       <h4>Layers</h4>
-      <button id="layers-panel-close" class="btn btn-ghost" type="button" title="Hide layers panel">×</button>
+      <button aria-label="Hide layers" id="layers-panel-close" class="btn btn-ghost" type="button" title="Hide layers panel">×</button>
     </div>
     <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2);padding:0 var(--space-3)">
       Top of list = front of scene. Drag rows to reorder.
     </p>
     <div id="layers-panel-list" class="layers-panel-list"></div>
   </aside>
-
-  <aside id="inspector" class="inspector">
+  <aside id="widget-drawer" class="widget-drawer">
+    <div class="widget-drawer-header">
+      <h4>Widgets</h4>
+      <button aria-label="Close widget library" id="widget-drawer-close" class="btn btn-ghost" type="button">×</button>
+    </div>
+    <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2);padding:0 var(--space-3)">
+      Click to add a widget, or drag it onto the canvas.
+    </p>
+    <div id="widget-drawer-list" class="widget-drawer-list"></div>
+  </aside>
+  </div>
+  <aside id="inspector" class="inspector" aria-label="Selected widget settings">
+    <p class="eyebrow">Inspector</p>
+    <p id="inspector-empty" class="text-dim">Select a widget on the canvas or in Layers to adjust its size, position and appearance.</p>
+    <div id="inspector-fields" hidden>
     <div class="card-row">
       <h4 id="insp-name">Selected</h4>
-      <button id="inspector-close" class="btn btn-ghost" type="button">×</button>
+      <button aria-label="Deselect widget" id="inspector-close" class="btn btn-ghost" type="button">×</button>
     </div>
     <div class="row">
-      <label>X</label><input id="insp-x" class="input" type="number"><span></span>
-      <label>Y</label><input id="insp-y" class="input" type="number"><span></span>
-      <label>W</label><input id="insp-w" class="input" type="number"><span></span>
-      <label>H</label><input id="insp-h" class="input" type="number"><span></span>
+      <label>X</label><input id="insp-x" aria-label="X position" class="input" type="number"><span></span>
+      <label>Y</label><input id="insp-y" aria-label="Y position" class="input" type="number"><span></span>
+      <label>W</label><input id="insp-w" aria-label="Width" class="input" type="number"><span></span>
+      <label>H</label><input id="insp-h" aria-label="Height" class="input" type="number"><span></span>
     </div>
     <div class="row">
       <label>Flags</label>
@@ -114,7 +117,7 @@
     </div>
     <div class="row">
       <label>Scale</label>
-      <select id="insp-scale-filter" class="select input" style="grid-column:span 2;font-size:12px">
+      <select id="insp-scale-filter" aria-label="Scale filter" class="select input" style="grid-column:span 2;font-size:12px">
         <option value="">Auto (default)</option>
         <option value="point">Point (pixelated)</option>
         <option value="bicubic">Bicubic</option>
@@ -124,7 +127,7 @@
     </div>
     <div class="row">
       <label>B.Anchor</label>
-      <select id="insp-bounds-align" class="select input" style="grid-column:span 2;font-size:12px">
+      <select id="insp-bounds-align" aria-label="Content anchor" class="select input" style="grid-column:span 2;font-size:12px">
         <option value="0">Center</option>
         <option value="5">Top-Left</option>
         <option value="4">Top</option>
@@ -137,10 +140,10 @@
       </select>
     </div>
     <div class="row">
-      <label>Crop L</label><input id="insp-crop-l" class="input" type="number" min="0" value="0"><span></span>
-      <label>Crop T</label><input id="insp-crop-t" class="input" type="number" min="0" value="0"><span></span>
-      <label>Crop R</label><input id="insp-crop-r" class="input" type="number" min="0" value="0"><span></span>
-      <label>Crop B</label><input id="insp-crop-b" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop L</label><input id="insp-crop-l" aria-label="Crop left" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop T</label><input id="insp-crop-t" aria-label="Crop top" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop R</label><input id="insp-crop-r" aria-label="Crop right" class="input" type="number" min="0" value="0"><span></span>
+      <label>Crop B</label><input id="insp-crop-b" aria-label="Crop bottom" class="input" type="number" min="0" value="0"><span></span>
     </div>
 
     <div id="media-block" style="display:none">
@@ -155,7 +158,7 @@
         <label class="full">URL</label>
       </div>
       <div class="row">
-        <input id="media-url" class="input full" type="text" placeholder="http://printer/video">
+        <input id="media-url" aria-label="Media preview URL" class="input full" type="text" placeholder="http://printer/video">
       </div>
       <div class="row">
         <button id="media-clear" class="btn btn-ghost full" type="button">Clear preview URL</button>
@@ -167,11 +170,11 @@
       <h4 style="font-size:13px">Widget theme</h4>
       <div class="row">
         <label>Title</label>
-        <input id="cust-title" class="input full" type="text" placeholder="(use widget default)">
+        <input id="cust-title" aria-label="Widget title" class="input full" type="text" placeholder="(use widget default)">
       </div>
       <div class="row">
         <label>Theme</label>
-        <select id="cust-theme" class="select input full">
+        <select id="cust-theme" aria-label="Widget theme" class="select input full">
           <option value="">(default)</option>
           <option value="dark">dark</option>
           <option value="light">light</option>
@@ -180,15 +183,15 @@
       </div>
       <div class="row">
         <label>Accent</label>
-        <input id="cust-accent" class="input full" type="color">
+        <input id="cust-accent" aria-label="Widget accent" class="input full" type="color">
       </div>
       <div class="row">
         <label>Font px</label>
-        <input id="cust-font" class="input full" type="number" min="8" max="64" placeholder="auto">
+        <input id="cust-font" aria-label="Widget font size" class="input full" type="number" min="8" max="64" placeholder="auto">
       </div>
       <div class="row">
         <label>Padding</label>
-        <input id="cust-pad" class="input full" type="number" min="0" max="64" placeholder="0">
+        <input id="cust-pad" aria-label="Widget padding" class="input full" type="number" min="0" max="64" placeholder="0">
       </div>
       <div class="row">
         <button id="autosize-btn" class="btn btn-ghost full" type="button" title="Resize the OBS source to match the widget's natural content size" disabled>Auto-size to content</button>
@@ -210,7 +213,10 @@
         <div id="bindings-list"></div>
       </details>
     </div>
+    </div>
   </aside>
+    </div>
+  </main>
 
   <script src="/js/nav.js"></script>
   <script src="/assets/js/jsmpeg.min.js" defer></script>

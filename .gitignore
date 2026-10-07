@@ -1,6 +1,4 @@
 node_modules/
-package-lock.json
-pnpm-lock.yaml
 .DS_Store
 
 # Local config (per-install) — contains printer credentials, never commit

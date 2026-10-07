@@ -8,7 +8,7 @@
 // in the editor is what renders here.
 //
 // Usage:
-//   /live              → most-recently-updated saved scene
+//   /live              → published snapshot, or the matching default template
 //   /live?scene=<slug> → a specific scene
 //
 // In OBS you add ONE Browser Source pointing at this URL, sized to the scene
@@ -129,45 +129,15 @@
 
   // ---- Scene loading ----
 
-  // Explicit ?scene= override (used by the editor's "Preview live"); when set,
+  // Explicit ?scene= override for opening a particular saved scene; when set,
   // we pin to that scene and disable active-scene polling.
   const FORCED_SCENE = new URLSearchParams(location.search).get('scene');
-
-  async function pickSceneSlug() {
-    if (FORCED_SCENE) return FORCED_SCENE;
-    // Default: the published ("active") scene. Falls back to the most recently
-    // updated saved scene when nothing has been published yet.
-    try {
-      const a = await (await fetch('/api/obs/active', { cache: 'no-store' })).json();
-      if (a && a.slug) return a.slug;
-    } catch (_) { /* fall through to most-recent */ }
-    try {
-      const list = await (await fetch('/api/obs/scenes', { cache: 'no-store' })).json();
-      if (Array.isArray(list) && list.length) return list[0].slug; // sorted updatedAt desc
-    } catch (_) { /* none */ }
-    return null;
-  }
 
   function activeSceneOf(json) {
     const scenes = (json.sources || []).filter(s => s.id === 'scene');
     if (!scenes.length) return null;
     const wantName = json.current_program_scene || json.current_scene;
     return scenes.find(s => s.name === wantName) || scenes[0];
-  }
-
-  // Default layout when nothing has been published/saved. Picks the shipped
-  // template for the detected printer type; the download endpoint substitutes
-  // <HOST> so widget URLs are concrete.
-  async function loadDefaultJson() {
-    let type = 'X1';
-    try {
-      const st = await (await fetch('/api/status', { cache: 'no-store' })).json();
-      type = (st.printer && st.printer.type) || 'X1';
-    } catch (_) { /* default to X1 */ }
-    const slug = type === 'H2D' ? 'default-h2d' : 'default-x1';
-    const res = await fetch(`/api/obs/templates/${encodeURIComponent(slug)}`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`default template "${slug}" HTTP ${res.status}`);
-    return JSON.parse(await res.text());
   }
 
   function buildItem(item, src) {
@@ -227,7 +197,7 @@
       iframe.style.height = '100%';
       wrap.appendChild(iframe);
     } else if (id === 'browser_source' && typeof settings.url === 'string') {
-      const url = settings.url;
+      const url = settings.url.replace(/^https?:\/\/[^/]+(?=\/(widgets|assets)\/)/, location.origin);
       if (looksLikeImageUrl(url)) {
         // Back-compat shim: the old default H2D logo was an external
         // black-on-white JPEG (eu-trademark.s3.amazonaws.com/019117180) with
@@ -282,17 +252,11 @@
   async function render() {
     let slug, json;
     try {
-      slug = await pickSceneSlug();
-      if (slug) {
-        const res = await fetch(`/api/obs/scenes/${encodeURIComponent(slug)}`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        json = JSON.parse(await res.text());
-      } else {
-        // Nothing published or saved yet — show a sensible default so a fresh
-        // install isn't blank. Templates are host-substituted by the download
-        // endpoint and the camera ffmpeg_source is swapped for our widget.
-        json = await loadDefaultJson();
-      }
+      slug = FORCED_SCENE || 'Published output';
+      const url = FORCED_SCENE ? `/api/obs/scenes/${encodeURIComponent(FORCED_SCENE)}` : '/api/obs/published';
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      json = await res.json();
     } catch (e) {
       showMsg('Could not load scene: ' + e.message);
       return;
@@ -329,6 +293,7 @@
     fitStage();
     if (placed > 0) hideMsg();
     else showMsg(`Scene "${slug}" loaded but has no renderable items.`);
+    return true;
   }
 
   window.addEventListener('resize', fitStage);
@@ -355,8 +320,8 @@
       }
     }
     if (key !== lastKey) {
-      lastKey = key;
-      await render();
+      const loaded = await render();
+      if (loaded) lastKey = key;
     }
   }
 

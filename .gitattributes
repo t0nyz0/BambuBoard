@@ -1,0 +1,3 @@
+# Generated browser bundles remain available for review but collapse by default.
+public/vendor/*.js linguist-generated=true
+public/assets/js/*.min.js linguist-generated=true
