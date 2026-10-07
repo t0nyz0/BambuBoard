@@ -146,9 +146,20 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     for (const widget of widgets) {
       await page.goto(base + `/widgets/${widget.slug}/`);
       await page.waitForTimeout(1300);
-      if (widget.slug === 'progress-info') { assert.match(await page.locator('#printStatus').innerText(), /47%/); assert.ok(await page.locator('#printProgressBar').evaluate(node => node.getBoundingClientRect().width > 20)); }
-      if (widget.slug === 'bed-temp') assert.equal(await page.locator('#bedCurrentTempC').innerText(), '60');
-      if (widget.slug === 'print-info') { assert.equal(await page.locator('#printModelName').innerText(), 'Fixture print'); assert.match(await page.locator('#printCurrentLayer').innerText(), /2.*18/); }
+      // Telemetry arrives on an asynchronous poll. Slow runners can still be
+      // showing placeholders after the delay above; wait for rendered data.
+      if (widget.slug === 'progress-info') {
+        await page.waitForFunction(() => /47%/.test(document.getElementById('printStatus')?.textContent || '') && document.getElementById('printProgressBar')?.getBoundingClientRect().width > 20);
+        assert.match(await page.locator('#printStatus').innerText(), /47%/); assert.ok(await page.locator('#printProgressBar').evaluate(node => node.getBoundingClientRect().width > 20));
+      }
+      if (widget.slug === 'bed-temp') {
+        await page.waitForFunction(() => document.getElementById('bedCurrentTempC')?.textContent === '60');
+        assert.equal(await page.locator('#bedCurrentTempC').innerText(), '60');
+      }
+      if (widget.slug === 'print-info') {
+        await page.waitForFunction(() => document.getElementById('printModelName')?.textContent === 'Fixture print' && /2.*18/.test(document.getElementById('printCurrentLayer')?.textContent || ''));
+        assert.equal(await page.locator('#printModelName').innerText(), 'Fixture print'); assert.match(await page.locator('#printCurrentLayer').innerText(), /2.*18/);
+      }
       if (widget.slug === 'camera') {
         await page.evaluate(() => {
           window.cameraDecodedFrames = 0;
