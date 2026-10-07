@@ -13,6 +13,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
+[![Server tests](https://img.shields.io/badge/server_tests-14-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 **Setup → Connect → Layout → Publish.** First-run guidance appears during printer setup. Connect lives on the Setup page.
@@ -321,11 +322,14 @@ tail -f /tmp/bb.log               # verbose MQTT trace
 
 Useful npm scripts:
 
+The **server tests** badge counts the tests in `npm test`. The **build** badge reflects the complete CI run, including server tests, browser/UI checks and both Docker architectures. `npm test` checks the README count against the test runner's actual total. After adding or removing server tests, run `npm test -- --update-badge` to refresh the count from a successful run. [QA coverage](docs/qa-studio-refresh.md) describes the additional browser and hardware checks.
+
 | Script | What it does |
 |---|---|
 | `npm start` | Start the server on port 8080 (or `PORT` / `BAMBUBOARD_HTTP_PORT`). |
 | `npm run check` | Check server, app and widget JavaScript syntax. |
 | `npm test` | Exercise publication persistence, cloud responses, TLS MQTT/FTPS/camera fixtures and a loopback RTMP relay. |
+| `npm test -- --update-badge` | Run the server tests and update the README test-count badge after they pass. |
 | `npm run test:browser` | Exercise the real app with isolated data, responsive layouts, keyboard controls and all widgets. Install Chromium with `npx playwright install chromium` first. |
 | `npm run test:ui` | Check editor regressions, publication failure/recovery, transparent widget rendering and management-page accessibility. Set `BB_BROWSERS=chromium,firefox,webkit` after installing those Playwright browsers to check all three engines. |
 | `node scripts/capture-readme.js` | Take fresh Live, Layout, Setup and mobile screenshots using an isolated MQTT demo and camera replay. The default uses a generated camera test feed; [optional local reference inputs](docs/qa-studio-refresh.md#screenshots-and-safe-fixtures) reproduce an existing layout. |
