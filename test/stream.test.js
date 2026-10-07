@@ -18,7 +18,9 @@ test('WebSocket relay produces playable H.264/AAC at a loopback RTMP receiver an
   const rtmpPort = portServer.address().port; await new Promise(resolve => portServer.close(resolve));
   const receiver = spawn(ffmpeg, ['-v', 'error', '-listen', '1', '-i', `rtmp://127.0.0.1:${rtmpPort}/live/fixture-only`, '-c', 'copy', '-t', '1', '-f', 'flv', output]);
   let receiverError = ''; receiver.stderr.on('data', chunk => { receiverError += chunk; });
-  t.after(() => { if (receiver.exitCode === null) receiver.kill('SIGTERM'); });
+  // A failed handshake can leave FFmpeg waiting inside its listener; fixture
+  // cleanup must close it unconditionally so failures still finish the suite.
+  t.after(() => { if (receiver.exitCode === null) receiver.kill('SIGKILL'); });
   await new Promise(resolve => setTimeout(resolve, 250));
   let socket; t.after(() => socket?.terminate());
   const app = express(); require('rtsp-relay')(app); buildStreamRouter({ app });

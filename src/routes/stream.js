@@ -28,30 +28,48 @@ function buildStreamRouter({ app }) {
   app.ws('/api/stream/youtube', (ws) => {
     let ff = null;
     let started = false;
+    let shutdownTimer = null;
+    let forceKillTimer = null;
+
+    function clearShutdownTimers() {
+      clearTimeout(shutdownTimer);
+      clearTimeout(forceKillTimer);
+      shutdownTimer = null;
+      forceKillTimer = null;
+    }
 
     const send = (obj) => { try { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); } catch (_) {} };
 
     function start(rtmpUrl) {
       // -i pipe:0          → the browser's encoded media
       // anullsrc           → synthesized silent stereo audio
+      // Pace silence in real time and end it when the browser video ends.
       // libx264 + yuv420p  → YouTube-compatible H.264
       // -g 60 (~2s @30fps) → keyframe interval YouTube wants
       const args = [
         '-i', 'pipe:0',
-        '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+        '-re', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
         '-map', '0:v:0', '-map', '1:a:0',
         '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
         '-g', '60', '-b:v', '4500k', '-maxrate', '4500k', '-bufsize', '9000k',
         '-c:a', 'aac', '-b:a', '128k', '-ar', '44100',
+        '-shortest',
         '-f', 'flv', rtmpUrl,
       ];
-      ff = spawn(ffmpegPath, args);
-      ff.stdin.on('error', () => {}); // EPIPE when ffmpeg exits first
-      ff.stderr.on('data', () => {});
-      ff.on('error', () => { send({ type: 'error', msg: 'Video encoder could not start on the server.' }); try { ws.close(); } catch (_) {} });
-      ff.on('exit', (code, signal) => {
+      const encoder = spawn(ffmpegPath, args);
+      ff = encoder;
+      encoder.stdin.on('error', () => {}); // EPIPE when ffmpeg exits first
+      encoder.stderr.on('data', () => {});
+      encoder.on('error', () => {
+        clearShutdownTimers();
+        if (ff === encoder) ff = null;
+        send({ type: 'error', msg: 'Video encoder could not start on the server.' });
+        try { ws.close(); } catch (_) {}
+      });
+      encoder.on('exit', (code, signal) => {
+        clearShutdownTimers();
         send({ type: 'ended', code, signal });
-        ff = null;
+        if (ff === encoder) ff = null;
         try { ws.close(); } catch (_) {}
       });
       started = true;
@@ -81,8 +99,17 @@ function buildStreamRouter({ app }) {
 
     ws.on('close', () => {
       if (ff) {
-        try { ff.stdin.end(); } catch (_) {}        // flush + let ffmpeg finish
-        setTimeout(() => { if (ff) { try { ff.kill('SIGTERM'); } catch (_) {} } }, 3000);
+        const encoder = ff;
+        try { encoder.stdin.end(); } catch (_) {} // flush + let ffmpeg finish
+        shutdownTimer = setTimeout(() => {
+          if (ff !== encoder) return;
+          try { encoder.kill('SIGTERM'); } catch (_) {}
+          forceKillTimer = setTimeout(() => {
+            if (ff === encoder) { try { encoder.kill('SIGKILL'); } catch (_) {} }
+          }, 2000);
+          forceKillTimer.unref();
+        }, 3000);
+        shutdownTimer.unref();
       }
     });
   });

@@ -20,6 +20,8 @@ Verified October 7, 2026 against `origin/main` at `2ab9d2735a65232440a4d0020a3d8
 
 The three-engine suite ran inside the official Playwright 1.63.0 Linux container. Chromium and WebKit also passed on macOS. The local Firefox binary could not launch under the current macOS privacy environment; its full application suite passed on Linux. GitHub Actions has the same three-engine and dual-architecture checks configured and must pass before the Docker publication job runs.
 
+The first hosted release run exposed a native Ubuntu streaming-relay failure: synthesized silence could continue after video EOF, and a failed receiver could keep the test process waiting. The run was canceled before publication. The relay now paces silence in real time, ends it with the video and escalates encoder shutdown if needed. Fixture cleanup kills a failed receiver, and CI jobs have a 20-minute deadline. All 14 server tests passed in an Ubuntu amd64 reproduction with the source-install FFmpeg binary after the fix.
+
 ## What the tests exercise
 
 Server fixtures cover legacy H2D configuration migration, recoverable backups, environment overrides, corrupt/new installations, active-pointer upgrades, draft versus published output, concurrent publication, failed publication recovery, draft deletion and application restart. Cloud tests use local HTTP responses. Transport tests use a local implicit-TLS FTPS server and 3MF archive, TLS MQTT broker with model detection/telemetry/reconnect, fragmented chamber-camera JPEG frames and a WebSocket-to-FFmpeg relay with a playable loopback RTMP receiver.

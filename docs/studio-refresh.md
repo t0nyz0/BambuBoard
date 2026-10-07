@@ -12,6 +12,7 @@ Based on `origin/main` at `2ab9d2735a65232440a4d0020a3d84b9ad412ef7` (3.1.5), ve
 - Saving a draft no longer changes `/live`. Publishing stores a complete snapshot in `data/active-scene.json`; deleting its draft leaves the published output available. Existing pointer records are snapshotted at startup and keep the slug older versions recognize. A downgrade to the pointer-based version restores its earlier draft-following behavior; retain a data backup for rollback.
 - OBS export uses the published canvas resolution, including 2560×1440. Exported URLs honor HTTPS and reverse-proxy origins; built-in widget frames bind to the app’s current origin.
 - Browser tab capture explains the HTTPS/localhost requirement on an HTTP NAS URL. Relay messages distinguish the running encoder from YouTube’s public broadcast status, and cancellation/connection failure stops capture and recording.
+- The relay paces its silent audio in real time and ends it when video ends. Disconnect gives FFmpeg time to flush, then escalates shutdown if the encoder remains running. Native Ubuntu release checks cover this cleanup as well as the production-image checks.
 
 ## Dependency and runtime changes
 
