@@ -168,6 +168,7 @@ test('manual sliced-file recovery feeds all widget clients while preserving a va
   assert.equal((await fixture.post(archive({ 'Metadata/plate_2.gcode': gcode }))).status, 502);
   assert.deepEqual(Buffer.from(await fixture.get().then(r => r.arrayBuffer())), gcode);
   await fixture.write(telemetry('Different'));
+  assert.equal((await fixture.post(gcode, '?job=' + encodeURIComponent(describe(telemetry()).key))).status, 409, 'An upload started for an older print is rejected');
   assert.equal((await fixture.get()).status, 502); assert.equal(count, 2);
 });
 test('missing telemetry/configuration produce explicit errors, not generic waiting responses', async t => {

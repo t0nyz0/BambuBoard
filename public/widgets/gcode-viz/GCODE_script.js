@@ -1647,10 +1647,20 @@ window.BBGcodeUI.bindRetry(() => {
   invalidateLoad();
   void loadGcode(wantedTaskKey, 'Retrying file transfer…', null, true);
 });
-document.getElementById('gcodeFile').addEventListener('change', event => {
+const fileInput = document.getElementById('gcodeFile');
+let filePickerTaskKey = null;
+fileInput.addEventListener('click', () => { filePickerTaskKey = wantedTaskKey; });
+fileInput.addEventListener('change', event => {
   const file = event.target.files[0];
+  const selectedFor = filePickerTaskKey || wantedTaskKey;
+  filePickerTaskKey = null;
   event.target.value = '';
   if (!file || !wantedTaskKey || rendererUnavailable) return;
+  if (selectedFor !== wantedTaskKey) {
+    dbg('manual file ignored: print changed while the file picker was open');
+    setOverlay('The print changed while you chose the file. Choose the exact sliced file for the new print.', 'error');
+    return;
+  }
   invalidateLoad();
   void loadGcode(wantedTaskKey, 'Loading sliced file…', file, true);
 });

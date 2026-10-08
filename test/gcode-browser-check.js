@@ -95,7 +95,18 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     await rendered();
     assert.equal(await page.locator('#gcodeRecovery').isVisible(), false);
     assert.equal((await fetch(base + '/api/gcode/current')).status, 200);
-    passed.push('Diagnostics export, manual Retry now, and exact sliced-file recovery work');
+    await write('Picker old');
+    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('cannot expose'));
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('#gcodeFileButton').click()]);
+    const loadedBeforePicker = await page.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length);
+    files['/Picker new.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
+    await write('Picker new');
+    await page.waitForFunction(before => window.__log().filter(line => line.includes('loadGcode OK')).length > before, loadedBeforePicker);
+    await chooser.setFiles({ name: 'old-job.gcode', mimeType: 'application/octet-stream', buffer: Buffer.from('G90\nM83\nG1 X500 Y500 Z0.2 E1\nG1 X550 Y500 E1\n') });
+    await page.waitForFunction(() => window.__log().some(line => line.includes('manual file ignored: print changed')));
+    assert.equal(await fetch(base + '/api/gcode/current').then(r => r.text()), sample, 'A stale file picker cannot overwrite the new print');
+    await page.waitForFunction(() => document.getElementById('gcodeOverlay').style.display === 'none');
+    passed.push('Diagnostics, manual Retry/file recovery work; a stale file picker cannot overwrite a new print');
 
     await page.evaluate(() => { window.__timeOffset = 7200000; });
     await page.waitForTimeout(1000);
@@ -119,7 +130,7 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     await rendered(); const loaded = count; releaseSlow(); releaseSlow = null;
     await page.waitForTimeout(1000); assert.equal(count, loaded);
     assert.equal(await page.locator('#gcodeOverlay').isVisible(), false);
-    assert.equal((await fs.readdir(path.join(data, 'gcode-cache'))).length, 3);
+    assert.equal((await fs.readdir(path.join(data, 'gcode-cache'))).length, 4);
     passed.push('A new print renders while its obsolete download is still pending');
 
     const rectangle = (x1, y1, x2, y2, layers) => {
