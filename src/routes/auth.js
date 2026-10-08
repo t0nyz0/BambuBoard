@@ -17,6 +17,8 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   let profileCache = { time: 0, data: null };
   let connectionCheck = null;
   let accountRevision = 0;
+  let accountIntent = 0;
+  let credentialWrites = Promise.resolve();
   let credentialRejected = false;
   const log = (msg) => {
     if (process.env.BAMBUBOARD_LOGGING || getConfig().BambuBoard_logging) {
@@ -111,17 +113,30 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     connectionCheck = null;
     credentialRejected = false;
   }
-  async function saveSignIn(token) {
-    const previous = await readToken();
-    try {
-      await writeToken(token);
-      const cfg = getConfig();
-      if (!cfg.cloudAuth?.enabled) await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: true } });
-      connectionCheck = { ok: true, checkedAt: new Date().toISOString() };
-    } catch (e) {
-      if (previous) await writeToken(previous); else await clearToken();
-      throw e;
-    }
+  function requireIntent(intent) {
+    if (intent !== accountIntent) throw failure('SESSION_CHANGED', 'The cloud sign-in changed while this request was running. Check the current account before trying again.', 409);
+  }
+  function changeCredentials(intent, action) {
+    // Network verification can overlap, but credential/config writes and
+    // rollback must finish together before another account action writes.
+    const check = () => { if (intent !== null) requireIntent(intent); };
+    const operation = credentialWrites.then(async () => { check(); return action(); });
+    credentialWrites = operation.catch(() => {});
+    return operation.then(result => { check(); return result; });
+  }
+  async function saveSignIn(token, intent) {
+    return changeCredentials(intent, async () => {
+      const previous = await readToken();
+      try {
+        await writeToken(token);
+        const cfg = getConfig();
+        if (!cfg.cloudAuth?.enabled) await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: true } });
+        connectionCheck = { ok: true, checkedAt: new Date().toISOString() };
+      } catch (e) {
+        if (previous) await writeToken(previous); else await clearToken();
+        throw e;
+      }
+    });
   }
   async function probeToken(token) {
     const { data } = await requestCloud(`${API}/v1/design-user-service/my/preference`, { headers: { Authorization: `Bearer ${token}` } });
@@ -164,13 +179,15 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   router.post('/verify', async (req, res) => {
     const username = emailValue(req.body?.username), code = codeValue(req.body?.code);
     if (!username || !code) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Enter your email and the six-digit code from Bambu.' });
+    const intent = ++accountIntent;
     try {
       const { data } = await requestCloud(`${API}/v1/user-service/user/login`, {
         method: 'POST',
         body: JSON.stringify({ account: username, code }),
       });
+      requireIntent(intent);
       if (typeof data?.accessToken === 'string' && data.accessToken) {
-        await saveSignIn({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: username });
+        await saveSignIn({ accessToken: data.accessToken, refreshToken: data.refreshToken, email: username }, intent);
         return res.json({ ok: true });
       }
       if (data?.loginType === 'tfa' && typeof data.tfaKey === 'string' && data.tfaKey) {
@@ -189,9 +206,10 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     const cleaned = typeof token === 'string' ? token.trim().replace(/^["']|["']$/g, '').replace(/^Bearer\s+/i, '').replace(/^token=/i, '').split(';')[0].trim().replace(/^["']|["']$/g, '') : '';
     if (cleaned.length < 20 || cleaned.length > 8192 || /\s/.test(cleaned)) return res.status(400).json({ ok: false, code: 'INVALID_TOKEN', error: 'Paste the complete token cookie value from MakerWorld.' });
     if (email && !emailValue(email)) return res.status(400).json({ ok: false, code: 'INVALID_EMAIL', error: 'Enter a valid email, or leave the optional email blank.' });
+    const intent = ++accountIntent;
     try {
       await probeToken(cleaned);
-      await saveSignIn({ accessToken: cleaned, email: emailValue(email) });
+      await saveSignIn({ accessToken: cleaned, email: emailValue(email) }, intent);
       res.json({ ok: true });
     } catch (e) { report(res, e, 'save-token'); }
   });
@@ -218,11 +236,13 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   router.post('/mfa', async (req, res) => {
     const { tfaKey, tfaCode } = req.body || {};
     if (typeof tfaKey !== 'string' || !tfaKey || tfaKey.length > 4096 || !codeValue(tfaCode)) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Enter the six-digit code from your authenticator app.' });
+    const intent = ++accountIntent;
     try {
       // The web host requires double-submit CSRF: GET /api/csrf, then send
       // bbl_csrf_token in both Cookie and x-bbl-csrf-token on the MFA POST.
       // See maziggy/bambuddy services/bambu_cloud.py and ha-bambulab.
       const csrf = await requestCloud(`${WEB}/api/csrf`, {}, true);
+      requireIntent(intent);
       const csrfToken = cookieValue(csrf.headers, 'bbl_csrf_token');
       if (!csrfToken) throw failure('SECURITY_TOKEN', 'Bambu did not provide a sign-in security token. Try again, or use a MakerWorld token.', 502, { tryManual: true });
       const r = await requestCloud(`${WEB}/api/sign-in/tfa`, {
@@ -232,18 +252,23 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
       }, true);
       const accessToken = r.data?.accessToken || r.data?.token || cookieValue(r.headers, 'token');
       if (typeof accessToken !== 'string' || !accessToken) throw failure('CODE_INCORRECT', 'Bambu did not accept the authenticator code. Try the current code from your app.', 400);
-      await saveSignIn({ accessToken, refreshToken: r.data?.refreshToken, email: emailValue(req.body?.username) });
+      await saveSignIn({ accessToken, refreshToken: r.data?.refreshToken, email: emailValue(req.body?.username) }, intent);
       res.json({ ok: true });
     } catch (e) { report(res, e, 'verify-mfa'); }
   });
 
   router.post('/auth/signout', async (req, res) => {
+    ++accountIntent;
     try {
-      if (req.body?.disable === true) {
-        const cfg = getConfig();
-        await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: false } });
-      }
-      await clearToken();
+      // Always apply a requested sign-out in write order. A newer failed
+      // sign-in must not cancel it; a successful newer one writes after it.
+      await changeCredentials(null, async () => {
+        if (req.body?.disable === true) {
+          const cfg = getConfig();
+          await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: false } });
+        }
+        await clearToken();
+      });
       res.json({ ok: true });
     } catch (e) { report(res, e, 'signout'); }
   });

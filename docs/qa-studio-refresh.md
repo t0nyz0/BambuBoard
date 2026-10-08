@@ -1,6 +1,6 @@
 # Studio refresh QA record
 
-The combined 3.3.0 server suite has **53 tests**, including the additional [G-code reliability checks](gcode-resilience.md#verification), [YouTube streaming checks](youtube-streaming.md#verification) and cloud authentication checks. See the [3.3.0 QA record](qa-3.3.0.md) for combined release validation. The initial Studio refresh results below remain a record of that release.
+The combined 3.3.0 server suite has **56 tests**, including the additional [G-code reliability checks](gcode-resilience.md#verification), [YouTube streaming checks](youtube-streaming.md#verification) and cloud authentication checks. See the [3.3.0 QA record](qa-3.3.0.md) for combined release validation. The initial Studio refresh results below remain a record of that release.
 
 Verified October 7, 2026 against `origin/main` at `2ab9d2735a65232440a4d0020a3d84b9ad412ef7`, with the refresh on `codex/studio-refresh`. The maintainer approved release 3.2.0 and a NAS update after these checks. The original FTP experiment checkout is unchanged. The results below record the pre-release QA; production installation is tracked separately.
 
@@ -60,7 +60,7 @@ node scripts/capture-readme.js
 
 ## Repeat the checks
 
-The cloud sign-in follow-up adds nine server cases, expanding authentication coverage to 10 groups within the combined 53-test suite. `test:cloud` adds nine browser groups and seven accessibility states per engine. It exercises the actual app API and temporary data files while simulating Bambu's responses: email/code and MFA success, invalid/expired codes, resend cooldown, duplicate submissions, browser challenges, token replacement, outages, rejected credentials, connection checks and sign-out. No real verification email or account sign-in is performed. A real account check remains necessary to confirm Bambu's current service behavior; the studio refresh results above retain their original release counts.
+The cloud sign-in follow-up adds 11 server cases, expanding authentication coverage to 12 groups within the combined 56-test suite. `test:cloud` adds nine browser groups and seven accessibility states per engine. It exercises the actual app API and temporary data files while simulating Bambu's responses: email/code and MFA success, invalid/expired codes, resend cooldown, duplicate submissions, browser challenges, token replacement, outages, rejected credentials, connection checks and sign-out. No real verification email or account sign-in is performed. A real account check remains necessary to confirm Bambu's current service behavior; the studio refresh results above retain their original release counts.
 
 Use Node.js 24 LTS and npm 11 or newer:
 

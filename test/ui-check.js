@@ -47,10 +47,23 @@ async function runEngine(name, artifactDir) {
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     context.on('request', request => { if (!request.url().startsWith(base) && !request.url().startsWith('data:')) external.add(request.url()); });
     const page = await context.newPage();
-    const request = async (route, body) => fetch(base + route, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}).then(r => r.json());
+    const request = async (route, body) => {
+      const response = await fetch(base + route, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+      const text = await response.text();
+      assert.ok(response.ok, `${route} returned HTTP ${response.status}`);
+      try { return JSON.parse(text); }
+      catch (cause) { throw new Error(`${route} returned invalid JSON (${text.length} bytes)`, { cause }); }
+    };
     const saved = () => request('/api/obs/scenes/Upgrade');
     const edit = async (id, value) => { await page.locator(id).fill(String(value)); await page.locator(id).dispatchEvent('change'); };
-    const save = async () => { await page.locator('#save-btn').click(); await page.waitForFunction(() => ['Draft saved', 'Published to /live'].includes(document.getElementById('draft-state').textContent)); };
+    const save = async () => {
+      const [response] = await Promise.all([
+        page.waitForResponse(r => new URL(r.url()).pathname === '/api/obs/scenes' && r.request().method() === 'POST'),
+        page.locator('#save-btn').click(),
+      ]);
+      assert.equal((await response.json()).ok, true);
+      await page.waitForFunction(() => !document.getElementById('save-btn').disabled && ['Draft saved', 'Published to /live'].includes(document.getElementById('draft-state').textContent));
+    };
     const select = async layer => page.locator('.layer-row').filter({ hasText: layer }).click();
     const openEditor = async () => { await page.goto(base + '/scene-editor'); await page.waitForSelector('.scene-item'); await page.evaluate(() => document.fonts.ready); };
     const audit = async label => {

@@ -6,7 +6,7 @@ This release combines G-code recovery, managed YouTube streaming and Bambu Cloud
 
 | Check | Coverage |
 |---|---|
-| Server | 53 passing tests, no skips: configuration/migration, draft publication, TLS MQTT/FTPS, archive integrity, print lifecycles, cloud authentication, camera framing, real H.264/AAC and server capture through loopback RTMP. |
+| Server | 56 passing tests, no skips: configuration/migration, atomic draft saves/publication, concurrent sign-in/sign-out and rollback, TLS MQTT/FTPS, archive integrity, print lifecycles, cloud authentication, camera framing, real H.264/AAC and server capture through loopback RTMP. |
 | Widget/browser | All 20 widgets and 15 responsive layouts; keyboard controls, saved query parameters, draft/publish isolation and local assets. |
 | Management UI | 12 groups and 15 page/width combinations per engine in Chromium, Firefox and WebKit; no JavaScript errors or axe WCAG 2/2.1 A/AA findings in tested states. |
 | G-code browser | Nine groups through HTTP, FTPS, ZIP and WebGL: bounded retries, diagnostics, manual recovery, stale jobs/telemetry, clock skew, renderer failures and viewport fitting. |
