@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file. The format foll
 
 ## Unreleased
 
+### Changed
+- Consolidate README setup, OBS and development guidance; correct printer/AMS coverage, cloud requirements, camera/file network access, Synology data paths and G-code timing claims. Regenerate the widget catalog from corrected descriptions.
+
 ### Fixed
 - Preserve and atomically save partial MQTT telemetry, including print filenames and AMS/tray metadata. Assign new print lifecycles separate cache identities, and request missing job metadata at print start.
 - Find sliced files at explicit printer paths and in the FTPS root, `/cache`, and `/model`; support raw G-code, filename variants, TLS 1.2 and protected passive transfers. Validate the selected plate, transfer size, archive CRC and slicer MD5 when present.
