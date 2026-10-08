@@ -34,7 +34,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
   <tr>
     <td width="50%" valign="top">
       <h4>Setup</h4>
-      <p>Printer credentials, connection test, and optional Bambu Cloud sign-in.</p>
+      <p>Printer connection and an always-visible Bambu Cloud card, with sign-in status and controls.</p>
       <a href="screenshots/STUDIO-SETUP.png"><img src="screenshots/STUDIO-SETUP.png" alt="Setup page" width="100%"></a>
     </td>
     <td width="50%" valign="top">
@@ -188,7 +188,11 @@ Combine parameters with `&`, for example `/widgets/ams/?ams=0&theme=dark&accent=
 
 ## Bambu Cloud (optional)
 
-Cloud sign-in is off by default and is managed in **Setup**. Paste a token from your signed-in MakerWorld session, or use email + verification code and MFA when requested. Email login can be blocked by a Cloudflare challenge; manual token entry is the alternative. Successful sign-in enables cloud features and stores the token in `data/accessToken.json`.
+Cloud sign-in is off by default. In **Setup**, the Bambu Cloud card appears alongside printer settings on desktop; the **Cloud settings** shortcut jumps to it on smaller screens. `/login` redirects to this card.
+
+Choose **Email code**, enter your Bambu account email, then enter the latest six-digit code Bambu sends you. The form guides you through MFA if required and shows when you can resend a code. If Bambu blocks sign-in, choose **Paste token** for browser-specific MakerWorld instructions. BambuBoard verifies pasted tokens before saving them; rejected tokens and temporary service failures keep your existing sign-in intact.
+
+Successful sign-in enables cloud features and stores the token locally in `data/accessToken.json` (gitignored). **Check connection** verifies a saved sign-in; **Sign out** clears it and disables cloud features.
 
 MakerWorld profile/model images, filament weight and some printer/history fields require cloud data. Telemetry widgets, the camera and FTPS toolpaths use your LAN credentials. Leave cloud sign-in disabled for LAN operation.
 
@@ -240,6 +244,7 @@ Set `BAMBUBOARD_PUBLIC_URL=https://board.example.com` to choose the origin used 
 | `npm run test:gcode-browser` | Check HTTP → FTPS → archive → WebGL, recovery, stale jobs and renderer failures. |
 | `npm run test:stream-browser` | Check capture → relay → local RTMP, retries, cancellation, server controls, audio fallback and streaming accessibility. |
 | `npm run test:ui` | Check editor/publication regressions, widget transparency and management-page accessibility. |
+| `npm run test:cloud` | Check email/code/MFA and token sign-in through the real local API and saved state, with simulated Bambu responses; covers resend, retries, account replacement and sign-out. |
 | `node scripts/capture-readme.js` | Capture Live, Layout, Setup and mobile screenshots with isolated demo data. [Fixture options](docs/qa-studio-refresh.md#screenshots-and-safe-fixtures). |
 | `npm run build:vendor` | Regenerate bundled local assets from locked packages. |
 | `npm run build:widget-catalog` | Print the catalog from `widget.json` files; replace the README content between the catalog markers with that output. |
@@ -250,6 +255,7 @@ Install Chromium for browser checks with `npx playwright install chromium`. To r
 ```bash
 npx playwright install --with-deps chromium firefox webkit
 BB_BROWSERS=chromium,firefox,webkit npm run test:ui
+BB_BROWSERS=chromium,firefox,webkit npm run test:cloud
 ```
 
 The **server tests** badge counts `npm test` cases and is checked against the actual runner total. The **build** badge tracks the main Docker workflow, which requires server tests, browser/UI checks and both container architectures before publishing. [Studio QA](docs/qa-studio-refresh.md), [G-code QA](docs/gcode-resilience.md#verification) and [YouTube QA](docs/youtube-streaming.md#verification) describe fixture coverage and hardware limitations.
