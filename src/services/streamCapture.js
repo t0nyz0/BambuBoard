@@ -10,6 +10,7 @@ function browserPath() {
 // A fresh browser renders only the local published /live scene. It never uses
 // the maintainer's desktop profile, cookies or an arbitrary request-supplied URL.
 async function captureScene({ origin, profile, signal, onFrame, onWarning, onFailure }) {
+  if (signal?.aborted) throw new StreamError('CANCELLED', 'Stream start cancelled.');
   const executablePath = browserPath();
   if (!executablePath) throw new StreamError('BROWSER_MISSING', 'Server capture needs Chromium. Use a Docker image containing Chromium or set BAMBUBOARD_CHROMIUM_BIN.');
   let browser, stopped = false, timer;

@@ -117,9 +117,9 @@
                 if (ws.bufferedAmount + chunk.byteLength > maxBuffered) return finish(ctx, 'The upload cannot keep up. Lower the bitrate and check the network.', 'UPLOAD_OVERLOADED');
                 ws.send(chunk);
               }
-            }).catch(() => { if (current(ctx)) finish(ctx, 'The browser could not send captured video.', 'CAPTURE_ENCODE'); }).finally(() => { queuedBytes -= event.data.size; });
+            }).catch(() => { if (current(ctx) && ctx.ws === ws) finish(ctx, 'The browser could not send captured video.', 'CAPTURE_ENCODE'); }).finally(() => { queuedBytes -= event.data.size; });
           };
-          recorder.onerror = () => finish(ctx, 'Browser video encoding failed. Restart capture or choose server mode.', 'CAPTURE_ENCODE');
+          recorder.onerror = () => { if (current(ctx) && ctx.ws === ws) finish(ctx, 'Browser video encoding failed. Restart capture or choose server mode.', 'CAPTURE_ENCODE'); };
           recorder.start(500);
           note(ctx, 'connecting', ctx.audioFallback ? 'Tab audio was not shared; sending silence instead. Connecting to YouTube…' : messages.connecting);
         } catch (_) { finish(ctx, 'This browser could not start video encoding. Choose server mode or OBS.', 'CAPTURE_ENCODE'); }

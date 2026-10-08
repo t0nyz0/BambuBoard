@@ -70,7 +70,11 @@ const root = path.resolve(__dirname, '..'), ffmpeg = require('ffmpeg-static');
     passed.push('Denied sharing and cancellation of a pending share picker create no hidden stream');
 
     await open(); await browserMode(); await page.locator('#yt-audio').selectOption('tab'); failuresLeft = 1;
-    const firstBuffer = buffers.length; await start(); await page.waitForFunction(() => document.getElementById('yt-status').textContent.includes('Retrying 1 of 3')); await page.waitForFunction(() => document.getElementById('yt-state-badge').textContent === 'Sending video');
+    const firstBuffer = buffers.length; await start(); await page.waitForFunction(() => document.getElementById('yt-status').textContent.includes('Retrying 1 of 3'));
+    await page.evaluate(() => { window.__staleRecorder = window.__recorder; });
+    await page.waitForFunction(() => document.getElementById('yt-state-badge').textContent === 'Sending video');
+    await page.evaluate(() => window.__staleRecorder.onerror({ error: new Error('Late old-recorder failure') }));
+    assert.equal(await page.locator('#yt-state-badge').innerText(), 'Sending video');
     assert.equal(buffers.length, firstBuffer + 2); for (let i = firstBuffer; i < firstBuffer + 2; i++) assert.equal(buffers[i][0].subarray(0, 4).toString('hex'), '1a45dfa3', 'Every retry needs a fresh WebM header');
     assert.equal(streaming.status().hasAudio, false); assert.equal(await page.locator('#yt-key').inputValue(), '');
     await page.locator('.youtube-section').screenshot({ path: path.join(artifacts, 'youtube-sending.png') });

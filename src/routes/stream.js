@@ -15,8 +15,9 @@ function sameOrigin(req) {
     // untrusted client can forge X-Forwarded-Host. Trust the actual Host or an
     // explicitly configured public origin, never a supplied proxy header.
     const host = String(req.headers.host || '').toLowerCase();
-    const configured = process.env.BAMBUBOARD_PUBLIC_URL ? new URL(process.env.BAMBUBOARD_PUBLIC_URL).origin : null;
-    return /^https?:$/.test(origin.protocol) && (origin.host === host || origin.origin === configured);
+    if (!/^https?:$/.test(origin.protocol)) return false;
+    if (origin.host === host) return true;
+    return !!process.env.BAMBUBOARD_PUBLIC_URL && origin.origin === new URL(process.env.BAMBUBOARD_PUBLIC_URL).origin;
   } catch (_) { return false; }
 }
 function buildStreamRouter({ app, paths, allowLocal = false, createEncoder, createCapture = captureScene, preflight = checkSetup, retryDelays = [1000, 3000, 10000] }) {
@@ -70,6 +71,7 @@ function buildStreamRouter({ app, paths, allowLocal = false, createEncoder, crea
     try { lease.ws?.close(1000, 'Stopped'); } catch (_) {}
   }
   function startCapture(lease) {
+    if (lease.cancelled || lease.released || lease.abort.signal.aborted) return;
     lease.captureTask = createCapture({ origin: lease.origin, profile: lease.options.profile, signal: lease.abort.signal,
       onFrame: frame => { if (active === lease && !lease.cancelled) lease.encoder?.write(frame); },
       onWarning: message => { lease.logs.push({ at: new Date().toISOString(), text: message }); lease.logs = lease.logs.slice(-70); },
