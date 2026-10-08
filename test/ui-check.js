@@ -210,7 +210,7 @@ async function runEngine(name, artifactDir) {
         if (route === '/scene-editor') { await page.waitForSelector('.scene-item'); await page.locator('#widget-drawer-btn').click(); }
         if (route === '/setup') {
           await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');
-          assert.equal(await page.locator('#cloud-token').isVisible(), true);
+          assert.equal(await page.locator('#cloud-email').isVisible(), true, 'Email sign-in is visible for a new account');
           if (width >= 1000) {
             const printer = await page.locator('.setup-main').boundingBox(), cloud = await page.locator('#cloud-section').boundingBox();
             assert.ok(Math.abs(printer.y - cloud.y) < 2 && cloud.x > printer.x + printer.width, 'Cloud sits alongside the printer at the top');

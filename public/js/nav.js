@@ -6,26 +6,32 @@
     if (text) node.textContent = text;
     return node;
   };
-  let stepper;
+  let stepper, refreshId = 0;
   async function refreshStatus() {
+    const revision = ++refreshId;
     try {
       const results = await Promise.all([
         fetch('/api/status', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(); return r.json(); }),
         fetch('/api/obs/active', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
         fetch('/api/obs/scenes').then(r => r.json()).catch(() => []),
+        fetch('/auth/status', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => null),
       ]);
-      const [status, active, scenes] = results;
+      if (revision !== refreshId) return;
+      const [status, active, scenes, cloudStatus] = results;
+      if (cloudStatus) status.cloudAuth = { ...status.cloudAuth, ...cloudStatus };
       const meta = document.getElementById('nav-meta');
       meta.replaceChildren();
       const online = status.connected;
       meta.appendChild(make('span', 'pill ' + (online ? 'pill-ok' : 'pill-warn'),
         `${status.printer?.name || status.printer?.type || 'Printer'} · ${online ? 'connected' : 'disconnected'}`));
-      const cloud = make('span', 'pill cloud-pill' + (status.cloudAuth?.signedIn ? ' pill-info' : ''),
-        status.cloudAuth?.signedIn ? 'Cloud signed in' : 'Cloud optional');
+      const cloud = make('a', 'pill cloud-pill' + (cloudStatus?.needsSignIn ? ' pill-warn' : cloudStatus?.signedIn ? ' pill-info' : ''),
+        !cloudStatus ? 'Cloud status unavailable' : cloudStatus.needsSignIn ? 'Cloud sign-in needed' : cloudStatus.signedIn ? 'Cloud signed in' : 'Cloud optional');
+      cloud.href = '/setup#cloud-section'; cloud.title = 'Open Bambu Cloud settings';
       meta.appendChild(cloud);
       renderStepper(status, active, scenes);
       window.dispatchEvent(new CustomEvent('bambuboard:status', { detail: status }));
     } catch (_) {
+      if (revision !== refreshId) return;
       const meta = document.getElementById('nav-meta');
       meta.replaceChildren(make('span', 'pill pill-warn', 'Connection status unavailable'));
     }
@@ -75,6 +81,7 @@
     setInterval(refreshStatus, 5000);
     window.addEventListener('bambuboard:published', refreshStatus);
     window.addEventListener('bambuboard:settings-saved', refreshStatus);
+    window.addEventListener('bambuboard:cloud-updated', refreshStatus);
     window.addEventListener('hashchange', refreshStatus);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);

@@ -23,6 +23,9 @@ jobs:
       - run: npm run test:ui
         env:
           BB_BROWSERS: chromium,firefox,webkit
+      - run: npm run test:cloud
+        env:
+          BB_BROWSERS: chromium,firefox,webkit
       - run: npm audit --audit-level=low
       - run: npm run build:vendor
       - run: git diff --exit-code -- public/vendor public/assets/js

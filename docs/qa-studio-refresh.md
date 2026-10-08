@@ -58,6 +58,8 @@ node scripts/capture-readme.js
 
 ## Repeat the checks
 
+The cloud sign-in follow-up expands the current server suite to 23 tests, including 10 authentication groups. `test:cloud` adds nine browser groups and seven accessibility states per engine. It exercises the actual app API and temporary data files while simulating Bambu's responses: email/code and MFA success, invalid/expired codes, resend cooldown, duplicate submissions, browser challenges, token replacement, outages, rejected credentials, connection checks and sign-out. No real verification email or account sign-in is performed. A real account check remains necessary to confirm Bambu's current service behavior; the studio refresh results above retain their original release counts.
+
 Use Node.js 24 LTS and npm 11 or newer:
 
 ```bash
@@ -67,6 +69,7 @@ npm test
 npx playwright install --with-deps chromium firefox webkit
 npm run test:browser
 BB_BROWSERS=chromium,firefox,webkit npm run test:ui
+BB_BROWSERS=chromium,firefox,webkit npm run test:cloud
 npm audit --audit-level=low
 npm run build:vendor
 ```

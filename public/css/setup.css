@@ -43,6 +43,26 @@
 .cloud-section { min-width: 0; scroll-margin-top: 100px; }
 .cloud-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .cloud-heading .card-title { margin: 0; }
+.cloud-account-row { margin-bottom: 8px; }
+.cloud-status-note, .cloud-help { margin: 0 0 16px; font-size: 13px; }
+.cloud-status-note, .cloud-feedback { overflow-wrap: anywhere; }
+.cloud-account-actions { margin-bottom: 12px; }
+.cloud-methods { margin-bottom: 16px; }
+.cloud-methods .btn { flex: 1; }
+.cloud-feedback { margin: 10px 0 16px; min-height: 0; font-size: 13px; }
+.cloud-feedback:empty { display: none; }
+.cloud-feedback[data-tone="error"] { color: var(--color-error); }
+.cloud-feedback[data-tone="ok"] { color: var(--color-ok); }
+.cloud-step { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-border); }
+.cloud-step-title { font-size: 15px; margin: 0 0 8px; }
+.cloud-code { max-width: 220px; font-family: var(--font-mono); letter-spacing: .2em; }
+.cloud-token-instructions { margin-bottom: 16px; }
+.cloud-token-instructions ol { margin: 12px 0 0; padding-left: 20px; color: var(--color-text-dim); font-size: 13px; }
+.cloud-token-instructions li + li { margin-top: 10px; }
+.cloud-token-instructions a { text-decoration: underline; text-underline-offset: 3px; }
+.cloud-token-actions { margin: -4px 0 16px; }
+#cloud-token-hint { display: block; margin-top: 6px; font-size: 12px; }
+.cloud-privacy { border-top: 1px solid var(--color-border); padding-top: 16px; margin: 20px 0 0; font-size: 12px; }
 @media (min-width: 1000px) {
   .setup-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
 }

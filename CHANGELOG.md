@@ -8,6 +8,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 - Make Bambu Cloud settings an always-visible card alongside printer setup on desktop, with a direct shortcut on smaller screens. Keep saved tokens masked across browser engines and retain the existing printer, connection and display controls.
+- Guide new cloud sign-ins through email code and MFA steps, with a resend countdown, keyboard submission, progress feedback, token fallback instructions and a saved-account connection check.
+
+### Fixed
+- Verify email codes through Bambu's API host, obtain the required MFA security cookie and use native Node cookie handling. Require successful token verification before saving, bound cloud requests, preserve an existing sign-in when replacement fails and clear cached cloud data when the account changes.
+
+### Added
+- Add cloud authentication regression coverage for the API, saved credentials and complete browser sign-in/recovery flows in Chromium, Firefox and WebKit.
 
 ---
 

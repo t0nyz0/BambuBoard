@@ -10,7 +10,8 @@
     "check": "node scripts/check-syntax.js",
     "build:vendor": "node scripts/build-vendor.js",
     "test:browser": "node test/browser-check.js",
-    "test:ui": "node test/ui-check.js"
+    "test:ui": "node test/ui-check.js",
+    "test:cloud": "node test/cloud-browser.js"
   },
   "keywords": [
     "bambu",

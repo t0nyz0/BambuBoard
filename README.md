@@ -13,7 +13,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-14-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
+[![Server tests](https://img.shields.io/badge/server_tests-23-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 **Setup → Connect → Layout → Publish.** First-run guidance appears during printer setup. Connect lives on the Setup page.
@@ -197,7 +197,7 @@ BambuBoard/
 - **`/scene-editor`** — Step 3: Visual scene editor. Auto-loads the matching template for your printer type. Save draft, Publish to /live, or open the currently published output.
 - **`/`** (Live) — Step 4: the published output. Shows the `/live` URL + copy button, a one-click single-source OBS scene download, and a live preview.
 - **`/live`** — the composited broadcast page itself (camera + every widget). Point one OBS Browser Source here. Renders the published scene, or a default layout if nothing's published yet.
-- **`/login`** — Bambu Cloud sign-in (only used when cloud auth is enabled).
+- **`/login`** — redirects to the Bambu Cloud card on `/setup`.
 
 ---
 
@@ -270,7 +270,11 @@ Both templates use the **combined AMS widget** (chamber temp + humidity + drying
 
 ## Bambu Cloud auth (optional)
 
-Cloud sign-in is off by default. In `/setup`, the Bambu Cloud card appears alongside printer settings on desktop; the **Cloud settings** shortcut jumps to it on smaller screens. Paste a token from your signed-in MakerWorld session, or use email + verification code and MFA when requested. Successful sign-in enables cloud features and stores the token in `data/accessToken.json` (gitignored). LAN-only operation does not require this.
+Cloud sign-in is off by default. In `/setup`, the Bambu Cloud card appears alongside printer settings on desktop; the **Cloud settings** shortcut jumps to it on smaller screens.
+
+Choose **Email code**, enter your Bambu account email, then enter the latest six-digit code Bambu sends you. The form guides you through MFA if required and shows when you can resend a code. If Bambu blocks sign-in, choose **Paste token** for browser-specific MakerWorld instructions. BambuBoard verifies pasted tokens before saving them; rejected tokens and temporary service failures keep your existing sign-in intact.
+
+Successful sign-in enables cloud features and stores the token locally in `data/accessToken.json` (gitignored). **Check connection** verifies a saved sign-in; **Sign out** clears it and disables cloud features. LAN-only printer operation works without cloud sign-in.
 
 ---
 
@@ -332,6 +336,7 @@ The **server tests** badge counts the tests in `npm test`. The **build** badge r
 | `npm test -- --update-badge` | Run the server tests and update the README test-count badge after they pass. |
 | `npm run test:browser` | Exercise the real app with isolated data, responsive layouts, keyboard controls and all widgets. Install Chromium with `npx playwright install chromium` first. |
 | `npm run test:ui` | Check editor regressions, publication failure/recovery, transparent widget rendering and management-page accessibility. Set `BB_BROWSERS=chromium,firefox,webkit` after installing those Playwright browsers to check all three engines. |
+| `npm run test:cloud` | Walk email/code/MFA and token sign-in through the real local API and saved state, with simulated Bambu responses. Covers pending requests, resend, retries, service failures, account replacement and sign-out; use `BB_BROWSERS=chromium,firefox,webkit` for all three engines. |
 | `node scripts/capture-readme.js` | Take fresh Live, Layout, Setup and mobile screenshots using an isolated MQTT demo and camera replay. The default uses a generated camera test feed; [optional local reference inputs](docs/qa-studio-refresh.md#screenshots-and-safe-fixtures) reproduce an existing layout. |
 | `npm run build:vendor` | Regenerate local jQuery, Three.js, lil-gui and toolpath bundles from the locked versions. |
 | `npm run build:widget-catalog` | Regenerate the widget catalog table in this README from each widget's `widget.json`. Run after adding/changing widgets. |
