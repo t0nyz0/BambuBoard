@@ -13,7 +13,7 @@ This release combines G-code recovery, managed YouTube streaming and Bambu Cloud
 | Streaming browser | Seven groups: real MediaRecorder-to-FFmpeg-to-RTMP, fresh recording headers after retry, audio fallback, cancellation, buffering, persistent server controls, mobile layout and accessibility. |
 | Cloud browser | Nine groups and seven accessibility states per engine: email/code/MFA, resend/rate limits, challenge fallback, token verification, saved-account checks, account replacement and sign-out. Uses actual app APIs/files with simulated Bambu responses. |
 | Containers | The server suite, startup and video checks run on native linux/amd64 and linux/arm64 CI runners, including bundled Chromium capture and FFmpeg. |
-| Dependencies/assets | Clean npm install and audit; vendor bytes reproduce from the lockfile; README catalog, local links, scripts and captures are checked. |
+| Dependencies/assets | Clean npm install and zero npm audit findings; Trivy reports zero HIGH/CRITICAL findings for both production architectures. Vendor bytes reproduce from the lockfile; README catalog, 39 local links/anchors, scripts and captures are checked. |
 
 The README test-count badge is checked against the actual Node runner result. GitHub's Docker publication workflow requires all three CI jobs before publishing; it repeats these gates for main and version tags.
 

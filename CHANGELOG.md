@@ -8,7 +8,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
-## 3.3.0 — 2026-10-07
+## 3.3.0 — 2026-10-08
 
 ### Changed
 - Consolidate README setup, OBS and development guidance; correct printer/AMS coverage, cloud requirements, camera/file network access, Synology data paths and G-code timing claims. Regenerate the widget catalog from corrected descriptions.
