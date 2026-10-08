@@ -1,5 +1,7 @@
 # Studio refresh QA record
 
+The combined 3.3.0 server suite has **53 tests**, including the additional [G-code reliability checks](gcode-resilience.md#verification), [YouTube streaming checks](youtube-streaming.md#verification) and cloud authentication checks. See the [3.3.0 QA record](qa-3.3.0.md) for combined release validation. The initial Studio refresh results below remain a record of that release.
+
 Verified October 7, 2026 against `origin/main` at `2ab9d2735a65232440a4d0020a3d84b9ad412ef7`, with the refresh on `codex/studio-refresh`. The maintainer approved release 3.2.0 and a NAS update after these checks. The original FTP experiment checkout is unchanged. The results below record the pre-release QA; production installation is tracked separately.
 
 ## Results
@@ -58,6 +60,8 @@ node scripts/capture-readme.js
 
 ## Repeat the checks
 
+The cloud sign-in follow-up adds nine server cases, expanding authentication coverage to 10 groups within the combined 53-test suite. `test:cloud` adds nine browser groups and seven accessibility states per engine. It exercises the actual app API and temporary data files while simulating Bambu's responses: email/code and MFA success, invalid/expired codes, resend cooldown, duplicate submissions, browser challenges, token replacement, outages, rejected credentials, connection checks and sign-out. No real verification email or account sign-in is performed. A real account check remains necessary to confirm Bambu's current service behavior; the studio refresh results above retain their original release counts.
+
 Use Node.js 24 LTS and npm 11 or newer:
 
 ```bash
@@ -66,7 +70,10 @@ npm run check
 npm test
 npx playwright install --with-deps chromium firefox webkit
 npm run test:browser
+npm run test:gcode-browser
+npm run test:stream-browser
 BB_BROWSERS=chromium,firefox,webkit npm run test:ui
+BB_BROWSERS=chromium,firefox,webkit npm run test:cloud
 npm audit --audit-level=low
 npm run build:vendor
 ```
@@ -80,7 +87,7 @@ docker run --rm --platform linux/amd64 \
   sh -ec 'apk add --no-cache openssl; node --test test/*.test.js'
 ```
 
-OpenSSL is added only to the temporary test container to generate loopback fixture certificates. The production image includes FFmpeg, Node and locked production dependencies; npm/npx/Yarn are removed after installation. Rebuild the image for package changes.
+OpenSSL is added only to the temporary test container to generate loopback fixture certificates. The production image includes FFmpeg, Chromium, Node and locked production dependencies; npm/npx/Yarn are removed after installation. Rebuild the image for package changes. Run capture checks on a native CPU for each architecture; Chromium/video performance under emulation may time out. CI uses native amd64 and arm64 runners.
 
 ## Release checks still required
 
@@ -88,4 +95,4 @@ The existing NAS was used read-only for rendering references during QA. Before r
 
 Loopback RTMP and capture cleanup pass. A public YouTube broadcast is untested and requires an explicitly authorized test. Other supported printer models have not been physically tested in this refresh.
 
-Release preparation bumps the app and lockfile to 3.2.0 without changing tested application behavior. After completing BambuBoard QA, a separate `codex/bambuboard-blog-image` branch prepares the t0nyz.com post and project-card image with a matching demo caption. That update is approved for publication alongside the app release.
+The initial release preparation bumped the app and lockfile to 3.2.0 without changing tested application behavior. After completing BambuBoard QA, a separate `codex/bambuboard-blog-image` branch prepares the t0nyz.com post and project-card image with a matching demo caption. That update is approved for publication alongside the app release.

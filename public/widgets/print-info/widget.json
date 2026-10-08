@@ -1,6 +1,6 @@
 {
   "name": "Print info",
-  "description": "Total prints, model name, weight, nozzle/bed.",
+  "description": "Remaining time, estimated finish time, model name and layer count from telemetry. Filament weight is populated from Bambu Cloud when available.",
   "recommendedSize": { "w": 400, "h": 160 },
   "tags": ["info"],
   "bindings": [

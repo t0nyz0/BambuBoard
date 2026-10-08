@@ -1,6 +1,6 @@
 {
   "name": "AMS #2 humidity (legacy)",
-  "description": "Standalone humidity + chamber-temp + drying readout for the second AMS. Superseded by the combined `ams2` widget which now includes this header above the trays. Kept for back-compat with custom scenes.",
+  "description": "Legacy companion AMS humidity, temperature and reported drying status. These readouts are also included in `ams2`.",
   "recommendedSize": { "w": 400, "h": 120 },
   "tags": ["humidity", "ams", "h2d", "legacy"],
   "requiresCap": "hasDualAMS"

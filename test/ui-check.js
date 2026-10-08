@@ -80,9 +80,29 @@ async function runEngine(name, artifactDir) {
     await audit('Telemetry bindings');
     await page.locator('#widget-drawer-btn').click(); await audit('Widget library'); await page.locator('#widget-drawer-close').click();
     for (const route of ['/', '/setup', '/login']) {
+      if (route === '/setup') {
+        await page.route('**/auth/status', request => request.fulfill({ json: { enabled: true, signedIn: true, email: 'demo@example.test' } }));
+        await page.route('**/auth/token', request => request.fulfill({ json: { token: 'fixture-saved-cloud-token', email: 'demo@example.test' } }));
+      }
       await page.goto(base + route); await page.waitForSelector('.nav-brand'); await page.evaluate(() => document.fonts.ready);
-      if (route === '/setup') { await page.locator('.display-preferences > summary').click(); await page.locator('#cloud-section > summary').click(); }
+      if (route === '/setup') {
+        await page.waitForFunction(() => document.getElementById('cloud-status-pill').textContent !== 'Checking…');
+        assert.equal(await page.locator('#cloud-token').isVisible(), true, 'Cloud settings are visible without opening an accordion');
+        assert.equal(await page.locator('#cloud-token').getAttribute('type'), 'password');
+        assert.equal(await page.locator('#cloud-token').inputValue(), 'fixture-saved-cloud-token');
+        assert.match(await page.locator('#cloud-status-pill').innerText(), /Signed in as demo@example.test/);
+        await page.locator('#cloud-token').fill('fixture-cloud-token');
+        await page.locator('#cloud-token-show').click();
+        assert.equal(await page.locator('#cloud-token').getAttribute('type'), 'text');
+        assert.equal(await page.locator('#cloud-token').inputValue(), 'fixture-cloud-token');
+        await page.locator('#cloud-token-show').click();
+        assert.equal(await page.locator('#cloud-token').getAttribute('type'), 'password');
+        await page.locator('#cloud-token-clear').click();
+        assert.equal(await page.locator('#cloud-token').inputValue(), '');
+        await page.locator('.display-preferences > summary').click();
+      }
       await audit(route);
+      if (route === '/setup') { await page.unroute('**/auth/status'); await page.unroute('**/auth/token'); }
     }
     await fs.writeFile(path.join(artifactDir, `accessibility-${name}.json`), JSON.stringify(accessibility, null, 2));
     assert.deepEqual(accessibility.flatMap(a => a.violations), [], 'Management UI accessibility violations');
@@ -188,7 +208,18 @@ async function runEngine(name, artifactDir) {
       for (const route of ['/', '/scene-editor', '/setup']) {
         await page.goto(base + route); await page.waitForSelector('.nav-brand');
         if (route === '/scene-editor') { await page.waitForSelector('.scene-item'); await page.locator('#widget-drawer-btn').click(); }
-        if (route === '/setup') { await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D'); await page.locator('#cloud-section > summary').click(); await page.locator('#cloud-tab-email').click(); }
+        if (route === '/setup') {
+          await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');
+          assert.equal(await page.locator('#cloud-email').isVisible(), true, 'Email sign-in is visible for a new account');
+          if (width >= 1000) {
+            const printer = await page.locator('.setup-main').boundingBox(), cloud = await page.locator('#cloud-section').boundingBox();
+            assert.ok(Math.abs(printer.y - cloud.y) < 2 && cloud.x > printer.x + printer.width, 'Cloud sits alongside the printer at the top');
+          } else {
+            await page.locator('a[href="#cloud-section"]').click();
+            await page.waitForFunction(() => { const box = document.getElementById('cloud-heading').getBoundingClientRect(); return box.top >= 0 && box.bottom < innerHeight; });
+          }
+          await page.locator('#cloud-tab-email').click();
+        }
         await page.evaluate(() => document.fonts.ready);
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name}: ${route} overflows at ${width}`);
         layouts.push({ width, route });

@@ -4,6 +4,50 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+---
+
+## 3.3.0 — 2026-10-08
+
+### Changed
+- Consolidate README setup, OBS and development guidance; correct printer/AMS coverage, cloud requirements, camera/file network access, Synology data paths and G-code timing claims. Regenerate the widget catalog from corrected descriptions.
+- Replace the basic YouTube relay with managed streaming sessions, encrypted primary/backup ingest, H.264 quality presets, two-second keyframes, optional shared-tab audio, live encoding metrics and explicit YouTube Studio broadcast confirmation.
+- Make Bambu Cloud settings an always-visible card alongside printer setup on desktop, with a direct shortcut on smaller screens. Keep saved tokens masked across browser engines and retain the existing printer, connection and display controls.
+- Guide new cloud sign-ins through email code and MFA steps, with a resend countdown, keyboard submission, progress feedback, token fallback instructions and a saved-account connection check.
+
+### Fixed
+- Preserve and atomically save partial MQTT telemetry, including print filenames and AMS/tray metadata. Assign new print lifecycles separate cache identities, and request missing job metadata at print start.
+- Find sliced files at explicit printer paths and in the FTPS root, `/cache`, and `/model`; support raw G-code, filename variants, TLS 1.2 and protected passive transfers. Validate the selected plate, transfer size, archive CRC and slicer MD5 when present.
+- Cancel obsolete downloads, coalesce concurrent widget requests, and limit retries, file sizes and browser parsing. Expose connection, file, archive and renderer failures in the widget with persistent redacted diagnostics.
+  **Why:** Reports #24 and #25 could be triggered by erased MQTT metadata, a single hardcoded storage path, or a firmware storage restriction; repeating a generic loading message hid those distinctions.
+- Fit long, narrow and tall toolpaths to the actual camera field of view and widget dimensions. Show all parsed layers on finished prints, including firmware reporting stage `-1`; pause simulation when telemetry is stale or unavailable.
+- Report YouTube encoder and connection failures, bound input buffering and stalled sessions, retry transient failures with fresh browser recording headers, preserve local error messages during polling, and release capture/encoder resources on cancellation and shutdown.
+- Verify email codes through Bambu's API host, obtain the required MFA security cookie and use native Node cookie handling. Require successful token verification before saving, bound cloud requests, preserve an existing sign-in when replacement fails and clear cached cloud data when the account changes.
+
+### Added
+- Retry and diagnostics controls, exact sliced-file recovery for the current print, a read-only Docker FTPS self-test, and regression coverage for download and rendering recovery.
+- Server YouTube capture of the published scene, independent of the control page; Chromium in the Docker image; setup checks, persistent redacted streaming diagnostics and end-to-end streaming regression coverage. YouTube controls remain optional and collapsed below the live preview and OBS setup.
+- Add cloud authentication regression coverage for the API, saved credentials and complete browser sign-in/recovery flows in Chromium, Firefox and WebKit.
+
+---
+
+## 3.2.0 — 2026-10-07
+
+### Changed
+- Refresh the Studio UI with the Prism logo, local Manrope typography, dark surfaces and mint controls. Put Live preview first, OBS setup below it and optional YouTube controls in a collapsed section.
+- Give the Layout editor docked Layers and inspector panels, clearer draft state and a separate Publish to /live action; retain existing scene geometry and widget themes.
+- Update and lock dependencies and local bundles. Use Node 24 and maintained Alpine FFmpeg, remove unused package managers from the image and require regression checks before Docker publication.
+
+### Fixed
+- Preserve transparent widget backgrounds, locked movement, scene switching, cleared overrides and edits made during saving.
+- End synthesized stream audio with video and bound encoder shutdown, including the Linux source-install FFmpeg path.
+
+### Added
+- Server, browser, accessibility, responsive and dual-architecture checks; safe README screenshots and a QA record.
+
+---
+
 ## 3.1.5 — 2026-08-22
 
 ### Changed
@@ -542,4 +586,3 @@ The hub's "Download for OBS" button serves these with `<HOST>` substituted from 
 4. The `bambuboard-h2d` Docker repository will be archived; switch to `bambuboard:latest`.
 
 ---
-

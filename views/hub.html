@@ -51,25 +51,31 @@
     </section>
     <section class="youtube-section" aria-label="Optional YouTube relay">
       <div id="yt-active-controls" class="yt-active-controls" hidden>
-        <span id="yt-active-status" role="status">Relay starting…</span>
-        <button id="yt-stop" class="btn btn-danger" type="button" disabled>Stop relay</button>
+        <div class="yt-active-copy"><span id="yt-state-badge" class="pill">Starting</span><span id="yt-active-status">Preparing stream…</span></div>
+        <button id="yt-stop" class="btn btn-danger" type="button" disabled>Stop stream</button>
       </div>
       <details id="youtube-details">
         <summary>Direct YouTube streaming <span class="beta-label">Beta · optional</span></summary>
-        <p class="text-dim">Share the <a href="/live" target="_blank" rel="noopener">/live tab</a> from a desktop browser. BambuBoard relays it to YouTube; check YouTube Studio for broadcast status.</p>
-        <p id="yt-support" class="connection-notice" hidden></p>
-        <div class="obs-controls">
-          <label class="sr-only" for="yt-key">YouTube stream key</label>
-          <input id="yt-key" class="input" type="password" placeholder="YouTube stream key" autocomplete="off">
-          <button id="yt-start" class="btn" type="button">Start relay</button>
+        <div class="yt-heading"><div><h2>Stream your published scene</h2><p class="text-dim">Choose where to run the stream, then confirm the broadcast in YouTube Studio.</p></div><a class="btn" href="https://www.youtube.com/live_dashboard" target="_blank" rel="noopener">Open YouTube Studio <span class="nav-icon" aria-hidden="true">open_in_new</span></a></div>
+        <ol class="yt-steps"><li>Create an encoder stream in YouTube Studio.</li><li>Copy its stream key below and choose your quality.</li><li>Start here, then check the preview and go live in Studio.</li></ol>
+        <div class="yt-settings">
+          <div class="yt-field"><label for="yt-mode">Stream source</label><select id="yt-mode" class="input"><option value="server">Run on BambuBoard server</option><option value="browser">Share a browser tab</option></select><p id="yt-mode-help" class="text-dim">Checking server capture…</p></div>
+          <div class="yt-field"><label for="yt-quality">Video quality</label><select id="yt-quality" class="input"><option value="720p30">720p · 30 fps</option><option value="1080p30">1080p · 30 fps</option><option value="1080p60">1080p · 60 fps</option></select><p class="text-dim">720p is the best starting point for a NAS. Higher resolutions need more processing capacity.</p></div>
+          <div class="yt-field yt-key-field"><label for="yt-key">YouTube stream key</label><div class="yt-key-controls"><input id="yt-key" class="input" type="password" placeholder="Paste the key from YouTube Studio" autocomplete="off" spellcheck="false"><button id="yt-show-key" class="btn" type="button" aria-label="Show stream key" aria-pressed="false">Show</button></div><p class="text-dim">Used for this session only. It is not saved to settings or diagnostics.</p></div>
+          <div class="yt-field"><label for="yt-audio">Audio</label><select id="yt-audio" class="input"><option value="silence">Silent print stream</option><option value="tab">Include shared tab audio</option></select><p id="yt-audio-help" class="text-dim">Tab audio is available with browser capture.</p></div>
         </div>
-        <p id="yt-status" class="text-dim" role="status">Ready when you are.</p>
-        <p class="text-muted">Keep the shared tab open. Your browser captures the tab and the server transcodes the video, so both need enough processing capacity.</p>
+        <details class="yt-advanced"><summary>Advanced stream settings</summary><div class="yt-settings"><div class="yt-field"><label for="yt-bitrate">Video bitrate (kbps)</label><input id="yt-bitrate" class="input" type="number" min="1000" max="25000" step="100" value="8000"><p id="yt-bitrate-help" class="text-dim">YouTube recommends 8,000 kbps for this H.264 preset.</p></div><div class="yt-field"><label for="yt-destination">YouTube ingest server</label><select id="yt-destination" class="input"><option value="primary">Primary · encrypted RTMPS</option><option value="backup">Backup · encrypted RTMPS</option></select><p class="text-dim">Use the primary server normally. Both use an encrypted connection on port 443.</p></div></div></details>
+        <p id="yt-support" class="connection-notice" hidden></p>
+        <div class="yt-actions"><button id="yt-start" class="btn btn-primary" type="button" disabled>Start stream</button><button id="yt-check" class="btn" type="button">Check setup</button><a id="yt-diagnostics" class="btn" href="/api/stream/youtube/diagnostics" download><span class="nav-icon" aria-hidden="true">download</span>Diagnostics</a></div>
+        <p id="yt-status" class="text-dim" role="status">Checking streaming support…</p>
+        <dl id="yt-metrics" class="yt-metrics" hidden><div><dt>Output</dt><dd id="yt-metric-quality">—</dd></div><div><dt>Duration</dt><dd id="yt-metric-duration">—</dd></div><div><dt>Encoder fps</dt><dd id="yt-metric-fps">—</dd></div><div><dt>Encoding speed</dt><dd id="yt-metric-speed">—</dd></div><div><dt>Video sent</dt><dd id="yt-metric-bytes">—</dd></div></dl>
+        <p class="text-muted">Sending video confirms the encoder is working. YouTube Studio shows stream health and whether the broadcast is public.</p>
       </details>
     </section>
     <footer class="workspace-footer"><span>Local connection · Cloud optional</span><span>BambuBoard <span id="app-version"></span></span></footer>
   </main>
   <script src="/js/nav.js"></script>
   <script src="/js/hub.js"></script>
+  <script src="/js/youtube-stream.js"></script>
 </body>
 </html>

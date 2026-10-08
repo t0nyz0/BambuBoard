@@ -1,6 +1,6 @@
 {
   "name": "Chamber temperature",
-  "description": "Enclosed-chamber temperature (X1, X1C, H2D).",
+  "description": "Reported chamber temperature, shown for printer types with the chamber-temperature capability.",
   "recommendedSize": { "w": 400, "h": 120 },
   "tags": ["temperature"],
   "requiresCap": "hasChamberTemp"
