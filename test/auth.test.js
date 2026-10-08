@@ -4,14 +4,15 @@ const express = require('express');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { buildAuthRouter } = require('../src/routes/auth');
-const { temporary, listen } = require('./helpers');
+const { temporary, listen, until } = require('./helpers');
 const TOKEN_A = 'fixture-only-cloud-token-account-a';
 const TOKEN_B = 'fixture-only-cloud-token-account-b';
 
 async function fixture(t, upstream, options = {}) {
-  const data = await temporary(t), requests = [];
+  const data = await temporary(t), requests = [], actions = [];
   let config = { printer: { accessCode: 'fixture-lan-code', serialNumber: 'fixture-serial' }, cloudAuth: { enabled: false } };
   const app = express(); app.use(express.json());
+  app.use((req, _res, next) => { actions.push(req.path); next(); });
   app.use(buildAuthRouter({
     getConfig: () => config, paths: { data },
     saveConfig: async next => { await options.beforeSave?.(next); if (options.failSave) throw new Error('fixture private details'); config = next; },
@@ -20,7 +21,7 @@ async function fixture(t, upstream, options = {}) {
   }));
   const base = await listen(t, app);
   return {
-    data, requests, config: () => config,
+    data, requests, actions, config: () => config,
     token: () => fs.readFile(path.join(data, 'accessToken.json'), 'utf8').then(JSON.parse),
     call: async (route, body) => {
       const response = await fetch(base + route, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -256,6 +257,25 @@ test('delayed sign-ins cannot undo a newer sign-out or account replacement', asy
   finally { release(); }
   assert.equal((await oldSignin).body.code, 'SESSION_CHANGED');
   assert.equal((await f.token()).accessToken, TOKEN_B);
+
+  // A later failed login does not cancel a sign-out queued behind a write.
+  let saveStarted, releaseSave;
+  const saveReady = new Promise(resolve => { saveStarted = resolve; });
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  const queued = await fixture(t, (_url, opts) => opts.headers.Authorization === 'Bearer ' + TOKEN_B
+    ? Response.json({}, { status: 503 }) : Response.json({ uid: 'fixture' }),
+  { beforeSave: async next => { if (next.cloudAuth.enabled) { saveStarted(); await saveGate; } } });
+  const firstWrite = queued.call('/auth/manual-token', { token: TOKEN_A });
+  await saveReady;
+  const signout = queued.call('/auth/signout', { disable: true });
+  try {
+    await until(() => queued.actions.includes('/auth/signout'));
+    assert.equal((await queued.call('/auth/manual-token', { token: TOKEN_B })).body.code, 'CLOUD_UNAVAILABLE');
+  } finally { releaseSave(); }
+  assert.equal((await firstWrite).body.code, 'SESSION_CHANGED');
+  assert.equal((await signout).body.ok, true);
+  assert.equal(queued.config().cloudAuth.enabled, false);
+  await assert.rejects(queued.token(), { code: 'ENOENT' });
 });
 
 test('a failed credential write cannot roll back a newer successful sign-in', async t => {

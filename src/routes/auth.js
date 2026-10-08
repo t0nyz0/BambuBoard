@@ -119,9 +119,10 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   function changeCredentials(intent, action) {
     // Network verification can overlap, but credential/config writes and
     // rollback must finish together before another account action writes.
-    const operation = credentialWrites.then(async () => { requireIntent(intent); return action(); });
+    const check = () => { if (intent !== null) requireIntent(intent); };
+    const operation = credentialWrites.then(async () => { check(); return action(); });
     credentialWrites = operation.catch(() => {});
-    return operation.then(result => { requireIntent(intent); return result; });
+    return operation.then(result => { check(); return result; });
   }
   async function saveSignIn(token, intent) {
     return changeCredentials(intent, async () => {
@@ -257,9 +258,11 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   });
 
   router.post('/auth/signout', async (req, res) => {
-    const intent = ++accountIntent;
+    ++accountIntent;
     try {
-      await changeCredentials(intent, async () => {
+      // Always apply a requested sign-out in write order. A newer failed
+      // sign-in must not cancel it; a successful newer one writes after it.
+      await changeCredentials(null, async () => {
         if (req.body?.disable === true) {
           const cfg = getConfig();
           await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: false } });
