@@ -46,11 +46,13 @@ test('FTP discovery matches the current filename, handles Unicode/case, and neve
   assert.ok(fixture.commands.some(c => c.verb === 'LIST'));
   assert.ok(!fixture.commands.some(c => c.arg.includes('Unrelated')));
 });
-test('explicit printer paths and extracted raw plate G-code work without cloud credentials', async t => {
-  const fixture = await ftpsFixture(t, { files: { '/Exact name.gcode': gcode } });
+test('explicit raw paths work without cloud credentials or guessing an unidentified plate', async t => {
+  const fixture = await ftpsFixture(t, { files: { '/Exact name.gcode': gcode, '/cache/Fixture_plate_1.gcode': gcode } });
   const job = describe({ gcode_file: 'file:///sdcard/Exact%20name.gcode', task_id: '0', url: 'https://cloud.invalid/job?token=do-not-forward' });
   assert.deepEqual(await fetchPlateGcode({ ...options, job, port: fixture.port }), gcode);
   assert.ok(!fixture.commands.some(c => c.arg.includes('token=') || c.arg.includes('cloud.invalid')));
+  await assert.rejects(fetchPlateGcode({ ...options, job: describe({ subtask_name: 'Fixture' }), port: fixture.port }), { code: 'FILE_NOT_FOUND' });
+  assert.ok(!fixture.commands.some(c => c.verb === 'RETR' && c.arg.includes('Fixture_plate_1')), 'An unknown plate cannot silently become plate 1');
 });
 test('login errors fail promptly with a useful code, without a folder sweep', async t => {
   const fixture = await ftpsFixture(t, { authFailure: true });

@@ -31,7 +31,8 @@ function candidates(job, model) {
     const base = stem(job.name);
     names.add(base + '.gcode.3mf'); names.add(base + '.3mf');
     // An extracted raw plate in /cache can have this specific filename.
-    names.add(base + `_plate_${job.plate}.gcode`);
+    // Only use a plate number actually reported by the printer.
+    if (job.plateKnown) names.add(base + `_plate_${job.plate}.gcode`);
     if (/\.gcode$/i.test(job.name)) names.add(job.name);
   }
   for (const name of [...names]) if (name.includes(' ')) names.add(name.replaceAll(' ', '_'));
