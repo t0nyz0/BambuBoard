@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const { randomUUID } = require('node:crypto');
 
 const SAFE_NAME = /^[a-zA-Z0-9_\-. ]{1,64}$/;
 const PKG_VERSION = require('../../package.json').version;
@@ -16,6 +17,15 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   const ACTIVE_FILE = path.join(paths.data, 'active-scene.json');
 
   fs.mkdirSync(SCENES_DIR, { recursive: true });
+
+  async function saveDraft(name, text) {
+    const file = path.join(SCENES_DIR, `${name}.json`);
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    try {
+      await fsp.writeFile(temporary, text, { flag: 'wx', mode: 0o600 });
+      await fsp.rename(temporary, file);
+    } finally { await fsp.rm(temporary, { force: true }); }
+  }
 
   function originFromReq(req) {
     if (process.env.BAMBUBOARD_PUBLIC_URL) {
@@ -187,7 +197,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
       const out = JSON.stringify(data, null, 2);
       if (name) {
         if (!SAFE_NAME.test(name)) return res.status(400).json({ error: 'invalid name' });
-        await fsp.writeFile(path.join(SCENES_DIR, `${name}.json`), out);
+        await saveDraft(name, out);
         return res.json({ ok: true, savedAs: name });
       }
       res.setHeader('Content-Type', 'application/json');
@@ -240,7 +250,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
     try {
       const text = typeof json === 'string' ? json : JSON.stringify(json, null, 2);
       JSON.parse(text); // validate
-      await fsp.writeFile(path.join(SCENES_DIR, `${name}.json`), text);
+      await saveDraft(name, text);
       // Return the slug so callers (the scene editor) can auto-select the new
       // entry in their saved-scenes dropdown without a page reload.
       res.json({ ok: true, slug: name });

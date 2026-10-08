@@ -17,6 +17,8 @@ All notable changes to this project are documented in this file. The format foll
 - Guide new cloud sign-ins through email code and MFA steps, with a resend countdown, keyboard submission, progress feedback, token fallback instructions and a saved-account connection check.
 
 ### Fixed
+- Save drafts atomically so readers keep complete JSON during an in-flight or failed save. Wait for the actual save response in browser QA.
+- Serialize cloud credential writes and rollback; reject delayed token/email/MFA sign-ins after a newer sign-out or account replacement.
 - Preserve and atomically save partial MQTT telemetry, including print filenames and AMS/tray metadata. Assign new print lifecycles separate cache identities, and request missing job metadata at print start.
 - Find sliced files at explicit printer paths and in the FTPS root, `/cache`, and `/model`; support raw G-code, filename variants, TLS 1.2 and protected passive transfers. Validate the selected plate, transfer size, archive CRC and slicer MD5 when present.
 - Cancel obsolete downloads, coalesce concurrent widget requests, and limit retries, file sizes and browser parsing. Expose connection, file, archive and renderer failures in the widget with persistent redacted diagnostics.

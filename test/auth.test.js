@@ -14,7 +14,7 @@ async function fixture(t, upstream, options = {}) {
   const app = express(); app.use(express.json());
   app.use(buildAuthRouter({
     getConfig: () => config, paths: { data },
-    saveConfig: async next => { if (options.failSave) throw new Error('fixture private details'); config = next; },
+    saveConfig: async next => { await options.beforeSave?.(next); if (options.failSave) throw new Error('fixture private details'); config = next; },
     fetchCloud: async (url, opts) => { requests.push({ url, opts }); return upstream(url, opts); },
     requestTimeoutMs: options.requestTimeoutMs || 15_000,
   }));
@@ -215,4 +215,70 @@ test('account replacement invalidates cloud widget caches and a failed settings 
   release(Response.json({ code: 4, error: 'Please login.' }, { status: 401 }));
   assert.equal((await oldCheck).body.code, 'SESSION_CHANGED');
   assert.equal((await concurrent.call('/auth/status')).body.signedIn, true, 'an old account check cannot reject a newly saved sign-in');
+});
+
+test('delayed sign-ins cannot undo a newer sign-out or account replacement', async t => {
+  for (const method of ['token', 'email', 'mfa']) {
+    let started, release;
+    const ready = new Promise(resolve => { started = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    const f = await fixture(t, async (url, opts) => {
+      if (url.endsWith('/api/csrf')) return new Response(null, { status: 204, headers: { 'Set-Cookie': 'bbl_csrf_token=fixture-csrf; Path=/' } });
+      if ((method === 'token' && opts.headers.Authorization === 'Bearer ' + TOKEN_B)
+          || (method === 'email' && url.endsWith('/user/login'))
+          || (method === 'mfa' && url.endsWith('/sign-in/tfa'))) { started(); await gate; }
+      return url.endsWith('/my/preference') ? Response.json({ uid: 'fixture' }) : Response.json({ accessToken: TOKEN_B });
+    });
+    await f.call('/auth/manual-token', { token: TOKEN_A });
+    const pending = method === 'token' ? f.call('/auth/manual-token', { token: TOKEN_B })
+      : method === 'email' ? f.call('/verify', { username: 'demo@example.test', code: '012345' })
+      : f.call('/mfa', { tfaKey: 'fixture-mfa-key', tfaCode: '012345' });
+    try { await ready; assert.equal((await f.call('/auth/signout', { disable: true })).body.ok, true); }
+    finally { release(); }
+    const result = await pending;
+    assert.equal(result.status, 409, method + ' must reject a superseded sign-in');
+    assert.equal(result.body.code, 'SESSION_CHANGED');
+    assert.equal((await f.call('/auth/status')).body.signedIn, false);
+    assert.equal(f.config().cloudAuth.enabled, false);
+    await assert.rejects(f.token(), { code: 'ENOENT' });
+  }
+
+  let started, release, delay = false;
+  const ready = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, async (_url, opts) => {
+    if (delay && opts.headers.Authorization === 'Bearer ' + TOKEN_A) { started(); await gate; }
+    return Response.json({ uid: 'fixture' });
+  });
+  await f.call('/auth/manual-token', { token: TOKEN_B }); delay = true;
+  const oldSignin = f.call('/auth/manual-token', { token: TOKEN_A });
+  try { await ready; assert.equal((await f.call('/auth/manual-token', { token: TOKEN_B })).body.ok, true); }
+  finally { release(); }
+  assert.equal((await oldSignin).body.code, 'SESSION_CHANGED');
+  assert.equal((await f.token()).accessToken, TOKEN_B);
+});
+
+test('a failed credential write cannot roll back a newer successful sign-in', async t => {
+  let started, release, secondStarted, saves = 0;
+  const ready = new Promise(resolve => { started = resolve; });
+  const secondReady = new Promise(resolve => { secondStarted = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, (_url, opts) => {
+    if (opts.headers.Authorization === 'Bearer ' + TOKEN_B) secondStarted();
+    return Response.json({ uid: 'fixture' });
+  }, { beforeSave: async () => { if (++saves === 1) { started(); await gate; throw new Error('fixture settings write failure'); } } });
+  const first = f.call('/auth/manual-token', { token: TOKEN_A });
+  await ready;
+  const second = f.call('/auth/manual-token', { token: TOKEN_B });
+  let timer;
+  try {
+    await secondReady;
+    // An unprotected newer write finishes here; a serialized one waits for
+    // the failed write to settle. Release either path without deadlocking.
+    await Promise.race([second, new Promise(resolve => { timer = setTimeout(resolve, 200); })]);
+  } finally { clearTimeout(timer); release(); }
+  assert.equal((await first).body.code, 'SAVE_FAILED');
+  assert.equal((await second).body.ok, true);
+  assert.equal(f.config().cloudAuth.enabled, true);
+  assert.equal((await f.token()).accessToken, TOKEN_B);
 });

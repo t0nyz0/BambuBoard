@@ -44,6 +44,37 @@ test('draft changes stay isolated until publish; OBS export matches the publishe
   await request('/scenes/Studio', null, 'DELETE');
   assert.deepEqual((await request('/published')).body, changed);
 });
+
+test('a draft stays readable during a pending or failed save', async t => {
+  const original = collection(), changed = collection(1280, 720);
+  const { data, request } = await setup(t);
+  await request('/scenes', { name: 'Studio', json: original });
+  await request('/active', { slug: 'Studio' });
+  const writeFile = fs.writeFile.bind(fs);
+  let started, release, fail = false;
+  const ready = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  t.mock.method(fs, 'writeFile', async (file, text, options) => {
+    if (String(file).includes(path.join(data, 'scenes', 'Studio.json'))) {
+      await writeFile(file, '', options); started(); await gate;
+      if (fail) throw new Error('fixture write failure');
+      return writeFile(file, text, { ...options, flag: 'w' });
+    }
+    return writeFile(file, text, options);
+  });
+  const pending = request('/scenes', { name: 'Studio', json: changed });
+  try {
+    await ready;
+    assert.deepEqual((await request('/scenes/Studio')).body, original);
+    assert.deepEqual((await request('/published')).body, original);
+  } finally { release(); await pending; }
+  assert.deepEqual((await request('/scenes/Studio')).body, changed);
+  fail = true;
+  assert.equal((await request('/scenes', { name: 'Studio', json: original })).status, 400);
+  assert.deepEqual((await request('/scenes/Studio')).body, changed);
+  assert.deepEqual((await request('/published')).body, original);
+  assert.deepEqual((await fs.readdir(path.join(data, 'scenes'))).filter(file => file.endsWith('.tmp')), []);
+});
 test('legacy active scene is preserved before the first draft save', async t => {
   const original = collection();
   const { request } = await setup(t, async data => {
