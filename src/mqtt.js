@@ -2,6 +2,8 @@ const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
 const { capsFor, printerTypeFromMqtt } = require('./lib/caps');
+const { mergePrint } = require('./lib/printTelemetry');
+const { describe: describeGcodeJob } = require('../public/js/gcode-job');
 
 const PUSHALL_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -31,6 +33,8 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
   let lastPushallTime = 0;
   let status = 'offline';
   let lastUpdate = null;
+  let printSnapshot = {};
+  let writeQueue = Promise.resolve();
   // Auto-detected from the MQTT `get_version` response. Stays null until the
   // printer publishes a module list. Exposed via state so /api/status can
   // surface { detectedFrom: 'mqtt'|'config', model: '<friendly name>' }.
@@ -104,7 +108,6 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
     client.on('message', (_topic, message) => {
       try {
         const json = JSON.parse(message.toString());
-        const dataToWrite = JSON.stringify(json);
         lastUpdate = json.t_utc && !isNaN(json.t_utc)
           ? new Date(json.t_utc).toLocaleString()
           : nowLocal();
@@ -129,10 +132,23 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
         }
 
         if (json.print) {
-          fs.writeFile(dataPath, dataToWrite, (err) => {
-            if (err) log(`Error writing data.json: ${err.message}`);
-          });
-          autoUpdateNote(json.print, dataPath);
+          // MQTT reports are deltas. Preserve job metadata through temperature,
+          // layer and AMS updates, and publish complete snapshots atomically.
+          const previousJob = printSnapshot._bb_job_id;
+          printSnapshot = mergePrint(printSnapshot, json.print);
+          if (previousJob !== printSnapshot._bb_job_id && !describeGcodeJob(printSnapshot).available
+              && ['RUNNING', 'PREPARE', 'SLICING'].includes(printSnapshot.gcode_state)) {
+            // A new job's first packet may contain only its state/ID. Request
+            // a read-only full snapshot once, rather than waiting five minutes.
+            client.publish(topicRequest, JSON.stringify({ pushing: { sequence_id: ++sequenceID, command: 'pushall' }, user_id: '9586569' }));
+          }
+          const snapshot = JSON.stringify({ ...json, print: printSnapshot, _bb_received_at: Date.now() });
+          writeQueue = writeQueue.then(async () => {
+            const temp = dataPath + '.tmp';
+            await fs.promises.writeFile(temp, snapshot);
+            await fs.promises.rename(temp, dataPath);
+          }).catch(err => log(`Error writing data.json: ${err.code || 'unknown'}`));
+          autoUpdateNote(printSnapshot, dataPath);
         } else {
           // Type-aware pushall cadence
           const caps = capsFor(printer.type);

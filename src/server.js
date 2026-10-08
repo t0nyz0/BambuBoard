@@ -101,7 +101,8 @@ app.get('/data.json', (req, res) => {
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
 app.use('/api/obs', buildObsSceneRouter({ paths, getConfig }));
-app.use('/api/gcode', buildGcodeRouter({ getConfig, paths }).router);
+const gcodeRoutes = buildGcodeRouter({ getConfig, paths });
+app.use('/api/gcode', gcodeRoutes.router);
 app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 
 // Legacy /note endpoints — used by the notes widget (public/widgets/notes/*.html).
@@ -207,8 +208,14 @@ app.listen(port, '0.0.0.0', () => {
 });
 
 // Graceful shutdown
-['SIGINT', 'SIGTERM'].forEach(sig => process.on(sig, () => {
+let shuttingDown = false;
+['SIGINT', 'SIGTERM'].forEach(sig => process.on(sig, async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\n[bambuboard] received ${sig}, shutting down`);
   try { printer.stop(); } catch (_) {}
+  const deadline = setTimeout(() => process.exit(0), 3000);
+  deadline.unref();
+  await gcodeRoutes.stop();
   process.exit(0);
 }));

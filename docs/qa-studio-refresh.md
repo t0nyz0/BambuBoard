@@ -1,5 +1,7 @@
 # Studio refresh QA record
 
+The current server suite has **29 tests**, including the additional [G-code reliability checks](gcode-resilience.md#verification). The initial Studio refresh results below remain a record of that release.
+
 Verified October 7, 2026 against `origin/main` at `2ab9d2735a65232440a4d0020a3d84b9ad412ef7`, with the refresh on `codex/studio-refresh`. The maintainer approved release 3.2.0 and a NAS update after these checks. The original FTP experiment checkout is unchanged. The results below record the pre-release QA; production installation is tracked separately.
 
 ## Results

@@ -6,6 +6,7 @@ config.json
 config.json.*.bak
 screenshots
 test
-scripts
+scripts/*
+!scripts/ftp-test.js
 .codex
 .DS_Store

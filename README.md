@@ -13,7 +13,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-14-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
+[![Server tests](https://img.shields.io/badge/server_tests-29-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 **Setup → Connect → Layout → Publish.** First-run guidance appears during printer setup. Connect lives on the Setup page.
@@ -300,6 +300,7 @@ Both produce a `config.json.pre-merge-*-{timestamp}.bak` backup before overwriti
 - **Wrong printer type detected** — BambuBoard auto-detects from MQTT and overwrites `config.printer.type` accordingly. If detection picks the wrong model (rare — usually means custom firmware), set `BAMBUBOARD_PRINTER_TYPE=X1` (or whatever) as an env var; that always wins.
 - **Camera is black / "Camera off"** — BambuBoard renders the camera itself (no OBS media source, no SDP, no Bambu Studio). On RTSP models (X1 / X1C / H2D / P2S), enable **LAN Mode Liveview** on the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot (firmware 01.06+). The camera widget shows these exact steps when the feed is unavailable. P1 / A1-class printers use the port-6000 chamber-image stream instead — no toggle needed, just a valid access code.
 - **OBS shows nothing at `/live`** — make sure the BambuBoard server is running and the Browser Source URL points at `http://<your-host>:8080/live` (not `localhost` if OBS is on another machine). Publish a scene with **Publish to /live**, or `/live` falls back to the default layout.
+- **Gcode Toolpath cannot load** — open `/widgets/gcode-viz/?debug=1` directly. The widget shows the failure reason, offers **Retry now** and **Download diagnostics**, and stops automatic retries after five attempts. MQTT connectivity does not guarantee FTPS access: file downloads require port 990 and passive data ports. Some firmware keeps cloud jobs in internal storage that FTPS cannot expose. **Load sliced file** lets you supply the exact sliced `.3mf` or `.gcode` for the current print; it updates the cached toolpath for other widgets too. [Gcode troubleshooting and protocol research](docs/gcode-resilience.md).
 
 ---
 
@@ -331,10 +332,12 @@ The **server tests** badge counts the tests in `npm test`. The **build** badge r
 | `npm test` | Exercise publication persistence, cloud responses, TLS MQTT/FTPS/camera fixtures and a loopback RTMP relay. |
 | `npm test -- --update-badge` | Run the server tests and update the README test-count badge after they pass. |
 | `npm run test:browser` | Exercise the real app with isolated data, responsive layouts, keyboard controls and all widgets. Install Chromium with `npx playwright install chromium` first. |
+| `npm run test:gcode-browser` | Exercise the full widget → HTTP → FTPS → archive → WebGL path, retry limits, diagnostic downloads, manual file recovery, new-print races, telemetry outages and renderer failures. Uses local fixtures. |
 | `npm run test:ui` | Check editor regressions, publication failure/recovery, transparent widget rendering and management-page accessibility. Set `BB_BROWSERS=chromium,firefox,webkit` after installing those Playwright browsers to check all three engines. |
 | `node scripts/capture-readme.js` | Take fresh Live, Layout, Setup and mobile screenshots using an isolated MQTT demo and camera replay. The default uses a generated camera test feed; [optional local reference inputs](docs/qa-studio-refresh.md#screenshots-and-safe-fixtures) reproduce an existing layout. |
 | `npm run build:vendor` | Regenerate local jQuery, Three.js, lil-gui and toolpath bundles from the locked versions. |
 | `npm run build:widget-catalog` | Regenerate the widget catalog table in this README from each widget's `widget.json`. Run after adding/changing widgets. |
+| `node scripts/ftp-test.js` | Run the read-only current-print FTPS check with the same downloader as the widget. For Docker: `docker exec bambuboard node scripts/ftp-test.js`. Outputs redacted JSON diagnostics. |
 
 ---
 

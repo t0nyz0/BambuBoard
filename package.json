@@ -10,6 +10,7 @@
     "check": "node scripts/check-syntax.js",
     "build:vendor": "node scripts/build-vendor.js",
     "test:browser": "node test/browser-check.js",
+    "test:gcode-browser": "node test/gcode-browser-check.js",
     "test:ui": "node test/ui-check.js"
   },
   "keywords": [
