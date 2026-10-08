@@ -1,6 +1,6 @@
 # Studio refresh QA record
 
-The current server suite has **29 tests**, including the additional [G-code reliability checks](gcode-resilience.md#verification). The initial Studio refresh results below remain a record of that release.
+The current server suite has **44 tests**, including the additional [G-code reliability checks](gcode-resilience.md#verification) and [YouTube streaming checks](youtube-streaming.md#verification). The initial Studio refresh results below remain a record of that release.
 
 Verified October 7, 2026 against `origin/main` at `2ab9d2735a65232440a4d0020a3d84b9ad412ef7`, with the refresh on `codex/studio-refresh`. The maintainer approved release 3.2.0 and a NAS update after these checks. The original FTP experiment checkout is unchanged. The results below record the pre-release QA; production installation is tracked separately.
 
@@ -68,6 +68,8 @@ npm run check
 npm test
 npx playwright install --with-deps chromium firefox webkit
 npm run test:browser
+npm run test:gcode-browser
+npm run test:stream-browser
 BB_BROWSERS=chromium,firefox,webkit npm run test:ui
 npm audit --audit-level=low
 npm run build:vendor
@@ -82,7 +84,7 @@ docker run --rm --platform linux/amd64 \
   sh -ec 'apk add --no-cache openssl; node --test test/*.test.js'
 ```
 
-OpenSSL is added only to the temporary test container to generate loopback fixture certificates. The production image includes FFmpeg, Node and locked production dependencies; npm/npx/Yarn are removed after installation. Rebuild the image for package changes.
+OpenSSL is added only to the temporary test container to generate loopback fixture certificates. The production image includes FFmpeg, Chromium, Node and locked production dependencies; npm/npx/Yarn are removed after installation. Rebuild the image for package changes. Run capture checks on a native CPU for each architecture; Chromium/video performance under emulation may time out. CI uses native amd64 and arm64 runners.
 
 ## Release checks still required
 

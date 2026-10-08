@@ -13,7 +13,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-29-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
+[![Server tests](https://img.shields.io/badge/server_tests-44-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 **Setup → Connect → Layout → Publish.** One printer per BambuBoard instance.
@@ -55,7 +55,7 @@ Screenshots show the actual app in an isolated demo installation, with sample te
 - **Show printer telemetry and camera together.** Progress, temperatures, fans, AMS trays and reported drying status sit alongside a camera feed relayed by BambuBoard. Camera transport is selected from the printer's detected type.
 - **Preview the sliced toolpath.** The experimental G-code widget downloads the current print over FTPS, validates sliced archives and offers retries, diagnostics and manual file recovery. Nozzle motion is estimated from layers/progress and G-code timing; it can drift during complex or multi-color prints.
 - **Run on your LAN.** App scripts, fonts and other assets are bundled locally. Core telemetry, camera and toolpath features do not require cloud sign-in. Optional Bambu Cloud data supplies MakerWorld content and extra print details.
-- **Stream directly to YouTube (beta).** The optional section at the bottom of Live shares the `/live` tab. It needs HTTPS or localhost and a desktop browser with tab capture and video encoding. Both the browser and server encode video; OBS is recommended for small hosts. Check YouTube Studio to confirm the public broadcast.
+- **Stream directly to YouTube (beta).** The optional section at the bottom of Live can render `/live` on the server, continuing after you close the controls, or share a browser tab with optional tab audio. Choose quality, check setup, monitor encoding and download redacted diagnostics. Browser sharing needs HTTPS or localhost; server capture works from an HTTP LAN address. [Streaming setup and limitations](docs/youtube-streaming.md).
 
 ## Quickstart
 
@@ -103,7 +103,7 @@ npm ci
 npm start
 ```
 
-Open **http://localhost:8080**. Source installs use `ffmpeg-static`, or an explicit `FFMPEG_BIN` path; Docker includes FFmpeg.
+Open **http://localhost:8080**. Source installs use `ffmpeg-static`, or an explicit `FFMPEG_BIN` path; Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs; see [streaming setup](docs/youtube-streaming.md#requirements).
 
 ## Setup, layout and OBS
 
@@ -203,7 +203,7 @@ Allow the BambuBoard host to reach the printer on the ports used by your feature
 | Chamber-image camera | TLS image stream, **6000** for P1/A1-class types |
 | G-code download | Implicit TLS FTPS, **990**, plus the printer's negotiated passive data ports |
 
-The viewer/OBS connects to BambuBoard on **8080** by default. MQTT success alone does not verify camera or file access. The Synology examples use host networking; the standard Docker example uses a bridge with port 8080 published. Cloud widgets and YouTube streaming also need internet access. App assets have no CDN dependency, though custom remote sources and cloud content can still make external requests.
+The viewer/OBS connects to BambuBoard on **8080** by default. MQTT success alone does not verify camera or file access. The Synology examples use host networking; the standard Docker example uses a bridge with port 8080 published. Cloud widgets need internet access; YouTube streaming uses outbound encrypted RTMPS on **443**. App assets have no CDN dependency, though custom remote sources and cloud content can still make external requests.
 
 ## Troubleshooting
 
@@ -226,7 +226,7 @@ With the default data directory, legacy root-level `config.json`, `accessToken.j
 
 The server is plain Node/Express in [`src`](src), the management pages are in [`views`](views), and each standalone widget is in [`public/widgets`](public/widgets). Keep the server [capability map](src/lib/caps.js) and its [browser mirror](public/js/caps.js) in sync. Commit `package-lock.json` with dependency changes and use `npm ci` for repeatable installs.
 
-`BAMBUBOARD_DATA_DIR=/absolute/path` isolates runtime state; the default is the repository's `data` directory. It holds configuration, telemetry, cloud tokens, notes, drafts (`scenes/`), the published snapshot (`active-scene.json`), toolpaths (`gcode-cache/`) and the latest server download diagnostics (`gcode-diagnostics.json`). None belongs in Git. Existing active scene pointers are snapshotted at startup without rewriting the draft.
+`BAMBUBOARD_DATA_DIR=/absolute/path` isolates runtime state; the default is the repository's `data` directory. It holds configuration, telemetry, cloud tokens, notes, drafts (`scenes/`), the published snapshot (`active-scene.json`), toolpaths (`gcode-cache/`) and the latest redacted download/stream reports (`gcode-diagnostics.json`, `stream-diagnostics.json`). None belongs in Git. Existing active scene pointers are snapshotted at startup without rewriting the draft.
 
 Set `BAMBUBOARD_PUBLIC_URL=https://board.example.com` to choose the origin used by OBS exports. Otherwise exports honor forwarded host/protocol headers. Docker removes npm/npx/Yarn after installation; rebuild the image for dependency changes rather than installing packages in a running container.
 
@@ -238,6 +238,7 @@ Set `BAMBUBOARD_PUBLIC_URL=https://board.example.com` to choose the origin used 
 | `npm test -- --update-badge` | Update the README server-test count after a successful run. |
 | `npm run test:browser` | Check responsive pages, keyboard controls and all widgets. |
 | `npm run test:gcode-browser` | Check HTTP → FTPS → archive → WebGL, recovery, stale jobs and renderer failures. |
+| `npm run test:stream-browser` | Check capture → relay → local RTMP, retries, cancellation, server controls, audio fallback and streaming accessibility. |
 | `npm run test:ui` | Check editor/publication regressions, widget transparency and management-page accessibility. |
 | `node scripts/capture-readme.js` | Capture Live, Layout, Setup and mobile screenshots with isolated demo data. [Fixture options](docs/qa-studio-refresh.md#screenshots-and-safe-fixtures). |
 | `npm run build:vendor` | Regenerate bundled local assets from locked packages. |
@@ -251,7 +252,7 @@ npx playwright install --with-deps chromium firefox webkit
 BB_BROWSERS=chromium,firefox,webkit npm run test:ui
 ```
 
-The **server tests** badge counts `npm test` cases and is checked against the actual runner total. The **build** badge tracks the main Docker workflow, which requires server tests, browser/UI checks and both container architectures before publishing. [Studio QA](docs/qa-studio-refresh.md) and [G-code QA](docs/gcode-resilience.md#verification) describe fixture coverage and hardware limitations.
+The **server tests** badge counts `npm test` cases and is checked against the actual runner total. The **build** badge tracks the main Docker workflow, which requires server tests, browser/UI checks and both container architectures before publishing. [Studio QA](docs/qa-studio-refresh.md), [G-code QA](docs/gcode-resilience.md#verification) and [YouTube QA](docs/youtube-streaming.md#verification) describe fixture coverage and hardware limitations.
 
 ## Contributing
 

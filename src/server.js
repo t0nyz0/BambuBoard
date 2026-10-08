@@ -183,7 +183,7 @@ buildVideoRouter({ app, getConfig, dataPath: DATA_FILE });
 
 // YouTube/RTMP stream relay — registered after the video relay so express-ws
 // is already applied to the app.
-buildStreamRouter({ app });
+const streamRoutes = buildStreamRouter({ app, paths });
 
 app.use('/', buildPagesRouter({ paths, getConfig }));
 
@@ -214,8 +214,8 @@ let shuttingDown = false;
   shuttingDown = true;
   console.log(`\n[bambuboard] received ${sig}, shutting down`);
   try { printer.stop(); } catch (_) {}
-  const deadline = setTimeout(() => process.exit(0), 3000);
+  const deadline = setTimeout(() => { streamRoutes.forceStop(); process.exit(0); }, 10000);
   deadline.unref();
-  await gcodeRoutes.stop();
+  await Promise.allSettled([gcodeRoutes.stop(), streamRoutes.stop()]);
   process.exit(0);
 }));
