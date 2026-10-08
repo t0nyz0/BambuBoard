@@ -249,7 +249,6 @@
       const hint       = document.getElementById('cloud-token-hint');
       if (tokenField && tokInfo) {
         tokenField.value = tokInfo.token || '';
-        tokenField.type = 'text'; // textarea ignores type, use show/hide via dataset masking instead
         // Mask visually if not in show mode
         applyTokenMask();
         if (tokInfo.token) {
@@ -268,10 +267,10 @@
       if (!ta.dataset.real) ta.dataset.real = ta.value;
       if (tokenVisible) {
         ta.value = ta.dataset.real;
-        ta.style.webkitTextSecurity = '';
+        ta.type = 'text';
       } else {
-        // Browser-native password masking on textarea (Webkit/Chromium/Safari)
-        ta.style.webkitTextSecurity = 'disc';
+        // Use a password input so saved tokens are masked in every browser.
+        ta.type = 'password';
       }
     }
 
@@ -292,20 +291,20 @@
     tokenField.addEventListener('input', () => {
       tokenField.dataset.real = tokenField.value;
       // While typing, always show the value (no masking interference)
-      tokenField.style.webkitTextSecurity = '';
+      tokenField.type = 'text';
     });
     tokenField.addEventListener('focus', () => {
       // On focus, reveal so editing is sane
-      tokenField.style.webkitTextSecurity = '';
+      tokenField.type = 'text';
     });
     tokenField.addEventListener('blur', () => {
       // On blur, re-apply mask if user hasn't toggled show
-      if (!tokenVisible) tokenField.style.webkitTextSecurity = 'disc';
+      if (!tokenVisible) tokenField.type = 'password';
     });
 
     document.getElementById('cloud-token-show').addEventListener('click', () => {
       tokenVisible = !tokenVisible;
-      tokenField.style.webkitTextSecurity = tokenVisible ? '' : 'disc';
+      tokenField.type = tokenVisible ? 'text' : 'password';
     });
     document.getElementById('cloud-token-copy').addEventListener('click', async () => {
       try {
@@ -316,7 +315,7 @@
     document.getElementById('cloud-token-clear').addEventListener('click', () => {
       tokenField.value = '';
       tokenField.dataset.real = '';
-      tokenField.style.webkitTextSecurity = '';
+      tokenField.type = 'text';
       tokenField.focus();
     });
 

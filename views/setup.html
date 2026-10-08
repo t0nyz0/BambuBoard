@@ -10,15 +10,16 @@
   <link rel="stylesheet" href="/css/setup.css">
 </head>
 <body>
-  <main class="page page-narrow">
+  <main class="page setup-page">
 
     <div class="firstrun-hero" id="firstrun-hero" style="display:none">
       <h1>Welcome to BambuBoard</h1>
       <p>Tell us about your printer to get started. You'll need its IP address, serial number, and LAN access code (find these in Bambu Studio under Device → Access Code).</p>
     </div>
 
-    <header class="page-heading"><div><p class="eyebrow">Printer connection</p><h1>Setup</h1><p class="text-dim">Connect one printer. Camera and telemetry stay on your local network.</p></div></header>
+    <header class="page-heading"><div><p class="eyebrow">Printer connection</p><h1>Setup</h1><p class="text-dim">Connect one printer. Camera and telemetry stay on your local network.</p></div><a class="btn" href="#cloud-section">Cloud settings</a></header>
     <div class="setup-grid">
+      <div class="setup-main">
 
       <section class="card">
         <h3 class="card-title">Printer</h3>
@@ -98,12 +99,13 @@
         </div>
       </details>
 
-      <!-- Bambu Cloud auth — for the MakerWorld profile + model-image widgets.
-           Both sign-in methods are always visible so the token field can be
-           viewed/edited at any time without having to sign out first. -->
-      <details class="card cloud-section" id="cloud-section">
-        <summary class="card-title">Bambu Cloud <span class="text-dim">Optional</span></summary>
-        <p class="cloud-status">Sign in to populate the <strong>MakerWorld profile</strong> and <strong>model image</strong> widgets. LAN-only operation does not need this — skip this section unless you want those widgets.</p>
+      </div>
+
+      <!-- Bambu Cloud auth — keep both sign-in methods available without
+           requiring the user to sign out before replacing a token. -->
+      <section class="card cloud-section" id="cloud-section" aria-labelledby="cloud-heading">
+        <div class="cloud-heading"><h2 class="card-title" id="cloud-heading">Bambu Cloud</h2><span class="pill">Optional</span></div>
+        <p class="cloud-status">Sign in for your <strong>MakerWorld profile</strong>, <strong>model images</strong> and extra print details. Your printer connection works without cloud sign-in.</p>
 
         <!-- Status row — always visible -->
         <div class="card-row" style="margin-bottom: var(--space-3)">
@@ -140,7 +142,7 @@
           </details>
           <label class="field">
             <span>Access token <small class="text-dim" id="cloud-token-hint">(leave as-is, or paste a new one to replace)</small></span>
-            <textarea id="cloud-token" class="input" rows="3" style="font-family: var(--font-mono); font-size: 11px; resize: vertical; word-break: break-all" placeholder="eyJhbGciOi..."></textarea>
+            <input id="cloud-token" class="input text-mono" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Bambu Cloud token">
           </label>
           <div class="btn-row" style="margin-top: var(--space-2)">
             <button id="cloud-token-show"  class="btn btn-ghost" type="button" style="font-size: 12px">Show / Hide</button>
@@ -186,10 +188,7 @@
             &middot; <a href="#" id="cloud-disable">Disable cloud auth entirely</a>
           </span>
         </p>
-      </details>
-
-
-
+      </section>
     </div>
   </main>
 

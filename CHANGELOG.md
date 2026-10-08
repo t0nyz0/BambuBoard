@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+### Changed
+- Make Bambu Cloud settings an always-visible card alongside printer setup on desktop, with a direct shortcut on smaller screens. Keep saved tokens masked across browser engines and retain the existing printer, connection and display controls.
+
+---
+
 ## 3.1.5 — 2026-08-22
 
 ### Changed
@@ -542,4 +549,3 @@ The hub's "Download for OBS" button serves these with `<HOST>` substituted from 
 4. The `bambuboard-h2d` Docker repository will be archived; switch to `bambuboard:latest`.
 
 ---
-

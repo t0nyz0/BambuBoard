@@ -117,7 +117,7 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     await page.locator('#save-btn').click(); await page.waitForSelector('.toast');
     const saved = JSON.parse(await fs.readFile(path.join(data, 'config.json'), 'utf8'));
     assert.equal(saved.BambuBoard_displayFanPercentages, checked !== 'true');
-    await page.locator('#cloud-section > summary').click(); await page.locator('#cloud-tab-email').click();
+    await page.locator('#cloud-tab-email').click();
     assert.equal(await page.locator('#cloud-method-email').isVisible(), true);
     const relayPage = await context.newPage();
     await relayPage.addInitScript(() => {
@@ -215,7 +215,7 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.locator('#widget-drawer-close').click(); assert.equal(await page.locator('#layers-panel').isVisible(), true);
     await page.goto(base + '/setup?firstRun=1'); await page.waitForFunction(() => !document.getElementById('bb-stepper').hidden);
-    await page.locator('.display-preferences > summary').click(); await page.locator('#cloud-section > summary').click(); await page.locator('#cloud-tab-email').click();
+    await page.locator('.display-preferences > summary').click(); await page.locator('#cloud-tab-email').click();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.deepEqual(errors, [], 'browser JavaScript errors');
     assert.deepEqual([...external], [], 'LAN operation must not request CDN assets');

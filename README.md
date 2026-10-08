@@ -45,7 +45,7 @@ Everything else from v2 (LAN-only operation, Bambu Cloud auth, all the per-widge
   <tr>
     <td width="50%" valign="top">
       <h4>Setup</h4>
-      <p>Printer credentials, connection test, and optional Bambu Cloud sign-in.</p>
+      <p>Printer connection and an always-visible Bambu Cloud card, with sign-in status and controls.</p>
       <a href="screenshots/STUDIO-SETUP.png"><img src="screenshots/STUDIO-SETUP.png" alt="Setup page" width="100%"></a>
     </td>
     <td width="50%" valign="top">
@@ -270,7 +270,7 @@ Both templates use the **combined AMS widget** (chamber temp + humidity + drying
 
 ## Bambu Cloud auth (optional)
 
-Off by default. Enable in `/setup` to populate the `profile-info` and `model-image` widgets with live MakerWorld data. Sign-in flow uses email + verification code (and MFA if enabled on your Bambu account). Tokens are cached in `data/accessToken.json` (gitignored). LAN-only operation does not require this.
+Cloud sign-in is off by default. In `/setup`, the Bambu Cloud card appears alongside printer settings on desktop; the **Cloud settings** shortcut jumps to it on smaller screens. Paste a token from your signed-in MakerWorld session, or use email + verification code and MFA when requested. Successful sign-in enables cloud features and stores the token in `data/accessToken.json` (gitignored). LAN-only operation does not require this.
 
 ---
 
