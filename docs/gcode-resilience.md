@@ -50,7 +50,7 @@ Reviewed October 7, 2026. These are primary project sources and observed issue r
 
 ## Verification
 
-`npm test` covers 29 server/integration cases, including 15 new G-code regression groups and real TLS fixture transfers. `npm run test:gcode-browser` covers nine end-to-end groups through the real HTTP route, FTPS fixture, archive extraction and WebGL renderer. It exercises retry exhaustion, compact error controls, log downloads, manual recovery, telemetry loss/staleness and clock skew, stale downloads and file-picker races, large/unprintable files, GPU context loss and unavailable WebGL. Long, narrow and 300 mm tall toolpaths stay inside square, portrait and wide viewports; finished prints display every parsed layer even with stage `-1`. Existing all-widget and management UI suites remain part of CI, together with both Docker architectures.
+The G-code follow-up adds 15 regression groups with real TLS fixture transfers. The [combined 3.3.0 server suite](qa-3.3.0.md) has 53 tests. `npm run test:gcode-browser` covers nine end-to-end groups through the real HTTP route, FTPS fixture, archive extraction and WebGL renderer. It exercises retry exhaustion, compact error controls, log downloads, manual recovery, telemetry loss/staleness and clock skew, stale downloads and file-picker races, large/unprintable files, GPU context loss and unavailable WebGL. Long, narrow and 300 mm tall toolpaths stay inside square, portrait and wide viewports; finished prints display every parsed layer even with stage `-1`. Existing all-widget and management UI suites remain part of CI, together with both Docker architectures.
 
 ```sh
 npm run check

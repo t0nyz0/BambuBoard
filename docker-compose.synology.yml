@@ -1,7 +1,7 @@
 # BambuBoard — Synology NAS docker-compose
 #
-# Uses host networking (required for MQTT/RTSP to reach the printer on the
-# local network without extra NAT config) and a bind mount so settings,
+# Uses host networking to share the NAS LAN interface directly, and a
+# bind mount so settings,
 # cached gcode, and saved scenes persist across container updates.
 #
 # Usage:

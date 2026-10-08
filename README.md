@@ -13,7 +13,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-44-51a34f?style=flat-square)](docs/qa-studio-refresh.md)
+[![Server tests](https://img.shields.io/badge/server_tests-53-51a34f?style=flat-square)](docs/qa-3.3.0.md)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 **Setup → Connect → Layout → Publish.** One printer per BambuBoard instance.
@@ -258,7 +258,7 @@ BB_BROWSERS=chromium,firefox,webkit npm run test:ui
 BB_BROWSERS=chromium,firefox,webkit npm run test:cloud
 ```
 
-The **server tests** badge counts `npm test` cases and is checked against the actual runner total. The **build** badge tracks the main Docker workflow, which requires server tests, browser/UI checks and both container architectures before publishing. [Studio QA](docs/qa-studio-refresh.md), [G-code QA](docs/gcode-resilience.md#verification) and [YouTube QA](docs/youtube-streaming.md#verification) describe fixture coverage and hardware limitations.
+The **server tests** badge counts `npm test` cases and is checked against the actual runner total. The **build** badge tracks the main Docker workflow, which requires server tests, browser/UI checks and both container architectures before publishing. [Release QA](docs/qa-3.3.0.md), [Studio QA](docs/qa-studio-refresh.md), [G-code QA](docs/gcode-resilience.md#verification) and [YouTube QA](docs/youtube-streaming.md#verification) describe fixture coverage and hardware limitations.
 
 ## Contributing
 
