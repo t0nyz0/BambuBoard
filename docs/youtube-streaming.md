@@ -38,6 +38,8 @@ A NAS must have enough CPU and memory for Chromium, camera decoding and H.264 en
 
 Both sources need server internet access, DNS and outbound **RTMPS on port 443**. No additional inbound port is needed. Shared-tab capture over an HTTP LAN URL is blocked by browsers; server capture avoids that restriction because the control browser is not sharing a screen.
 
+Reverse proxies should preserve the request Host. If yours replaces it, set `BAMBUBOARD_PUBLIC_URL=https://board.example.com` to explicitly allow the browser's control origin. Forwarded-host headers alone do not authorize streaming commands.
+
 ## Quality and connection
 
 Presets use H.264, constant bitrate, Rec.709, two-second keyframes, AAC 128 kbps, 44.1 kHz stereo and an aspect-preserving scale with letterboxing. Current [YouTube H.264 guidance](https://support.google.com/youtube/answer/2853702?hl=en) recommends 8,000 kbps for 720p30, 14,000 for 1080p30 and 17,000 for 1080p60. Allow headroom above the video bitrate for audio and transport overhead. **Advanced stream settings** accepts 1,000–25,000 kbps; a lower rate can help a constrained uplink at the expense of quality and may fall below YouTube's guidance.

@@ -74,6 +74,8 @@ test('cross-origin WebSockets and POST requests are rejected without starting an
   const { ws, messages } = await h.connect(null, headers); await until(() => ws.readyState === WebSocket.CLOSED);
   assert.ok(messages.some(m => m.code === 'ORIGIN'));
   for (const route of ['start', 'check', 'stop']) assert.equal((await h.request(route, { key: KEY }, headers)).status, 403);
+  assert.equal((await h.request('start', { key: KEY }, { ...headers, 'X-Forwarded-Host': 'unrelated.example' })).status, 403);
+  assert.equal((await h.request('check', { source: 'browser' }, { Origin: h.base })).status, 200);
   assert.equal(h.children.length, 0);
 });
 

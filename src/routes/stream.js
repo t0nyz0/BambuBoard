@@ -11,8 +11,12 @@ function sameOrigin(req) {
   if (!req.headers.origin) return true; // CLI clients do not send Origin.
   try {
     const origin = new URL(req.headers.origin);
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
-    return /^https?:$/.test(origin.protocol) && origin.host === host;
+    // The app's general CORS policy permits custom request headers, so an
+    // untrusted client can forge X-Forwarded-Host. Trust the actual Host or an
+    // explicitly configured public origin, never a supplied proxy header.
+    const host = String(req.headers.host || '').toLowerCase();
+    const configured = process.env.BAMBUBOARD_PUBLIC_URL ? new URL(process.env.BAMBUBOARD_PUBLIC_URL).origin : null;
+    return /^https?:$/.test(origin.protocol) && (origin.host === host || origin.origin === configured);
   } catch (_) { return false; }
 }
 function buildStreamRouter({ app, paths, allowLocal = false, createEncoder, createCapture = captureScene, preflight = checkSetup, retryDelays = [1000, 3000, 10000] }) {
