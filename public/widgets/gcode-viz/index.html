@@ -6,6 +6,7 @@
     <link rel="stylesheet" type="text/css" href="../styles.css" />
     <script src="../_customizer.js"></script>
     <script src="../../js/caps.js"></script>
+    <script src="../../js/gcode-job.js"></script>
     <meta http-equiv="refresh" content="28800" />
     <style>
       /* Transparent body so the widget composites over whatever sits behind
@@ -51,7 +52,23 @@
         font-size: 26px; font-weight: 500; letter-spacing: 0.5px;
         opacity: 1;
       }
-      .gcode-overlay.error { color: #f0a; opacity: 1; }
+      .gcode-overlay.error {
+        inset: 10% 6% auto; transform: none; padding: 14px;
+        box-sizing: border-box; max-height: calc(75% - 80px); overflow-y: auto;
+        color: #f2d6be; background: rgba(10,15,19,.94); border: 1px solid #645143;
+        border-radius: 10px; opacity: 1; font-size: clamp(12px, 2.5vw, 17px); line-height: 1.5;
+      }
+      .gcode-recovery {
+        position: absolute; left: 6%; right: 6%; bottom: 8%; display: flex;
+        flex-wrap: wrap; gap: 8px; justify-content: center;
+      }
+      .gcode-recovery[hidden] { display: none; }
+      .gcode-recovery button {
+        padding: 8px 12px; border: 1px solid #42575e; border-radius: 6px;
+        background: #152227; color: #e2edef; font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .gcode-recovery button:disabled { opacity: .45; cursor: default; }
+      .gcode-recovery button:focus-visible { outline: 2px solid #82d4b7; outline-offset: 2px; }
       .gcode-debug {
         display: none;
         position: absolute; left: 12px; right: 12px; bottom: 12px;
@@ -78,6 +95,13 @@
         pointer-events: auto;
       }
       .gcode-log.show { display: block; }
+      .gcode-stage.error-state .gcode-debug { display: none; }
+      .gcode-stage.error-state .gcode-log {
+        top: auto; bottom: calc(8% + 65px); max-height: 35%;
+      }
+      @media (max-height: 420px) {
+        .gcode-stage.error-state .gcode-log { display: none; }
+      }
       .gcode-debug .row { display: flex; gap: 10px; align-items: center; }
       .gcode-debug input[type=range] { flex: 1; }
       .gcode-debug button {
@@ -101,7 +125,13 @@
   <body>
     <div class="gcode-stage">
       <canvas id="gcodeCanvas"></canvas>
-      <div class="gcode-overlay waiting" id="gcodeOverlay" style="display:flex">Waiting for print…</div>
+      <div class="gcode-overlay waiting" id="gcodeOverlay" style="display:flex" role="status" aria-live="polite">Waiting for print…</div>
+      <div class="gcode-recovery" id="gcodeRecovery" hidden>
+        <button type="button" id="gcodeRetry">Retry now</button>
+        <button type="button" id="gcodeDownloadLog">Download diagnostics</button>
+        <button type="button" id="gcodeFileButton" disabled>Load sliced file</button>
+        <input type="file" id="gcodeFile" accept=".gcode,.3mf" hidden aria-label="Exact sliced file for the current print" />
+      </div>
       <pre class="gcode-log" id="gcodeLog"></pre>
       <div class="gcode-debug" id="gcodeDebug">
         <div class="row">
@@ -119,6 +149,9 @@
         </div>
       </div>
     </div>
-    <script type="module" src="GCODE_script.js"></script>
+    <script src="GCODE_status.js"></script>
+    <script type="module">
+      import('./GCODE_script.js').catch(error => window.BBGcodeUI.fail(error));
+    </script>
   </body>
 </html>

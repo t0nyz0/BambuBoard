@@ -1,1 +1,1 @@
-{ "name": "Fans", "description": "All four fan speeds with animated spinning icons and circular gauge rings showing speed percentage.", "recommendedSize": {"w":420,"h":160}, "tags":["fans"] }
+{ "name": "Fans", "description": "Auxiliary, chamber, cooling and heatbreak fan gauges from reported telemetry. Available readings depend on the printer.", "recommendedSize": {"w":420,"h":160}, "tags":["fans"] }

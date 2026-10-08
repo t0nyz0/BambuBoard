@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## Unreleased
+
+### Changed
+- Consolidate README setup, OBS and development guidance; correct printer/AMS coverage, cloud requirements, camera/file network access, Synology data paths and G-code timing claims. Regenerate the widget catalog from corrected descriptions.
+- Replace the basic YouTube relay with managed streaming sessions, encrypted primary/backup ingest, H.264 quality presets, two-second keyframes, optional shared-tab audio, live encoding metrics and explicit YouTube Studio broadcast confirmation.
+
+### Fixed
+- Preserve and atomically save partial MQTT telemetry, including print filenames and AMS/tray metadata. Assign new print lifecycles separate cache identities, and request missing job metadata at print start.
+- Find sliced files at explicit printer paths and in the FTPS root, `/cache`, and `/model`; support raw G-code, filename variants, TLS 1.2 and protected passive transfers. Validate the selected plate, transfer size, archive CRC and slicer MD5 when present.
+- Cancel obsolete downloads, coalesce concurrent widget requests, and limit retries, file sizes and browser parsing. Expose connection, file, archive and renderer failures in the widget with persistent redacted diagnostics.
+  **Why:** Reports #24 and #25 could be triggered by erased MQTT metadata, a single hardcoded storage path, or a firmware storage restriction; repeating a generic loading message hid those distinctions.
+- Fit long, narrow and tall toolpaths to the actual camera field of view and widget dimensions. Show all parsed layers on finished prints, including firmware reporting stage `-1`; pause simulation when telemetry is stale or unavailable.
+- Report YouTube encoder and connection failures, bound input buffering and stalled sessions, retry transient failures with fresh browser recording headers, preserve local error messages during polling, and release capture/encoder resources on cancellation and shutdown.
+
+### Added
+- Retry and diagnostics controls, exact sliced-file recovery for the current print, a read-only Docker FTPS self-test, and regression coverage for download and rendering recovery.
+- Server YouTube capture of the published scene, independent of the control page; Chromium in the Docker image; setup checks, persistent redacted streaming diagnostics and end-to-end streaming regression coverage. YouTube controls remain optional and collapsed below the live preview and OBS setup.
+
+---
+
 ## 3.1.5 — 2026-08-22
 
 ### Changed
@@ -542,4 +562,3 @@ The hub's "Download for OBS" button serves these with `<HOST>` substituted from 
 4. The `bambuboard-h2d` Docker repository will be archived; switch to `bambuboard:latest`.
 
 ---
-

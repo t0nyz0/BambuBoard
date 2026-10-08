@@ -106,6 +106,8 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     // Test HTTP LAN feature detection with the real document, without capture.
     await page.addInitScript(() => Object.defineProperty(window, 'isSecureContext', { value: false }));
     await page.reload(); await page.locator('#youtube-details').evaluate(node => { node.open = true; });
+    await page.waitForFunction(() => !document.getElementById('yt-mode').disabled);
+    await page.locator('#yt-mode').selectOption('browser');
     assert.match(await page.locator('#yt-support').innerText(), /HTTPS or localhost/);
     assert.equal(await page.locator('#yt-start').isEnabled(), false);
     await page.goto(base + '/setup'); await page.waitForFunction(() => document.getElementById('p-name').value === 'Demo H2D');
@@ -128,14 +130,16 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
       window.WebSocket = class {
         static OPEN = 1;
         constructor() { this.readyState = 1; setTimeout(() => this.onopen?.(), 10); }
-        send() { setTimeout(() => this.onmessage?.({ data: JSON.stringify({ type: 'started' }) }), 10); }
+        send() { setTimeout(() => { this.onmessage?.({ data: JSON.stringify({ type: 'ready', id: 'fixture' }) }); this.onmessage?.({ data: JSON.stringify({ type: 'status', id: 'fixture', state: 'sending' }) }); }, 10); }
         close() { this.readyState = 3; window.captureFixture.socketClosed = true; this.onclose?.(); }
       };
     });
     await relayPage.goto(base + '/');
     await relayPage.locator('#youtube-details').evaluate(node => { node.open = true; });
+    await relayPage.waitForFunction(() => !document.getElementById('yt-mode').disabled);
+    await relayPage.locator('#yt-mode').selectOption('browser');
     await relayPage.locator('#yt-key').fill('fixture-only'); await relayPage.locator('#yt-start').click();
-    await relayPage.waitForFunction(() => document.getElementById('yt-active-status').textContent.includes('Relay running'));
+    await relayPage.waitForFunction(() => document.getElementById('yt-active-status').textContent.includes('Sending video'));
     await relayPage.locator('#youtube-details').evaluate(node => { node.open = false; });
     assert.equal(await relayPage.locator('#yt-stop').isVisible(), true);
     await relayPage.locator('#yt-stop').click();

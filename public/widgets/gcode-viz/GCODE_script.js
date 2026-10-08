@@ -55,7 +55,6 @@ const verifyLayers = (() => {
 })();
 
 const canvas = document.getElementById('gcodeCanvas');
-const overlay = document.getElementById('gcodeOverlay');
 const debugBar = document.getElementById('gcodeDebug');
 const scrubEl = document.getElementById('gcodeScrub');
 const playEl = document.getElementById('gcodePlay');
@@ -97,7 +96,7 @@ window.__log = () => _logBuf.slice();
 // unreachable.
 async function resolveBedSize() {
   try {
-    const res = await fetch('/api/status', { cache: 'no-store' });
+    const res = await fetch('/api/status', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     const data = await res.json();
     const t = data?.printer?.type;
     const bed = (window.PRINTER_CAPS?.[t] || window.PRINTER_CAPS?.X1)?.bedSize;
@@ -571,10 +570,9 @@ function buildLayerPaths() {
   //   ax,ay → bx,by   start/end positions in gcode coords
   //   ext             true for extrusion moves (G1 with positive E in M83 mode,
   //                   or increasing E in M82); false for travels (move-only G0/G1)
-  //   dur             segment duration in seconds at the gcode's own feedrate.
-  //                   Travels resolve to 0 so they're instant — the nozzle
-  //                   teleports to the next extrusion start.
-  // Per-layer total = total extrusion time, which becomes the loop length for
+  //   dur             segment duration in seconds at the gcode's own feedrate,
+  //                   including travels between extrusion segments.
+  // Per-layer total = total movement time, which becomes the loop length for
   // the simulated nozzle walk so it moves at real print speed.
   layerPaths = [];
   const layers = preview.layers || [];
@@ -701,10 +699,9 @@ function updateNozzlePosition() {
     nozzleGroup.visible = false;
     return;
   }
-  // Glow is only on when the printer is actually extruding. PAUSED keeps the
-  // nozzle visible (so you can see where it is) but kills the glow since no
-  // hot filament is coming out. Verify/scrub modes leave the glow on so the
-  // visualization still reads as "active" while testing.
+  // Verify/scrub modes leave the glow on so the visualization still reads
+  // as active while testing. Paused or unavailable telemetry hides the
+  // simulated nozzle above.
   glowGroup.visible = (verifyLayers || scrubActive)
     ? true
     : (lastGcodeState === 'RUNNING');
@@ -765,11 +762,14 @@ function verifyAdvanceTick() {
 }
 
 let currentTaskKey = null;
-// Tracks a taskKey whose gcode fetch failed. Prevents an infinite retry loop
-// when the print is FINISHed and the printer has rotated its FTP cache — the
-// file is gone and no amount of retrying will get it back. Cleared on any
-// state change to RUNNING/PREPARE or on lifecycle-detected new print.
-let failedTaskKey = null;
+// Bound retries per job, keep polling telemetry, and cancel obsolete loads.
+let failure = null;
+let wantedTaskKey = null;
+let wantedJob = null;
+let loadController = null;
+let loadSerial = 0;
+let rendererUnavailable = false;
+let telemetryFailures = 0;
 let lastEndLayer = -1;
 let inFlight = false;
 let forceNocache = false;  // set by lifecycle detection to bust server cache
@@ -801,7 +801,7 @@ let lastMcPctChangeValue = null;
 // isn't actively printing. The toolpath stays on screen as a finished snapshot.
 function isPausedForState() {
   if (verifyLayers || scrubActive) return false;
-  if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') return true;
+  if (['FINISH', 'IDLE', 'FAILED', 'PAUSED'].includes(lastGcodeState)) return true;
   // Preview state: model is shown but printer is still calibrating — freeze
   // the nozzle so it doesn't animate over the static preview.
   if (lastGcodeState === 'RUNNING' && lastSubStage !== 0) return true;
@@ -882,12 +882,7 @@ function setOverlay(text, kind = 'hint') {
   if (text === _lastOverlayText && kind === _lastOverlayKind) return;
   _lastOverlayText = text;
   _lastOverlayKind = kind;
-  overlay.textContent = text;
-  overlay.classList.toggle('loading', kind === 'loading');
-  overlay.classList.toggle('error',   kind === 'error');
-  overlay.classList.toggle('waiting', kind === 'waiting');
-  // 'waiting' uses a full-widget flex backdrop; everything else is block.
-  overlay.style.display = text ? (kind === 'waiting' ? 'flex' : 'block') : 'none';
+  window.BBGcodeUI.message(text, kind);
 }
 
 function setLabel(layer, total) {
@@ -924,104 +919,128 @@ function clearScene() {
   calibrationSamples = 0;
   nozzleSpeedFactor = 0.5;                 // reset to initial guess for new print
   orbitRadius = 0;                          // re-fit on next orbit tick
+  modelCorners.length = 0;
   fastTick();                               // commit the empty state to the GPU
 }
 
-// loadGcode is purely mechanical: fetch + parse + build. It does NOT decide
-// what overlay text to show — the caller owns that and passes a single stable
-// `overlayMsg` used for both the loading state and a failed attempt. This is
-// deliberate: during pre-print prep the printer often hasn't published the
-// gcode yet, so this fetches and 502s repeatedly. If loadGcode set its own
-// messages ("loading…" then "waiting for printer…"), they'd fight the caller's
-// phase message ("Preparing print…") and flicker between three strings every
-// poll. One caller-owned message = a rock-steady overlay across retries.
-async function loadGcode(taskKey, overlayMsg = 'Loading print…') {
+const PREVIEW_MAX_BYTES = 24 * 1024 * 1024;
+const MAX_AUTO_ATTEMPTS = 5;
+function invalidateLoad() {
+  loadSerial++;
+  loadController?.abort();
+  loadController = null;
+  inFlight = false;
+  failure = null;
+}
+function showFailure() {
+  if (!failure) return;
+  const seconds = Math.max(0, Math.ceil((failure.nextAt - Date.now()) / 1000));
+  const automatic = failure.retryable && failure.attempts < MAX_AUTO_ATTEMPTS && lastGcodeState !== 'FINISH';
+  setOverlay(`${failure.detail}${automatic ? ` Retrying in ${seconds}s.` : ' Use Retry now or load the exact sliced file.'}`, 'error');
+}
+async function readToolpath(res) {
+  if (Number(res.headers.get('Content-Length')) > PREVIEW_MAX_BYTES) {
+    await res.body.cancel().catch(() => {});
+    throw Object.assign(new Error('This toolpath exceeds the 24 MiB browser preview limit. Use Bambu Studio for this plate.'), { retryable: false });
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const parts = []; let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.length;
+      if (bytes > PREVIEW_MAX_BYTES) throw Object.assign(new Error('This toolpath exceeds the 24 MiB browser preview limit.'), { retryable: false });
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join('');
+  } finally { await reader.cancel().catch(() => {}); }
+}
+async function loadGcode(taskKey, overlayMsg = 'Loading print…', file = null, manual = false) {
+  const serial = ++loadSerial;
+  loadController?.abort();
+  const controller = loadController = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('The file request timed out. Check the diagnostic log.')), 100000);
+  const attempts = manual ? 1 : (failure?.attempts || 0) + 1;
   inFlight = true;
-  dbg(`loadGcode START task=${taskKey} nocache=${forceNocache ? 1 : 0}`);
-  // Hide the 3D canvas while we fetch + parse so the camera doesn't orbit
-  // around an empty scene (looks like random flying). The overlay sits
-  // outside the canvas so it stays visible.
+  dbg(`loadGcode START job=${wantedJob?.task || 'LAN'} attempt=${attempts} source=${file ? 'manual' : 'printer'}`);
   canvas.style.visibility = 'hidden';
-  // Drop the previous print's geometry immediately so the user doesn't see
-  // it lingering while the new gcode fetches. The overlay then signals
-  // we're working on it.
   clearScene();
   setOverlay(overlayMsg, 'loading');
+  let stage = 'fetch';
   try {
-    const gcodeUrl = forceNocache
-      ? '/api/gcode/current?nocache=1'
-      : '/api/gcode/current';
+    const query = new URLSearchParams({ job: taskKey });
+    if (forceNocache) query.set('nocache', '1');
+    if (manual) query.set('retry', '1');
     forceNocache = false;
-    const res = await fetch(gcodeUrl, { cache: 'no-store' });
+    if (file && file.size > 128 * 1024 * 1024) throw Object.assign(new Error('Choose a sliced file smaller than 128 MiB.'), { retryable: false });
+    const res = await fetch('/api/gcode/current?' + query, {
+      cache: 'no-store', signal: controller.signal,
+      ...(file ? { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file } : {}),
+    });
     if (!res.ok) {
-      // 502 typically means the printer hasn't written the new job's file
-      // to /cache/ yet (race between MQTT job_id update and the FTPS file
-      // being available). The next tick will retry automatically; show a
-      // friendlier message in the meantime.
-      const status = res.status;
-      // Surface the server's REAL reason in the debug log (the on-screen
-      // overlay stays friendly). The 502 body carries { error, detail } from
-      // the FTPS fetch — e.g. ECONNREFUSED (FTP port 990 blocked), FTP 550
-      // (sliced file not at /cache/<subtask>.gcode.3mf — common when the job
-      // was started from Handy/MakerWorld cloud instead of Bambu Studio over
-      // LAN), or "entry not found in 3mf" (plate index mismatch). Without this
-      // every failure looked identical and was impossible to diagnose.
-      let detail = '';
-      try { const j = await res.json(); detail = j.detail || j.error || ''; } catch (_) {}
-      dbg(`loadGcode HTTP ${status}${detail ? ' — ' + detail : ''}`);
-      const friendly = status === 502
-        ? 'Waiting for printer to publish gcode…'
-        : `Loading failed (HTTP ${status})`;
-      throw new Error(friendly);
+      let report = {};
+      try { report = await res.json(); } catch (_) {}
+      dbg(`loadGcode HTTP ${res.status} code=${report.code || 'unknown'} stage=${report.stage || 'unknown'} — ${report.detail || report.error || ''}`);
+      const friendly = report.code === 'FILE_NOT_FOUND'
+        ? 'The printer cannot expose this print file. It may be in internal storage. Diagnostics show the paths checked.'
+        : report.detail || `File request failed (HTTP ${res.status}).`;
+      throw Object.assign(new Error(friendly), {
+        retryable: report.retryable !== false && [404, 409, 429, 500, 502, 503, 504].includes(res.status),
+        retryAfterMs: Number(report.retryAfterMs) || Number(res.headers.get('Retry-After')) * 1000 || 0,
+        code: report.code,
+      });
     }
-    const text = await res.text();
-    preview.processGCode(text);
-    recomputeCumZ();
-    buildLayerPaths();
-    recomputeCumLayerTime();
-    recomputeModelLayerOffset();
-    // Reset auto-fit so the next orbit tick re-frames to this job's bbox.
-    orbitRadius = 0;
-    // Clear any leftover trail from a previous job.
-    trailBuf.length = 0;
-    lastTrailPos = null;
-    currentTaskKey = taskKey;
-    failedTaskKey = null;   // clear failure marker on any successful load
-    lastEndLayer = -1;
+    const header = res.headers.get('X-Gcode-Job');
+    if (header && decodeURIComponent(header) !== taskKey) throw Object.assign(new Error('The print changed during download.'), { code: 'JOB_CHANGED' });
+    const text = await readToolpath(res);
+    if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
+    stage = 'parse';
+    setOverlay('Building 3D preview…', 'loading');
+    const lines = text.split('\n');
+    if (lines.length > 500000) throw Object.assign(new Error('This plate exceeds the 500,000 line browser preview limit. Use Bambu Studio for this plate.'), { retryable: false });
+    // Parse incrementally without rebuilding the geometry for each chunk.
+    // Yield so changes of print and cancellation are observed during parsing.
+    for (let offset = 0; offset < lines.length; offset += 5000) {
+      if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
+      preview.parser.parseGCode(lines.slice(offset, offset + 5000));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    recomputeCumZ(); buildLayerPaths(); recomputeCumLayerTime(); recomputeModelLayerOffset();
     totalLayers = preview.layers?.length || 0;
+    if (!totalLayers || !layerPaths.some(layer => layer.segs.some(seg => seg.ext))) {
+      throw Object.assign(new Error('The file has no printable extrusion toolpath. Choose the exact sliced .3mf or .gcode.'), { retryable: false });
+    }
+    stage = 'render';
+    orbitRadius = 0; trailBuf.length = 0; lastTrailPos = null; lastEndLayer = -1;
     const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
-    if (scrubEl) {
-      scrubEl.max = String(renderCap);
-      scrubEl.value = String(renderCap);
-      scrubLayer = renderCap;
-    }
+    if (scrubEl) { scrubEl.max = String(renderCap); scrubEl.value = String(renderCap); scrubLayer = renderCap; }
     if (verifyLayers) {
-      // Render all N layers up front; nozzle walks them sequentially.
-      scrubActive = true;       // freeze tick() from overriding
-      advanceTo(renderCap);     // draw all N layers' toolpath
-      setNozzleLayer(1);        // start nozzle on layer 1
+      scrubActive = true; advanceTo(renderCap); setNozzleLayer(1);
+    } else {
+      advanceTo(Math.min(totalLayers, Math.max(1, Number(wantedJob?.layer) || 1)));
     }
-    setLabel(verifyLayers ? 1 : totalLayers, renderCap);
-    // Don't clear the overlay here — the caller (tick) sets the right
-    // message for its current state. Clearing in loadGcode would briefly
-    // flash an empty overlay before the prep "Preparing print…" gets set.
-    // Gcode is parsed, geometry built, and camera auto-fitted — safe to
-    // reveal the canvas now. The first rendered frame will already show the
-    // correct model at the right zoom level.
+    if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
+    currentTaskKey = taskKey;
+    failure = null;
+    setLabel(verifyLayers ? 1 : lastEndLayer, renderCap);
     canvas.style.visibility = 'visible';
-    dbg(`loadGcode OK task=${taskKey} layers=${totalLayers} gcodeTime=${Math.round(totalGcodeTime)}s bytes=${text.length}`);
-  } catch (e) {
+    setOverlay('');
+    dbg(`loadGcode OK layers=${totalLayers} bytes=${text.length} source=${file ? 'manual' : 'printer'}`);
+  } catch (error) {
+    if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     currentTaskKey = null;
-    failedTaskKey = taskKey;   // don't retry this taskKey in FINISH state
-    dbg(`loadGcode FAIL task=${taskKey}: ${e.message}`);
-    // Re-assert the SAME caller-owned message (setOverlay dedupes, so this is
-    // a no-op when unchanged) rather than swapping in a distinct error string.
-    // Keeping it identical to the pre-load message is what stops the
-    // "Preparing print…" ↔ "Waiting for printer…" flicker during prep, when
-    // the printer hasn't published the gcode yet and we retry each poll.
-    setOverlay(overlayMsg, 'loading');
+    const detail = controller.signal.aborted ? 'The file request timed out. Check the printer connection and diagnostic log.' : error.message;
+    const retryable = stage === 'fetch' && error.retryable !== false;
+    const backoff = [5000, 15000, 30000, 60000, 120000][Math.min(attempts - 1, 4)];
+    failure = { taskKey, attempts, detail, retryable, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
+    dbg(`loadGcode FAIL stage=${stage} attempts=${attempts} retryable=${retryable}: ${detail}`);
+    showFailure();
   } finally {
-    inFlight = false;
+    clearTimeout(timer);
+    if (serial === loadSerial) { inFlight = false; loadController = null; }
   }
 }
 
@@ -1044,15 +1063,36 @@ function advanceTo(layerNum) {
 let orbitRadius = 0;
 let orbitHeight = 0;
 let orbitRadiusBase = 0;  // radius computed by autoFit (before finish zoom)
-let orbitHeightBase = 0;
 let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
 let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
 let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
 let smoothedNozzleInit = false;
+const modelCorners = [];
+const elevation = ORBIT_ELEVATION_DEG * Math.PI / 180;
+const cameraOut = new THREE.Vector3(Math.sin(ORBIT_THETA_FIXED) * Math.cos(elevation), Math.sin(elevation), Math.cos(ORBIT_THETA_FIXED) * Math.cos(elevation));
+const cameraRight = new THREE.Vector3(Math.cos(ORBIT_THETA_FIXED), 0, -Math.sin(ORBIT_THETA_FIXED));
+const cameraUp = new THREE.Vector3().crossVectors(cameraOut, cameraRight);
+const cornerOffset = new THREE.Vector3();
 const NOZZLE_FOLLOW_BIAS = 1.0;
 const NOZZLE_SMOOTH_LERP = 0.015;
 const TARGET_LERP        = 0.045;
 const _scratchDesired    = new THREE.Vector3();
+
+function fittedRadius(target) {
+  // Fit every model corner into the actual perspective frustum. A guessed
+  // footprint radius clips long/tall prints and portrait widget canvases.
+  const tanY = Math.tan(THREE.MathUtils.degToRad(preview.camera.fov / 2)) * 0.85;
+  const tanX = tanY * Math.max(0.01, preview.camera.aspect);
+  let distance = 50 / Math.cos(elevation);
+  for (const corner of modelCorners) {
+    cornerOffset.copy(corner).sub(target);
+    const depth = cornerOffset.dot(cameraOut);
+    distance = Math.max(distance,
+      depth + Math.abs(cornerOffset.dot(cameraRight)) / tanX,
+      depth + Math.abs(cornerOffset.dot(cameraUp)) / tanY);
+  }
+  return distance * Math.cos(elevation);
+}
 
 function autoFitCamera() {
   // Compute bbox of just the "real" model extrusions, ignoring Bambu's prep
@@ -1062,40 +1102,21 @@ function autoFitCamera() {
   if (!layerPaths.length || !preview.layers?.length) return;
   let minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
   const cap = verifyLayers ? Math.min(verifyLayers, layerPaths.length) : layerPaths.length;
-  for (let i = 0; i < cap; i++) {
-    const h = preview.layers[i]?.height || 0;
-    if (h < 0.05 || h > 0.5) continue;     // skip prep / priming / wipe layers
-    const lp = layerPaths[i];
-    for (const s of lp.segs) {
-      if (!s.ext) continue;
-      if (s.ax < minX) minX = s.ax; if (s.ax > maxX) maxX = s.ax;
-      if (s.bx < minX) minX = s.bx; if (s.bx > maxX) maxX = s.bx;
-      if (s.ay < minY) minY = s.ay; if (s.ay > maxY) maxY = s.ay;
-      if (s.by < minY) minY = s.by; if (s.by > maxY) maxY = s.by;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < cap; i++) {
+      const h = preview.layers[i]?.height || 0;
+      if (pass === 0 && (h < 0.05 || h > 0.5)) continue;
+      for (const s of layerPaths[i].segs) {
+        if (!s.ext) continue;
+        minX = Math.min(minX, s.ax, s.bx); maxX = Math.max(maxX, s.ax, s.bx);
+        minY = Math.min(minY, s.ay, s.by); maxY = Math.max(maxY, s.ay, s.by);
+      }
     }
+    if (isFinite(minX)) break; // Fall back for unusual layer thicknesses.
   }
   if (!isFinite(minX) || !isFinite(minY)) return;
-  const sx = maxX - minX, sy = maxY - minY;
   const cxg = (minX + maxX) / 2, cyg = (minY + maxY) / 2;
   const sz = (cumZ[Math.min(cap, cumZ.length) - 1] || 0);
-  const footprint = Math.hypot(sx, sy);
-  // Wider framing than before (was 0.65+35). The 25° FOV is tight, so large
-  // prints need more orbit radius to avoid the nozzle drifting off-screen
-  // when it crosses the bed. The frustum-aware code in orbitTick() handles
-  // real-time adjustments, but a better starting radius prevents the first
-  // few seconds from clipping.
-  // Slight zoom-out (×1.12) for breathing room around the print. orbitHeight
-  // is derived from orbitRadiusBase below, so the elevation angle stays put.
-  orbitRadiusBase = Math.max(60, footprint * 0.75 + 40) * 1.12;
-  // orbitHeight derived from radius so elevation angle stays fixed at
-  // ORBIT_ELEVATION_DEG regardless of print height. Previously this was
-  // `sz + footprint * 0.2`, which tied elevation to total print height —
-  // a 300mm-tall print produced ~65° elevation (effectively top-down).
-  // The nozzleEdge urgency growth below + turbo-follow keep the nozzle
-  // framed when it rises near the top of a tall print.
-  orbitHeightBase = Math.max(20, orbitRadiusBase * ORBIT_ELEVATION_TAN);
-  orbitRadius = orbitRadiusBase;
-  orbitHeight = orbitHeightBase;
   // Map gcode (cxg, cyg, sz/2) to three world coords for the bbox anchor.
   bboxCenter.set(
     cxg - buildCenter.x,
@@ -1105,6 +1126,13 @@ function autoFitCamera() {
   // Snap the smoothed target to the new anchor on first frame so we don't
   // start orbiting around (0,0,0) and lerp-pan into place.
   orbitTarget.copy(bboxCenter);
+  modelCorners.length = 0;
+  for (const x of [minX, maxX]) for (const y of [0, sz]) for (const z of [minY, maxY]) {
+    modelCorners.push(new THREE.Vector3(x - buildCenter.x, y, buildCenter.y - z));
+  }
+  orbitRadiusBase = fittedRadius(orbitTarget);
+  orbitRadius = orbitRadiusBase;
+  orbitHeight = orbitRadius * ORBIT_ELEVATION_TAN;
 }
 
 function orbitTick() {
@@ -1113,7 +1141,7 @@ function orbitTick() {
   // returning early avoids the full pipeline (camera math, nozzle update,
   // trail rebuild, GPU draw) on the throttled ticks that do fire.
   if (document.hidden) {
-    requestAnimationFrame(orbitTick);
+    requestAnimationFrame(safeOrbitTick);
     return;
   }
   if (preview.camera) {
@@ -1133,24 +1161,6 @@ function orbitTick() {
       const _ndc = nozzleGroup.position.clone().project(preview.camera);
       nozzleEdge = Math.max(Math.abs(_ndc.x), Math.abs(_ndc.y));
     }
-
-    // When finished, zoom out to show the full model; while printing,
-    // use the tighter nozzle-follow framing.
-    const isFinished = isPausedForState() && !verifyLayers && !scrubActive;
-    let goalRadius = isFinished ? orbitRadiusBase * 1.6 : orbitRadiusBase;
-    let goalHeight = isFinished ? orbitHeightBase * 1.4 : orbitHeightBase;
-
-    // If the nozzle is drifting toward the edge of the viewport, gently
-    // zoom out so there's more room. The ramp starts at 0.65 (nozzle in
-    // the outer 35%) and maxes at 30% extra radius when fully at the edge.
-    if (nozzleEdge > 0.65) {
-      const urgency = Math.min(1, (nozzleEdge - 0.65) / 0.35);
-      goalRadius = Math.max(goalRadius, orbitRadiusBase * (1 + urgency * 0.3));
-      goalHeight = Math.max(goalHeight, orbitHeightBase * (1 + urgency * 0.15));
-    }
-
-    orbitRadius += (goalRadius - orbitRadius) * 0.02;
-    orbitHeight += (goalHeight - orbitHeight) * 0.02;
 
     if (nozzleGroup.visible) {
       if (!smoothedNozzleInit) {
@@ -1182,6 +1192,12 @@ function orbitTick() {
       orbitTarget.lerp(nozzleGroup.position, urgency * 0.08);
     }
 
+    // Refit after nozzle following and viewport resizing. Grow immediately
+    // to avoid clipping; ease back in when less space is needed. Keep the
+    // elevation angle stable for tall prints as well as finished models.
+    const goalRadius = modelCorners.length ? fittedRadius(orbitTarget) : orbitRadiusBase || 100;
+    orbitRadius = Math.max(goalRadius, orbitRadius + (goalRadius - orbitRadius) * 0.02);
+    orbitHeight = orbitRadius * ORBIT_ELEVATION_TAN;
     preview.camera.position.set(
       orbitTarget.x + Math.sin(theta) * orbitRadius,
       orbitTarget.y + orbitHeight,
@@ -1194,28 +1210,53 @@ function orbitTick() {
     // orbit-and-walk frames.
     fastTick();
   }
-  requestAnimationFrame(orbitTick);
+  requestAnimationFrame(safeOrbitTick);
 }
-requestAnimationFrame(orbitTick);
+function safeOrbitTick() {
+  if (rendererUnavailable) return;
+  try { orbitTick(); }
+  catch (error) {
+    rendererUnavailable = true;
+    invalidateLoad();
+    canvas.style.visibility = 'hidden';
+    window.BBGcodeUI.allowFile(false);
+    window.BBGcodeUI.fail(error);
+  }
+}
+requestAnimationFrame(safeOrbitTick);
 
 async function tick() {
-  let data;
+  if (rendererUnavailable) return;
+  let data, telemetryNow;
   try {
-    const res = await fetch('/data.json', { cache: 'no-store' });
-    const text = await res.text();
-    // Empty/partial body happens when MQTT rewrites data.json mid-poll —
-    // benign, just skip this tick. Same for non-JSON content.
-    if (!text || !text.trim()) return;
-    try { data = JSON.parse(text); }
-    catch (_) { return; }
-  } catch (_) {
-    // Network blip — also skip silently; the 800ms loop will retry.
+    const res = await fetch('/data.json', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // The NAS and viewer can have different clocks. Compare a server-side
+    // receive timestamp with the HTTP server clock, rather than the viewer's.
+    telemetryNow = Date.parse(res.headers.get('Date')) || Date.now();
+    data = await res.json();
+    if (!data?.print || typeof data.print !== 'object') throw new Error('No printer telemetry');
+    telemetryFailures = 0;
+  } catch (error) {
+    telemetryFailures++;
+    if (telemetryFailures === 1) dbg(`telemetry unavailable: ${error.message}`);
+    if (telemetryFailures >= 3) {
+      lastGcodeState = 'PAUSED';
+      setOverlay('Printer telemetry is unavailable. Check the printer connection in Setup. The last preview is paused.', 'error');
+    }
+    return;
+  }
+  if (data._bb_received_at && telemetryNow - data._bb_received_at > 60000) {
+    lastGcodeState = 'PAUSED';
+    setOverlay('Printer telemetry has stopped updating. Check the printer connection in Setup. The last preview is paused.', 'error');
     return;
   }
   try {
-    const print = (data && data.print) || {};
-    const taskId = print.task_id || print.subtask_id;
-    const plateIdx = print.plate_idx || print.plate_id || 1;
+    const print = data.print;
+    const job = window.BBGcodeJob.describe(print);
+    const taskId = job.task;
+    wantedJob = { ...job, layer: print.layer_num };
+    window.BBGcodeUI.allowFile(job.available && !['IDLE', 'FAILED'].includes(print.gcode_state));
     const state = print.gcode_state;
     const layerNum = Number(print.layer_num) || 0;
     const printStage = Number(print.mc_print_stage) || 0;
@@ -1276,7 +1317,7 @@ async function tick() {
     //   1. State transition: done/idle/failed → running/prepare
     //   2. Progress reset: mc_percent drops from ≥90 to <50 while state
     //      stays RUNNING (firmware sometimes skips the FINISH state entirely)
-    if (currentTaskKey && _prevState != null) {
+    if (wantedTaskKey && _prevState != null) {
       const fromDone = _prevState === 'FINISH' || _prevState === 'IDLE' || _prevState === 'FAILED';
       const toActive = state === 'RUNNING' || state === 'PREPARE';
       const justStarted = toActive && fromDone;
@@ -1287,12 +1328,17 @@ async function tick() {
         // same task_id get fresh gcode from the printer.
         dbg(`lifecycle: NEW PRINT (${justStarted ? 'justStarted' : 'progressReset'}) → force reload, nocache`);
         currentTaskKey = null;
-        failedTaskKey = null;   // new print — allow retries even if the previous task failed
+        invalidateLoad();   // new lifecycle: cancel old work and retry state
         forceNocache = true;
       }
     }
 
-    const taskKey = taskId ? `${taskId}_p${plateIdx}` : null;
+    const taskKey = job.available ? job.key : null;
+    if (wantedTaskKey !== taskKey) {
+      invalidateLoad();
+      wantedTaskKey = taskKey;
+      if (currentTaskKey) { clearScene(); currentTaskKey = null; }
+    }
 
     // ── Hard reset only when the task itself goes away or changes ──
     // The previous code wiped the scene on *any* unrecognized state (incl.
@@ -1326,6 +1372,7 @@ async function tick() {
     }
 
     if (state === 'FAILED') {
+      invalidateLoad();
       logPhase('FAILED');
       setOverlay('Print failed', 'error');
       return;
@@ -1334,40 +1381,22 @@ async function tick() {
     // No recognized state but we have a taskId — wait it out without wiping.
     if (!isPrepState && !isActivePrint && !isPreviewState && !isHoldState) {
       logPhase(`unrecognized: ${state} (task present, holding)`);
+      if (state === 'IDLE') invalidateLoad();
       setOverlay('Waiting for print…', 'waiting');
       return;
     }
 
     syncFilamentColor(print);
 
-    // Need to load gcode for this task? Fires for new tasks and for reprints
-    // where lifecycle detection nulled currentTaskKey above.
+    // Keep telemetry polling while the potentially slow FTPS request runs.
     if (taskKey !== currentTaskKey) {
-      // Bail out of the retry loop when the print is already FINISHed and
-      // we've already tried and failed on this taskKey. The printer typically
-      // rotates its FTP /cache/ once a job completes, so the file simply
-      // isn't there anymore — retrying every 800ms just shows a permanent
-      // "Preparing — loading print…" flash. Wait for the next print to start
-      // (lifecycle detection above will null failedTaskKey when that happens).
-      if (state === 'FINISH' && failedTaskKey === taskKey) {
-        logPhase(`finish-hold: fetch failed for ${taskKey}, waiting for next print`);
-        setOverlay('Print complete — waiting for next print…', 'waiting');
-        return;
+      if (inFlight) return;
+      if (failure) {
+        showFailure();
+        if (!failure.retryable || failure.attempts >= MAX_AUTO_ATTEMPTS || state === 'FINISH' || Date.now() < failure.nextAt) return;
       }
-      // Single stable message for the whole load, chosen by phase. Set it
-      // BEFORE the await so it's already showing during the fetch, and pass
-      // it into loadGcode so a failed attempt re-asserts the same string —
-      // no flicker across retries while the printer publishes the gcode.
       const prep = isPrepState || isPreviewState;
-      const loadMsg = prep ? 'Preparing print…' : 'Loading print…';
-      setOverlay(loadMsg, 'loading');
-      if (!inFlight) {
-        await loadGcode(taskKey, loadMsg);
-        // Once an active-print load actually succeeds, clear the overlay so
-        // the model + nozzle are visible. On failure currentTaskKey stays
-        // null, so we leave the stable message up and retry next poll.
-        if (!prep && currentTaskKey === taskKey) setOverlay('');
-      }
+      void loadGcode(taskKey, prep ? 'Preparing print…' : 'Loading print…');
       return;
     }
 
@@ -1397,7 +1426,7 @@ async function tick() {
     // during the 30-60s physical swap even though gcode position barely
     // advances. Letting the sync run during swaps fast-forwards us past
     // the swap point and onto the wrong object on multi-color prints.
-    if (subStage !== 0) {
+    if (state === 'RUNNING' && subStage !== 0) {
       // Discard any in-flight calibration sample — it would otherwise mix
       // swap-time wall seconds into the gcode-time-per-wall-time estimate
       // and tank the speed factor.
@@ -1423,7 +1452,7 @@ async function tick() {
       return Math.min(totalLayers, n + modelLayerOffset);
     };
     const target = state === 'FINISH'
-      ? (mqttTotal ? modelToParsed(mqttTotal) : (layerNum || totalLayers))
+      ? totalLayers
       : modelToParsed(layerNum);
     // Hold the previous render during the brief transitional window where
     // we've entered the active branch but layer_num hasn't ticked to 1 yet.
@@ -1612,7 +1641,41 @@ if (debug && debugBar) {
   }
 }
 
-tick();
-setInterval(tick, POLL_MS);
+window.BBGcodeUI.bindRetry(() => {
+  if (rendererUnavailable) return location.reload();
+  if (!wantedTaskKey) return void tick();
+  invalidateLoad();
+  void loadGcode(wantedTaskKey, 'Retrying file transfer…', null, true);
+});
+const fileInput = document.getElementById('gcodeFile');
+let filePickerTaskKey = null;
+fileInput.addEventListener('click', () => { filePickerTaskKey = wantedTaskKey; });
+fileInput.addEventListener('change', event => {
+  const file = event.target.files[0];
+  const selectedFor = filePickerTaskKey || wantedTaskKey;
+  filePickerTaskKey = null;
+  event.target.value = '';
+  if (!file || !wantedTaskKey || rendererUnavailable) return;
+  if (selectedFor !== wantedTaskKey) {
+    dbg('manual file ignored: print changed while the file picker was open');
+    setOverlay('The print changed while you chose the file. Choose the exact sliced file for the new print.', 'error');
+    return;
+  }
+  invalidateLoad();
+  void loadGcode(wantedTaskKey, 'Loading sliced file…', file, true);
+});
+canvas.addEventListener('webglcontextlost', event => {
+  event.preventDefault();
+  rendererUnavailable = true;
+  invalidateLoad();
+  canvas.style.visibility = 'hidden';
+  window.BBGcodeUI.allowFile(false);
+  window.BBGcodeUI.fail(new Error('WebGL context lost (GPU reset or resource limit).'));
+});
+async function pollLoop() {
+  await tick();
+  setTimeout(pollLoop, POLL_MS);
+}
+void pollLoop();
 
 window.addEventListener('resize', () => preview.resize?.());

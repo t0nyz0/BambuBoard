@@ -101,7 +101,8 @@ app.get('/data.json', (req, res) => {
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
 app.use('/api/obs', buildObsSceneRouter({ paths, getConfig }));
-app.use('/api/gcode', buildGcodeRouter({ getConfig, paths }).router);
+const gcodeRoutes = buildGcodeRouter({ getConfig, paths });
+app.use('/api/gcode', gcodeRoutes.router);
 app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 
 // Legacy /note endpoints — used by the notes widget (public/widgets/notes/*.html).
@@ -182,7 +183,7 @@ buildVideoRouter({ app, getConfig, dataPath: DATA_FILE });
 
 // YouTube/RTMP stream relay — registered after the video relay so express-ws
 // is already applied to the app.
-buildStreamRouter({ app });
+const streamRoutes = buildStreamRouter({ app, paths });
 
 app.use('/', buildPagesRouter({ paths, getConfig }));
 
@@ -207,8 +208,14 @@ app.listen(port, '0.0.0.0', () => {
 });
 
 // Graceful shutdown
-['SIGINT', 'SIGTERM'].forEach(sig => process.on(sig, () => {
+let shuttingDown = false;
+['SIGINT', 'SIGTERM'].forEach(sig => process.on(sig, async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`\n[bambuboard] received ${sig}, shutting down`);
   try { printer.stop(); } catch (_) {}
+  const deadline = setTimeout(() => { streamRoutes.forceStop(); process.exit(0); }, 10000);
+  deadline.unref();
+  await Promise.allSettled([gcodeRoutes.stop(), streamRoutes.stop()]);
   process.exit(0);
 }));

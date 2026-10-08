@@ -1,1 +1,1 @@
-{ "name": "Printer info", "description": "Printer name, model, serial, IP.", "recommendedSize": {"w":400,"h":140}, "tags":["info"] }
+{ "name": "Printer info", "description": "Nozzle type/size and print speed from telemetry, plus printer name, model, bed type and recent print count when Bambu Cloud data is available.", "recommendedSize": {"w":400,"h":140}, "tags":["info"] }

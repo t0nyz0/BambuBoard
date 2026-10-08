@@ -4,8 +4,9 @@ WORKDIR /usr/src/app
 
 # Use Alpine's maintained FFmpeg instead of the older static download.
 # ffmpeg-static and rtsp-relay both honor this path, including during install.
-RUN apk upgrade --no-cache && apk add --no-cache ffmpeg
+RUN apk upgrade --no-cache && apk add --no-cache ffmpeg chromium ca-certificates
 ENV FFMPEG_BIN=/usr/bin/ffmpeg
+ENV BAMBUBOARD_CHROMIUM_BIN=/usr/bin/chromium
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
