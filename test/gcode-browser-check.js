@@ -191,6 +191,17 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     assert.ok(await page.evaluate(() => window.__preview.endLayer === window.__preview.layers.length));
     passed.push('A 31 MiB, 1.25 million line plate renders with visible download, processing and rendering progress');
 
+    mode = 'normal'; await write('Suspended animation frames', 'FINISH');
+    files['/Suspended animation frames.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
+    const suspended = await context.newPage();
+    await suspended.addInitScript(() => { window.requestAnimationFrame = () => 0; window.cancelAnimationFrame = () => {}; });
+    await suspended.goto(base + '/widgets/gcode-viz/?debug=1');
+    await suspended.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')), null, { polling: 100 });
+    assert.equal(await suspended.locator('#gcodeOverlay').isVisible(), false);
+    assert.equal(await suspended.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
+    await suspended.close();
+    passed.push('An obscured widget with suspended animation frames still finishes loading');
+
     mode = 'oversize'; await write('Oversized job'); await open();
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('64 MiB'));
     assert.ok(!(await page.locator('#gcodeOverlay').innerText()).includes('Use Retry now'));

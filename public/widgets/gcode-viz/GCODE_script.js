@@ -934,7 +934,16 @@ function previewLimit(detail) {
     retryable: false, recovery: false,
   });
 }
-const paintLoading = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+// Browsers can suspend animation frames in an obscured/offscreen iframe.
+// Give visible status a chance to paint without making loading depend on it.
+function paintLoading() {
+  return new Promise(resolve => {
+    let frame;
+    const finish = () => { clearTimeout(timer); cancelAnimationFrame(frame); resolve(); };
+    const timer = setTimeout(finish, 100);
+    frame = requestAnimationFrame(() => setTimeout(finish, 0));
+  });
+}
 function invalidateLoad() {
   loadSerial++;
   loadController?.abort();
