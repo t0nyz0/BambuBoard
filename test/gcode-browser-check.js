@@ -27,7 +27,9 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     fetchGcode: async options => {
       count++;
       if (options.job.name === 'Slow job') return new Promise(resolve => { releaseSlow = () => resolve(Buffer.from(sample)); });
-      if (mode === 'oversize') return Buffer.alloc(25 * 1024 * 1024, 'G');
+      if (mode === 'oversize') return Buffer.alloc(65 * 1024 * 1024, 'G');
+      if (mode === 'large') return Buffer.from(sample + '; preview fixture padding\n'.repeat(1250000));
+      if (mode === 'many-lines') return Buffer.from(sample + ';\n'.repeat(2000001));
       if (mode === 'unprintable') return Buffer.from('G90\nG1 X10 Y10 Z0.2\n');
       return fetchPlateGcode({ ...options, port: ftp.port });
     } });
@@ -40,7 +42,14 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
   try {
     browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
     const context = await browser.newContext({ viewport: { width: 640, height: 640 }, acceptDownloads: true });
-    await context.addInitScript(() => { window.__timeOffset = 0; const original = Date.now; Date.now = () => original() + window.__timeOffset; });
+    await context.addInitScript(() => {
+      window.__timeOffset = 0; const original = Date.now; Date.now = () => original() + window.__timeOffset;
+      window.__loadingMessages = [];
+      new MutationObserver(() => {
+        const overlay = document.getElementById('gcodeOverlay');
+        if (overlay?.classList.contains('loading') && window.__loadingMessages.at(-1) !== overlay.textContent) window.__loadingMessages.push(overlay.textContent);
+      }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true });
+    });
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     context.on('request', req => { if (!req.url().startsWith(base) && !req.url().startsWith('blob:') && !req.url().startsWith('data:')) external.add(req.url()); });
     const page = await context.newPage();
@@ -173,12 +182,31 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     await page.setViewportSize({ width: 640, height: 640 });
     passed.push('Long/narrow and 300mm tall models fit square, portrait and wide canvases; FINISH stage -1 shows every parsed layer');
 
-    mode = 'oversize'; await write('Large job'); await open();
-    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('24 MiB'));
+    mode = 'large'; await write('Large printable job', 'FINISH'); await open(); await rendered();
+    const loading = await page.evaluate(() => window.__loadingMessages);
+    for (const phase of ['Getting print file', 'Downloading print file', 'Processing toolpath', 'Rendering 3D preview']) assert.ok(loading.some(text => text.includes(phase)), JSON.stringify(loading));
+    assert.ok(loading.some(text => /Processing toolpath.*\d+%/.test(text)));
+    assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
+    assert.equal(await page.locator('#gcodeOverlay').isVisible(), false);
+    assert.ok(await page.evaluate(() => window.__preview.endLayer === window.__preview.layers.length));
+    passed.push('A 31 MiB, 1.25 million line plate renders with visible download, processing and rendering progress');
+
+    mode = 'oversize'; await write('Oversized job'); await open();
+    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('64 MiB'));
+    assert.ok(!(await page.locator('#gcodeOverlay').innerText()).includes('Use Retry now'));
+    assert.equal(await page.locator('#gcodeRetry').isVisible(), false);
+    assert.equal(await page.locator('#gcodeFileButton').isVisible(), false);
+    assert.equal(await page.locator('#gcodeDownloadLog').isVisible(), true);
     let before = count; await page.waitForTimeout(1000); assert.equal(count, before);
+    mode = 'many-lines'; await write('Too many lines'); await open();
+    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('2,000,000 line'));
+    assert.equal(await page.locator('#gcodeRetry').isVisible(), false);
+    assert.equal(await page.locator('#gcodeFileButton').isVisible(), false);
+    assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
     mode = 'unprintable'; await write('No extrusion'); await open();
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('no printable extrusion'));
     before = count; await page.waitForTimeout(1000); assert.equal(count, before);
+    assert.equal(await page.locator('#gcodeFileButton').isVisible(), true, 'Recovery controls return for a fixable file error');
     passed.push('Oversized and unprintable files fail visibly without automatic reload loops');
 
     mode = 'normal'; await write('Context job'); files['/Context job.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });

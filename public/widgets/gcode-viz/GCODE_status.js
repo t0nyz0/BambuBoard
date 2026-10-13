@@ -8,11 +8,18 @@
   window.BBGcodeUI = {
     log,
     message(text, kind) {
-      document.querySelector('.gcode-stage').classList.toggle('error-state', kind === 'error');
+      const stage = document.querySelector('.gcode-stage');
+      stage.classList.toggle('error-state', kind === 'error');
+      stage.setAttribute('aria-busy', String(kind === 'loading'));
       overlay.textContent = text;
       for (const name of ['loading', 'error', 'waiting']) overlay.classList.toggle(name, kind === name);
       overlay.style.display = text ? (kind === 'waiting' ? 'flex' : 'block') : 'none';
       tools.hidden = kind !== 'error';
+      this.recovery(true);
+    },
+    recovery(available) {
+      document.getElementById('gcodeRetry').hidden = !available;
+      fileButton.hidden = !available;
     },
     bindRetry(callback) { retry = callback; },
     allowFile(value) { fileButton.disabled = !value; },

@@ -25,8 +25,11 @@
         pointer-events: none; text-shadow: 0 1px 2px rgba(0,0,0,.6);
       }
       .gcode-overlay.loading {
-        inset: 50% 0 auto 0; transform: translateY(-50%);
-        font-size: 32px; font-weight: 600; opacity: 1; letter-spacing: 0.5px;
+        inset: 50% 6% auto; transform: translateY(-50%);
+        padding: 16px; border-radius: 10px; box-sizing: border-box;
+        background: rgba(10,15,19,.94); color: #edf3f6;
+        font-size: clamp(16px, 3.5vw, 28px); line-height: 1.5;
+        font-weight: 600; opacity: 1;
       }
       .gcode-overlay.loading::before {
         content: ''; display: inline-block; width: 14px; height: 14px;
@@ -38,6 +41,9 @@
       @keyframes gcode-pulse {
         0%,100% { opacity: 0.4; transform: scale(0.85); }
         50%     { opacity: 1.0; transform: scale(1.10); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .gcode-overlay.loading::before { animation: none; }
       }
       /* Idle "waiting on print" state — fills the widget with a transparent
          black backdrop matching the other widgets (rgb(0 0 0 / 80%)) so the
