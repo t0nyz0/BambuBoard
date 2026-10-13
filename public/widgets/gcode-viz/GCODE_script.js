@@ -116,6 +116,9 @@ const preview = GCodePreview.init({
   buildVolume: { x: bed.x, y: bed.y, z: bed.z },
   initialCameraPosition: [-120, 130, 150],
 });
+// Our camera/nozzle loop below owns drawing. The library's default loop would
+// otherwise draw the same large geometry a second time every animation frame.
+preview.cancelAnimation();
 
 // Make the canvas transparent so the widget composites over whatever sits
 // underneath it (camera feed in OBS, dashboard background on the web). The
@@ -454,6 +457,8 @@ function updateTrail() {
 // dramatically.
 const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
+let lastStaticView = null;
+let lastDrawAt = -Infinity;
 const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
@@ -485,6 +490,7 @@ function fullRebuild() {
 // preview.render() is overridden so callers (e.g. setExtrusionColor) trigger
 // a rebuild the first time they're called after a real geometry change.
 preview.render = function () {
+  lastStaticView = null;
   fullRebuild();
   updateNozzlePosition();
   updateTrail();
@@ -495,7 +501,8 @@ preview.render = function () {
 // updates and one GPU draw call. Falls back to a full rebuild when the
 // rendered endLayer changes.
 function fastTick() {
-  if (preview.endLayer !== lastRenderedEndLayer) {
+  const rebuild = preview.endLayer !== lastRenderedEndLayer;
+  if (rebuild) {
     fullRebuild();
   } else {
     // Make sure our extras are still attached (nothing should be removing
@@ -506,7 +513,18 @@ function fastTick() {
   }
   updateNozzlePosition();
   updateTrail();
+  // A finished plate has no moving nozzle. Keep the camera fit responsive,
+  // but avoid flooding a software GPU with millions of identical vertices.
+  const still = isPausedForState() && trailBuf.length === 0;
+  preview.camera.updateMatrixWorld();
+  const view = [...preview.camera.matrixWorld.elements, ...preview.camera.projectionMatrix.elements];
+  if (still && !rebuild && lastStaticView) {
+    if (view.every((value, index) => Math.abs(value - lastStaticView[index]) < 0.000001)) return;
+    if (performance.now() - lastDrawAt < 200) return;
+  }
   preview.renderer?.render(preview.scene, preview.camera);
+  lastDrawAt = performance.now();
+  lastStaticView = still ? view : null;
 }
 
 const buildCenter = { x: bed.x / 2, y: bed.y / 2 };
@@ -923,8 +941,27 @@ function clearScene() {
   fastTick();                               // commit the empty state to the GPU
 }
 
-const PREVIEW_MAX_BYTES = 24 * 1024 * 1024;
+// Match the server's extracted-toolpath bound. Large sliced plates commonly
+// exceed 24 MiB and 500,000 lines; parse in batches instead of splitting the
+// entire file into a second, million-element array.
+const PREVIEW_MAX_BYTES = 64 * 1024 * 1024;
+const PREVIEW_MAX_LINES = 2000000;
 const MAX_AUTO_ATTEMPTS = 5;
+function previewLimit(detail) {
+  return Object.assign(new Error(`${detail} Open this plate in Bambu Studio. Retrying or loading the same file will not change this limit.`), {
+    retryable: false, recovery: false,
+  });
+}
+// Browsers can suspend animation frames in an obscured/offscreen iframe.
+// Give visible status a chance to paint without making loading depend on it.
+function paintLoading() {
+  return new Promise(resolve => {
+    let frame;
+    const finish = () => { clearTimeout(timer); cancelAnimationFrame(frame); resolve(); };
+    const timer = setTimeout(finish, 100);
+    frame = requestAnimationFrame(() => setTimeout(finish, 0));
+  });
+}
 function invalidateLoad() {
   loadSerial++;
   loadController?.abort();
@@ -936,12 +973,15 @@ function showFailure() {
   if (!failure) return;
   const seconds = Math.max(0, Math.ceil((failure.nextAt - Date.now()) / 1000));
   const automatic = failure.retryable && failure.attempts < MAX_AUTO_ATTEMPTS && lastGcodeState !== 'FINISH';
-  setOverlay(`${failure.detail}${automatic ? ` Retrying in ${seconds}s.` : ' Use Retry now or load the exact sliced file.'}`, 'error');
+  const recovery = failure.recovery !== false;
+  setOverlay(`${failure.detail}${automatic ? ` Retrying in ${seconds}s.` : recovery ? ' Use Retry now or load the exact sliced file.' : ''}`, 'error');
+  window.BBGcodeUI.recovery(recovery);
 }
-async function readToolpath(res) {
-  if (Number(res.headers.get('Content-Length')) > PREVIEW_MAX_BYTES) {
+async function readToolpath(res, progress) {
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  if (total > PREVIEW_MAX_BYTES) {
     await res.body.cancel().catch(() => {});
-    throw Object.assign(new Error('This toolpath exceeds the 24 MiB browser preview limit. Use Bambu Studio for this plate.'), { retryable: false });
+    throw previewLimit('This toolpath exceeds the 64 MiB preview limit.');
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -951,14 +991,15 @@ async function readToolpath(res) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.length;
-      if (bytes > PREVIEW_MAX_BYTES) throw Object.assign(new Error('This toolpath exceeds the 24 MiB browser preview limit.'), { retryable: false });
+      if (bytes > PREVIEW_MAX_BYTES) throw previewLimit('This toolpath exceeds the 64 MiB preview limit.');
       parts.push(decoder.decode(value, { stream: true }));
+      progress(bytes, total);
     }
     parts.push(decoder.decode());
     return parts.join('');
   } finally { await reader.cancel().catch(() => {}); }
 }
-async function loadGcode(taskKey, overlayMsg = 'Loading print…', file = null, manual = false) {
+async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = null, manual = false) {
   const serial = ++loadSerial;
   loadController?.abort();
   const controller = loadController = new AbortController();
@@ -971,11 +1012,13 @@ async function loadGcode(taskKey, overlayMsg = 'Loading print…', file = null, 
   setOverlay(overlayMsg, 'loading');
   let stage = 'fetch';
   try {
+    await paintLoading();
+    if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     const query = new URLSearchParams({ job: taskKey });
     if (forceNocache) query.set('nocache', '1');
     if (manual) query.set('retry', '1');
     forceNocache = false;
-    if (file && file.size > 128 * 1024 * 1024) throw Object.assign(new Error('Choose a sliced file smaller than 128 MiB.'), { retryable: false });
+    if (file && file.size > 128 * 1024 * 1024) throw Object.assign(new Error('This sliced file exceeds the 128 MiB upload limit. Choose a smaller sliced file or open it in Bambu Studio.'), { retryable: false, recovery: false });
     const res = await fetch('/api/gcode/current?' + query, {
       cache: 'no-store', signal: controller.signal,
       ...(file ? { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file } : {}),
@@ -991,23 +1034,46 @@ async function loadGcode(taskKey, overlayMsg = 'Loading print…', file = null, 
         retryable: report.retryable !== false && [404, 409, 429, 500, 502, 503, 504].includes(res.status),
         retryAfterMs: Number(report.retryAfterMs) || Number(res.headers.get('Retry-After')) * 1000 || 0,
         code: report.code,
+        recovery: report.code !== 'FILE_TOO_LARGE',
       });
     }
     const header = res.headers.get('X-Gcode-Job');
     if (header && decodeURIComponent(header) !== taskKey) throw Object.assign(new Error('The print changed during download.'), { code: 'JOB_CHANGED' });
-    const text = await readToolpath(res);
+    let lastProgressAt = -Infinity;
+    const text = await readToolpath(res, (bytes, total) => {
+      if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
+      if (performance.now() - lastProgressAt < 150 && bytes !== total) return;
+      lastProgressAt = performance.now();
+      const received = (bytes / (1024 * 1024)).toFixed(1);
+      const amount = total ? `${Math.min(100, Math.floor(bytes / total * 100))}% (${received} / ${(total / (1024 * 1024)).toFixed(1)} MiB)` : `${received} MiB received`;
+      setOverlay(`Downloading print file… ${amount}`, 'loading');
+    });
+    clearTimeout(timer);
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     stage = 'parse';
-    setOverlay('Building 3D preview…', 'loading');
-    const lines = text.split('\n');
-    if (lines.length > 500000) throw Object.assign(new Error('This plate exceeds the 500,000 line browser preview limit. Use Bambu Studio for this plate.'), { retryable: false });
+    setOverlay('Processing toolpath… 0%', 'loading');
+    await paintLoading();
     // Parse incrementally without rebuilding the geometry for each chunk.
     // Yield so changes of print and cancellation are observed during parsing.
-    for (let offset = 0; offset < lines.length; offset += 5000) {
+    let offset = 0, parsedLines = 0;
+    while (offset < text.length) {
       if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
-      preview.parser.parseGCode(lines.slice(offset, offset + 5000));
+      const lines = [];
+      for (let i = 0; i < 5000 && offset < text.length; i++) {
+        let end = text.indexOf('\n', offset);
+        if (end < 0) end = text.length;
+        lines.push(text.slice(offset, end));
+        offset = end + 1;
+      }
+      parsedLines += lines.length;
+      if (parsedLines > PREVIEW_MAX_LINES) throw previewLimit('This plate exceeds the 2,000,000 line preview limit.');
+      preview.parser.parseGCode(lines);
+      setOverlay(`Processing toolpath… ${Math.min(100, Math.floor(offset / text.length * 100))}%`, 'loading');
       await new Promise(resolve => setTimeout(resolve, 0));
     }
+    setOverlay('Rendering 3D preview…', 'loading');
+    await paintLoading();
+    if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
     recomputeCumZ(); buildLayerPaths(); recomputeCumLayerTime(); recomputeModelLayerOffset();
     totalLayers = preview.layers?.length || 0;
     if (!totalLayers || !layerPaths.some(layer => layer.segs.some(seg => seg.ext))) {
@@ -1020,7 +1086,7 @@ async function loadGcode(taskKey, overlayMsg = 'Loading print…', file = null, 
     if (verifyLayers) {
       scrubActive = true; advanceTo(renderCap); setNozzleLayer(1);
     } else {
-      advanceTo(Math.min(totalLayers, Math.max(1, Number(wantedJob?.layer) || 1)));
+      advanceTo(lastGcodeState === 'FINISH' ? totalLayers : Math.min(totalLayers, Math.max(1, Number(wantedJob?.layer) || 1)));
     }
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     currentTaskKey = taskKey;
@@ -1035,7 +1101,7 @@ async function loadGcode(taskKey, overlayMsg = 'Loading print…', file = null, 
     const detail = controller.signal.aborted ? 'The file request timed out. Check the printer connection and diagnostic log.' : error.message;
     const retryable = stage === 'fetch' && error.retryable !== false;
     const backoff = [5000, 15000, 30000, 60000, 120000][Math.min(attempts - 1, 4)];
-    failure = { taskKey, attempts, detail, retryable, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
+    failure = { taskKey, attempts, detail, retryable, recovery: error.recovery, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
     dbg(`loadGcode FAIL stage=${stage} attempts=${attempts} retryable=${retryable}: ${detail}`);
     showFailure();
   } finally {
@@ -1396,7 +1462,7 @@ async function tick() {
         if (!failure.retryable || failure.attempts >= MAX_AUTO_ATTEMPTS || state === 'FINISH' || Date.now() < failure.nextAt) return;
       }
       const prep = isPrepState || isPreviewState;
-      void loadGcode(taskKey, prep ? 'Preparing print…' : 'Loading print…');
+      void loadGcode(taskKey, prep ? 'Getting file for upcoming print…' : 'Getting print file…');
       return;
     }
 
@@ -1678,4 +1744,4 @@ async function pollLoop() {
 }
 void pollLoop();
 
-window.addEventListener('resize', () => preview.resize?.());
+window.addEventListener('resize', () => { lastStaticView = null; preview.resize?.(); });

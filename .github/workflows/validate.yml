@@ -58,6 +58,11 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: |
           docker run --platform "$PLATFORM" --rm -v "$GITHUB_WORKSPACE/test:/usr/src/app/test:ro" bambuboard:test sh -ec 'apk add --no-cache openssl; node --test test/*.test.js'
+      - name: Native container WebGL toolpath preview
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          docker run --platform "$PLATFORM" --rm -v "$GITHUB_WORKSPACE/test:/usr/src/app/test:ro" bambuboard:test node test/container-webgl-check.js
       - name: Container startup and camera binary
         env:
           PLATFORM: ${{ matrix.platform }}
