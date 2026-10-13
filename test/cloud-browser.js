@@ -148,6 +148,7 @@ async function runEngine(name, artifacts) {
     assert.equal((await savedToken()).accessToken, TOKEN);
     await audit('Expired sign-in');
     await scenario('normal'); await page.locator('#cloud-check').click(); await waitText('cloud-account-status', 'successfully');
+    await waitText('cloud-status-pill', 'Signed in');
     assert.match(await page.locator('#cloud-status-pill').innerText(), /Signed in/);
     passed.push('Outages preserve saved sessions; connection checks distinguish rejection and recovery');
 
