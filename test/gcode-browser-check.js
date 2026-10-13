@@ -189,6 +189,17 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
     assert.equal(await page.locator('#gcodeOverlay').isVisible(), false);
     assert.ok(await page.evaluate(() => window.__preview.endLayer === window.__preview.layers.length));
+    await page.evaluate(() => {
+      window.__drawCount = 0;
+      const renderer = window.__preview.renderer, draw = renderer.render.bind(renderer);
+      renderer.render = (...args) => { window.__drawCount++; return draw(...args); };
+    });
+    await page.waitForTimeout(1000);
+    assert.ok(await page.evaluate(() => window.__drawCount <= 8), 'A finished plate must not be continuously drawn by duplicate animation loops');
+    const beforeResize = await page.evaluate(() => window.__drawCount);
+    await page.setViewportSize({ width: 400, height: 320 });
+    await page.waitForFunction(before => window.__drawCount > before, beforeResize);
+    await page.setViewportSize({ width: 640, height: 640 });
     passed.push('A 31 MiB, 1.25 million line plate renders with visible download, processing and rendering progress');
 
     mode = 'normal'; await write('Suspended animation frames', 'FINISH');

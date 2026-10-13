@@ -116,6 +116,9 @@ const preview = GCodePreview.init({
   buildVolume: { x: bed.x, y: bed.y, z: bed.z },
   initialCameraPosition: [-120, 130, 150],
 });
+// Our camera/nozzle loop below owns drawing. The library's default loop would
+// otherwise draw the same large geometry a second time every animation frame.
+preview.cancelAnimation();
 
 // Make the canvas transparent so the widget composites over whatever sits
 // underneath it (camera feed in OBS, dashboard background on the web). The
@@ -454,6 +457,8 @@ function updateTrail() {
 // dramatically.
 const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
+let lastStaticView = null;
+let lastDrawAt = -Infinity;
 const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
@@ -485,6 +490,7 @@ function fullRebuild() {
 // preview.render() is overridden so callers (e.g. setExtrusionColor) trigger
 // a rebuild the first time they're called after a real geometry change.
 preview.render = function () {
+  lastStaticView = null;
   fullRebuild();
   updateNozzlePosition();
   updateTrail();
@@ -495,7 +501,8 @@ preview.render = function () {
 // updates and one GPU draw call. Falls back to a full rebuild when the
 // rendered endLayer changes.
 function fastTick() {
-  if (preview.endLayer !== lastRenderedEndLayer) {
+  const rebuild = preview.endLayer !== lastRenderedEndLayer;
+  if (rebuild) {
     fullRebuild();
   } else {
     // Make sure our extras are still attached (nothing should be removing
@@ -506,7 +513,18 @@ function fastTick() {
   }
   updateNozzlePosition();
   updateTrail();
+  // A finished plate has no moving nozzle. Keep the camera fit responsive,
+  // but avoid flooding a software GPU with millions of identical vertices.
+  const still = isPausedForState() && trailBuf.length === 0;
+  preview.camera.updateMatrixWorld();
+  const view = [...preview.camera.matrixWorld.elements, ...preview.camera.projectionMatrix.elements];
+  if (still && !rebuild && lastStaticView) {
+    if (view.every((value, index) => Math.abs(value - lastStaticView[index]) < 0.000001)) return;
+    if (performance.now() - lastDrawAt < 200) return;
+  }
   preview.renderer?.render(preview.scene, preview.camera);
+  lastDrawAt = performance.now();
+  lastStaticView = still ? view : null;
 }
 
 const buildCenter = { x: bed.x / 2, y: bed.y / 2 };
@@ -1726,4 +1744,4 @@ async function pollLoop() {
 }
 void pollLoop();
 
-window.addEventListener('resize', () => preview.resize?.());
+window.addEventListener('resize', () => { lastStaticView = null; preview.resize?.(); });
