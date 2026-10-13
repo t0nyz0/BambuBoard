@@ -1,5 +1,4 @@
 const express = require('express');
-const path = require('path');
 
 function buildPagesRouter({ paths, getConfig }) {
   const router = express.Router();
@@ -26,20 +25,21 @@ function buildPagesRouter({ paths, getConfig }) {
     return res.redirect(`/setup?firstRun=1`);
   });
 
-  router.get('/',             (req, res) => res.sendFile(path.join(VIEWS, 'hub.html')));
+  // Keep the installation path outside sendFile's dotfile checks.
+  router.get('/',             (req, res) => res.sendFile('hub.html', { root: VIEWS }));
   // The standalone dashboard was retired in 3.1.0 — /live (a published scene,
   // or the default layout) is the monitor now. Redirect old bookmarks.
   router.get('/dashboard',    (req, res) => res.redirect(302, '/live'));
-  router.get('/setup',        (req, res) => res.sendFile(path.join(VIEWS, 'setup.html')));
+  router.get('/setup',        (req, res) => res.sendFile('setup.html', { root: VIEWS }));
   // /customize was a v3.1 stub; widget theming now lives in the Layout editor.
   router.get('/customize',    (req, res) => res.redirect(302, '/scene-editor'));
-  router.get('/scene-editor', (req, res) => res.sendFile(path.join(VIEWS, 'scene-editor.html')));
+  router.get('/scene-editor', (req, res) => res.sendFile('scene-editor.html', { root: VIEWS }));
   // Composited broadcast output: renders a saved scene as a single full-page
   // view (camera + every widget, positioned exactly as designed). The whole
   // point is that an OBS scene needs just ONE Browser Source pointing here —
   // no per-widget sources, no camera media source, no SDP.
-  router.get('/live',         (req, res) => res.sendFile(path.join(VIEWS, 'live.html')));
-  router.get('/login',        (req, res) => res.sendFile(path.join(VIEWS, 'login.html')));
+  router.get('/live',         (req, res) => res.sendFile('live.html', { root: VIEWS }));
+  router.get('/login',        (req, res) => res.sendFile('login.html', { root: VIEWS }));
 
   return router;
 }

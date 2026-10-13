@@ -90,7 +90,7 @@ app.use('/vendor',  express.static(path.join(paths.public, 'vendor')));
 
 // /data.json — backed by data/data.json (kept at root path for OBS widget compatibility)
 app.get('/data.json', (req, res) => {
-  res.sendFile(DATA_FILE, (err) => {
+  res.sendFile('data.json', { root: paths.data }, (err) => {
     if (err) {
       // No data yet — return an empty shape so widgets don't error.
       res.setHeader('Content-Type', 'application/json');
