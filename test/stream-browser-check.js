@@ -21,7 +21,7 @@ const root = path.resolve(__dirname, '..'), ffmpeg = require('ffmpeg-static');
   let browser, server, receiver, streaming, mode = 'fake', failuresLeft = 0, starts = 0, capturesStopped = 0, rtmpPort;
   const buffers = [], errors = [], passed = [], encoders = [];
   const app = express(); require('express-ws')(app); app.use(express.json());
-  app.get('/', (_req, res) => res.sendFile(path.join(root, 'views/hub.html')));
+  app.get('/', (_req, res) => res.sendFile('hub.html', { root: path.join(root, 'views') }));
   app.get('/live', (_req, res) => res.send('<!doctype html><style>body{margin:0;background:#13241e;color:#f1f6f4;font:28px sans-serif}.live-item{display:grid;place-content:center;height:100vh}</style><div class="live-item">Published print scene · sample telemetry</div>'));
   app.get('/api/status', (_req, res) => res.json({ version: '3.2.0', configured: true, connected: true, printer: { name: 'Demo H2D', type: 'H2D' }, cloud: { signedIn: false } }));
   app.get('/api/obs/active', (_req, res) => res.json({ slug: 'Studio demo', resolution: { x: 1920, y: 1080 } }));
