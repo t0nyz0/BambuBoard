@@ -8,6 +8,22 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## 3.3.1 — 2026-10-13
+
+### Changed
+- Upgrade Express to 5.2.1 while retaining Node 24 and the existing Docker release tags for linux/amd64 and linux/arm64.
+
+### Fixed
+- Serve management pages and saved telemetry correctly when the installation or data directory has a hidden parent, while retaining dotfile restrictions.
+- Preview toolpaths up to 64 MiB and 2,000,000 lines with incremental parsing. Show file retrieval, download progress, processing progress and rendering status; explain size limits without suggesting ineffective retries.
+- Finish loading when animation frames are suspended in an obscured widget. Draw finished toolpaths only when their view changes and remove the duplicate renderer loop to reduce software-GPU load.
+- Include Chromium's SwiftShader libraries so server-side scene capture can render toolpaths on a NAS without a usable GPU.
+
+### Added
+- Large-file, loading-state and suspended-frame browser regression checks, plus native container WebGL checks for both release architectures.
+
+---
+
 ## 3.3.0 — 2026-10-08
 
 ### Changed
