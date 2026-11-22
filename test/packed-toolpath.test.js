@@ -175,8 +175,11 @@ test('packed long extrusion arc expansion yields and stops on cancellation', asy
     signal: controller.signal,
     yieldTask: async () => { yielded = true; controller.abort(stop); },
   });
-  const arcs = Array(24).fill('G2 I2000 J0 E1');
-  await assert.rejects(packed.parseBatch(['G90', 'M83', 'G0 X10 Y10 Z0.2 F600', ...arcs]), error => error === stop);
+  await packed.parseBatch(['G90', 'M83', 'G0 X10 Y10 Z0.2 F600']);
+  // Expire the parser's work slice before the arc so the assertion does not
+  // depend on how long tessellation takes on this machine.
+  await new Promise(resolve => setTimeout(resolve, 16));
+  await assert.rejects(packed.parseBatch(['G2 I2000 J0 E1']), error => error === stop);
   assert.equal(yielded, true);
 });
 
