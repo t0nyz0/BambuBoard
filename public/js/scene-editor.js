@@ -197,14 +197,14 @@ function collectEditChanges (before, after, path, changes) {
   }
 }
 
-function finishEdit () {
+function finishEdit (selection) {
   const pending = state.pendingEdit;
   if (!pending) return;
   state.pendingEdit = null;
   const changes = [];
   collectEditChanges(pending.before, captureDraft(), [], changes);
   if (!changes.length) return;
-  state.history.push({ scope: pending.scope, changes });
+  state.history.push({ scope: pending.scope, changes, selection });
   if (state.history.length > 100) state.history.shift();
   state.future = state.future.filter(entry => pending.scope !== null && entry.scope !== null && entry.scope !== pending.scope);
 }
@@ -218,6 +218,15 @@ function snapshot (scope = state.sceneName) {
 
 function historyIndex (stack) {
   return stack.findLastIndex(entry => entry.scope === null || entry.scope === state.sceneName);
+}
+
+function selectedLayerRef () {
+  const item = state.items[state.selectedIndex];
+  return item ? {
+    id: item.id,
+    name: item.name,
+    occurrence: state.items.slice(0, state.selectedIndex).filter(other => other.name === item.name).length,
+  } : null;
 }
 
 function replayEdit (from, to, expected, replacement) {
@@ -237,15 +246,19 @@ function replayEdit (from, to, expected, replacement) {
     if (change[replacement] === undefined) delete parent[key];
     else Object.defineProperty(parent, key, { value: structuredClone(change[replacement]), writable: true, enumerable: true, configurable: true });
   }
-  const item = state.items[state.selectedIndex];
-  const selection = item && {
-    id: item.id,
-    name: item.name,
-    occurrence: state.items.slice(0, state.selectedIndex).filter(other => other.name === item.name).length,
-  };
+  const selection = entry.selection ? entry.selection[replacement] : selectedLayerRef();
+  const active = document.activeElement;
+  const restoreLayerFocus = entry.selection && els.layersList().contains(active);
+  const inspectorFocused = els.inspector().contains(active);
   state[from].splice(index, 1);
   state[to].push(entry);
   hydrateCollection({ ...edit.collection, sources: Object.values(edit.sources) }, { draftName: edit.draftName, liveSceneName: edit.liveSceneName, sceneName: state.sceneName, customizations: edit.customizations, selection });
+  if (entry.selection && state.selectedIndex < 0) {
+    deselectItem();
+    if (inspectorFocused) focusLayersButton();
+  } else if (restoreLayerFocus) {
+    els.layersList().querySelector('.layer-row.selected .lr-name')?.focus({ preventScroll: true });
+  }
   updateUndoButtons();
 }
 
@@ -281,10 +294,24 @@ function updateUndoButtons () {
   // Keyboard shortcuts:
   //   Arrow keys: nudge selected item 1px (10px with Shift)
   //   Cmd/Ctrl+Z: undo, Cmd/Ctrl+Shift+Z (or +Y): redo
+  //   Delete or Backspace: remove the selected unlocked layer
   //   Esc: deselect
   document.addEventListener('keydown', (e) => {
-    // Don't intercept while typing in an input/textarea
-    if (e.defaultPrevented || e.target.closest('input, textarea, select, [contenteditable], dialog[open]')) return;
+    const target = e.target;
+    if (e.defaultPrevented || !(target instanceof Element) ||
+        target.closest('input, textarea, select, [contenteditable], [role="textbox"], dialog[open]')) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (e.isComposing || e.keyCode === 229 || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
+          document.designMode === 'on' || document.querySelector('dialog[open], [aria-modal="true"]:not([hidden])') ||
+          target.closest('[role="dialog"], [role="alertdialog"]') ||
+          !target.closest('.editor-workspace')) return;
+      // Block native Backspace navigation even after removal moves focus.
+      if (e.key === 'Backspace') e.preventDefault();
+      if (e.repeat || !target.closest('#canvas, .layer-row.selected, #inspector')) return;
+      e.preventDefault();
+      removeLayer(state.selectedIndex);
+      return;
+    }
     const meta = e.metaKey || e.ctrlKey;
     if (meta && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -1018,7 +1045,11 @@ function renderItem (item, idx, replacing) {
     node.appendChild(body);
     node.appendChild(label);
     if (isWidgetSrc(src)) { node.appendChild(move); node.appendChild(handle); }
-    node.addEventListener('click', (e) => { e.stopPropagation(); selectItem(idx); });
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      c.focus({ preventScroll: true });
+      selectItem(idx);
+    });
     if (replacing) replacing.replaceWith(node);
     else c.appendChild(node);
 }
@@ -1366,6 +1397,28 @@ function moveItemFromTo (from, to) {
   updateDiff();
 }
 
+function removeLayer (index) {
+  const item = state.items[index];
+  if (!item || item.locked) return;
+
+  const before = selectedLayerRef();
+  const inspectorFocused = els.inspector().contains(document.activeElement);
+  snapshot();
+  // Drop only this scene item. Other scenes and groups can share its source.
+  state.items.splice(index, 1);
+  if (state.selectedIndex === index) {
+    deselectItem();
+    if (inspectorFocused) focusLayersButton();
+  } else if (state.selectedIndex > index) {
+    state.selectedIndex--;
+  }
+  finishEdit({ before, after: selectedLayerRef() });
+  render();
+  refreshInspector();
+  updateUndoButtons();
+  window.toast(`Removed “${item.name || 'Unnamed layer'}”. Use Undo to restore it.`);
+}
+
 // Render the rows whenever the scene changes. One row per item, displayed
 // top-to-bottom in REVERSE array order so top-of-list = top-of-stack
 // (matches OBS Sources convention). Called from render().
@@ -1380,7 +1433,10 @@ function renderLayersPanel () {
   const action = oldRow && active.dataset.action;
   list.innerHTML = '';
   if (!state.items.length) {
-    list.innerHTML = '<div class="empty-hint">No scene loaded.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'empty-hint';
+    empty.textContent = state.original ? 'No widgets in this scene. Open Widgets to add one.' : 'No scene loaded.';
+    list.appendChild(empty);
     if (oldRow) focusLayersButton();
     return;
   }
@@ -1409,7 +1465,10 @@ function renderLayersPanel () {
       row.appendChild(button);
       return button;
     };
-    const name = addButton('select', label, `Select ${label}`, () => selectItem(i));
+    const name = addButton('select', label, `Select ${label}`, event => {
+      event.currentTarget.focus({ preventScroll: true });
+      selectItem(i);
+    });
     name.className = 'lr-name';
     name.setAttribute('aria-pressed', String(i === state.selectedIndex));
     const visible = item.visible !== false;
@@ -1421,6 +1480,11 @@ function renderLayersPanel () {
     lock.className = 'lr-toggle';
     addButton('up', 'Up', `Move ${label} up`, () => moveItemFromTo(i, i + 1), item.locked === true || i === total - 1);
     addButton('down', 'Down', `Move ${label} down`, () => moveItemFromTo(i, i - 1), item.locked === true || i === 0);
+    const remove = addButton('remove', 'Remove widget', `Remove widget: ${label}`, event => {
+      event.currentTarget.focus({ preventScroll: true });
+      removeLayer(state.items.indexOf(item));
+    }, Boolean(item.locked));
+    remove.className = 'lr-remove';
 
     // Drag-to-reorder using native HTML5 Drag API with a custom mime type
     // so the canvas's drop handler (which accepts widget tiles from the
@@ -1472,8 +1536,10 @@ function renderLayersPanel () {
   }
   if (action) {
     const itemIndex = state.items.indexOf(oldItem);
-    const row = list.querySelector(`.layer-row[data-idx="${itemIndex < 0 ? oldIndex : itemIndex}"]`);
-    const exact = row?.querySelector(`button[data-action="${action}"]:not(:disabled)`);
+    const fallbackIndex = Math.min(oldIndex, state.items.length - 1);
+    const row = list.querySelector(`.layer-row[data-idx="${itemIndex < 0 ? fallbackIndex : itemIndex}"]`);
+    const exact = itemIndex < 0 && action === 'remove' ? null
+      : row?.querySelector(`button[data-action="${action}"]:not(:disabled)`);
     (exact || row?.querySelector('.lr-name') || panelControl('layers')).focus({ preventScroll: true });
     if (exact && itemIndex !== oldIndex) exact.scrollIntoView({ block: 'nearest' });
   }

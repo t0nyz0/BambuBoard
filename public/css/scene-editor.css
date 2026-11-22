@@ -183,6 +183,8 @@
 }
 .layer-row button:hover:not(:disabled) { border-color: var(--color-accent); }
 .layer-row button:disabled { opacity: .55; cursor: default; }
+.layer-row .lr-remove { grid-column: 1 / -1; }
+.layer-row .lr-remove:not(:disabled) { color: var(--color-error); }
 .layer-row .lr-name {
   grid-column: 1 / -1;
   text-align: left;

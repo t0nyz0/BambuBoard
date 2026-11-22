@@ -369,6 +369,167 @@ async function runEngine(name, artifactDir) {
     await page.locator('#widget-drawer-list .drawer-widget').first().waitFor();
     await page.unroute('**/api/widgets');
     passed.push('Widget catalog shows an error and Retry recovers without reloading the editor');
+
+    const removalFixture = fixture();
+    const removalSlug = 'Removal fixture';
+    const main = collection => collection.sources.find(source => source.name === 'Main').settings.items;
+    const second = collection => collection.sources.find(source => source.name === 'Second scene').settings.items;
+    const namesOf = items => items.map(layer => layer.name);
+    const initialLayerOrder = () => namesOf(main(removalFixture)).reverse();
+    main(removalFixture).find(layer => layer.name === 'Second AMS').locked = true;
+    second(removalFixture).splice(0, 1, item('First AMS', 220, 110));
+    removalFixture.sources = removalFixture.sources.filter(source => source.name !== 'Progress');
+    for (const [label, slug] of [['Printer camera', 'camera'], ['Toolpath preview', 'gcode-viz']]) {
+      removalFixture.sources.push({ name: label, id: 'browser_source', settings: { width: 640, height: 360, url: `${base}/widgets/${slug}/` } });
+      main(removalFixture).push(item(label, 550, 100));
+    }
+    const mediaFixture = url => url.origin === base && ['/widgets/camera/', '/widgets/gcode-viz/'].includes(url.pathname);
+    await page.route(mediaFixture, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Local widget fixture</title>' }));
+    await fs.writeFile(path.join(data, 'scenes', removalSlug + '.json'), JSON.stringify(removalFixture));
+    const readRemovalDraft = () => request('/api/obs/scenes/' + encodeURIComponent(removalSlug));
+    const liveBeforeRemoval = await request('/api/obs/published');
+    await openEditor();
+    await page.locator('#loader').selectOption('scn:' + removalSlug);
+    await page.getByRole('button', { name: 'Select Toolpath preview', exact: true }).waitFor();
+
+    const remove = label => page.getByRole('button', { name: 'Remove widget: ' + label, exact: true });
+    const layers = () => page.locator('#layers-panel-list .lr-name').allTextContents();
+    const selectedLayer = () => page.locator('.layer-row.selected .lr-name').innerText({ timeout: 2000 });
+    const undoRemoval = () => page.locator('#undo-btn').click();
+    const redoRemoval = () => page.locator('#redo-btn').click();
+    const expectLayers = (excluded = [], message) => layers().then(order => assert.deepEqual(order, initialLayerOrder().filter(layer => !excluded.includes(layer)), message));
+    const sceneKeys = page.locator('#canvas');
+    await sceneKeys.press('Delete');
+    await page.keyboard.down('Backspace');
+    await page.keyboard.down('Backspace');
+    await page.keyboard.up('Backspace');
+    await expectLayers([], 'A shortcut without a selection must leave the scene intact');
+    await select('First AMS');
+    assert.equal(await remove('Printer camera').innerText(), 'Remove widget');
+    await remove('Printer camera').click();
+    await expectLayers(['Printer camera'], 'The row action removes its own widget rather than the selection');
+    assert.equal(await selectedLayer(), 'First AMS');
+    assert.equal(await page.locator('.scene-item iframe[title="Printer camera"]').count(), 0);
+    await undoRemoval();
+    await expectLayers();
+    await redoRemoval();
+    await expectLayers(['Printer camera']);
+    await undoRemoval();
+    await expectLayers();
+    passed.push('A labeled row action removes its own widget, preserves another selection and round-trips through Undo/Redo');
+
+    assert.equal(await remove('Second AMS').isDisabled(), true, 'A locked row must offer no actionable removal');
+    await select('Second AMS');
+    await sceneKeys.press('Delete');
+    await sceneKeys.press('Backspace');
+    await expectLayers([], 'Neither removal key should affect a locked item');
+    await select('First AMS');
+    const layerKeys = page.getByRole('button', { name: 'Select First AMS', exact: true });
+    for (const key of ['Delete', 'Backspace']) {
+      for (const modifier of ['Control', 'Meta', 'Alt', 'Shift']) await layerKeys.press(`${modifier}+${key}`);
+      for (const state of [{ repeat: true }, { isComposing: true }]) {
+        await layerKeys.dispatchEvent('keydown', { key, bubbles: true, cancelable: true, ...state });
+      }
+    }
+    await expectLayers([], 'Modified, repeating and composing keys should not remove a widget');
+    await page.locator('#save-btn').press('Delete');
+    const editingProbe = page.locator('#removal-keyboard-probe');
+    await page.locator('#inspector').evaluate(inspector => {
+      const probe = document.createElement('div');
+      probe.id = 'removal-keyboard-probe';
+      probe.innerHTML = '<input aria-label="Fixture input"><textarea aria-label="Fixture textarea"></textarea><select aria-label="Fixture select"><option>Value</option></select><div contenteditable="true"><span>Text edit</span></div><dialog aria-label="Fixture modal"><button type="button">Modal action</button></dialog>';
+      inspector.append(probe);
+    });
+    await editingProbe.locator('[contenteditable] span').dispatchEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true });
+    for (const tag of ['input', 'textarea', '[contenteditable]']) {
+      const control = editingProbe.locator(tag);
+      await control.fill('AB');
+      await control.press('Backspace');
+      await control.press('Delete');
+      assert.equal(tag === '[contenteditable]' ? await control.innerText() : await control.inputValue(), 'A', `${tag} retains native Backspace behavior`);
+    }
+    // WebKit can navigate back for trusted Backspace on non-text controls.
+    for (const key of ['Delete', 'Backspace']) {
+      await editingProbe.locator('select').dispatchEvent('keydown', { key, bubbles: true, cancelable: true });
+    }
+    await editingProbe.locator('dialog').evaluate(dialog => dialog.showModal());
+    await editingProbe.locator('button').press('Delete');
+    await editingProbe.locator('button').dispatchEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+    await editingProbe.evaluate(probe => probe.remove());
+    await expectLayers([], 'Editing fields, unrelated toolbar focus and modal actions should not remove a widget');
+    assert.equal(await page.locator('#draft-state').innerText(), 'Draft saved');
+
+    await layerKeys.press('Delete');
+    await expectLayers(['First AMS']);
+    assert.equal(await page.locator('.layer-row.selected').count(), 0, 'Removing the selection should clear it');
+    assert.equal(await page.locator('#draft-state').innerText(), 'Unsaved changes');
+    assert.equal(await page.locator('#golive-btn').isDisabled(), true);
+    await undoRemoval();
+    await expectLayers();
+    assert.equal(await selectedLayer(), 'First AMS', 'Undo should restore the removed selection');
+    assert.equal(await page.locator('#insp-x').inputValue(), '20');
+    assert.equal(await page.locator('#cust-title').inputValue(), 'Before');
+    await redoRemoval();
+    await expectLayers(['First AMS']);
+    assert.equal(await page.locator('.layer-row.selected').count(), 0);
+    await select('Toolpath preview');
+    await page.keyboard.press('Delete');
+    await expectLayers(['First AMS', 'Toolpath preview']);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Printer camera', 'Removing the top Layers row moves focus to its neighbor');
+    await page.keyboard.press('Control+z');
+    await expectLayers(['First AMS']);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'Toolpath preview', 'Keyboard Undo focuses the restored selection');
+    await page.keyboard.press('Delete');
+    await expectLayers(['First AMS', 'Toolpath preview']);
+    await undoRemoval();
+    await sceneKeys.press('Backspace');
+    await expectLayers(['First AMS', 'Toolpath preview']);
+    passed.push('Delete and Backspace remove unlocked items with shortcut guards and preserve Layers focus through keyboard Undo');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    if (!await page.locator('#layers-panel').isVisible()) await page.locator('#layers-panel-btn').click();
+    assert.equal(await remove('Backdrop').isVisible(), true, 'An imported color source has a visible phone removal action');
+    await remove('Backdrop').click();
+    await expectLayers(['First AMS', 'Toolpath preview', 'Backdrop']);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    assert.deepEqual(namesOf(main(await readRemovalDraft())), namesOf(main(removalFixture)), 'Removal must remain local until Save draft');
+    assert.deepEqual(await request('/api/obs/published'), liveBeforeRemoval);
+    await save();
+    const afterRemoval = await readRemovalDraft();
+    assert.deepEqual(namesOf(main(afterRemoval)), ['Second AMS', 'Printer camera']);
+    assert.deepEqual(second(afterRemoval), second(removalFixture), 'Removing an instance preserves a shared source in another scene');
+    assert.deepEqual(await request('/api/obs/published'), liveBeforeRemoval, 'Saving removals must not change live output');
+    await page.locator('#golive-btn').click();
+    await page.waitForFunction(() => document.querySelector('#draft-state').textContent === 'Draft saved · Live');
+    const publishedRemoval = await request('/api/obs/published');
+    assert.deepEqual(main(publishedRemoval), main(afterRemoval), 'Apply to Live publishes the saved removals');
+    assert.deepEqual(second(publishedRemoval), second(removalFixture));
+    passed.push('Phone removal of an imported source affects neither the saved draft nor live output until the corresponding explicit action');
+
+    await page.locator('#scene-picker').selectOption('Second scene');
+    await expectLayers(['Backdrop', 'Second AMS', 'Printer camera', 'Toolpath preview']);
+    await remove('First AMS').click();
+    assert.deepEqual(await layers(), [], 'The final widget can be removed');
+    assert.equal(await page.locator('.scene-item').count(), 0);
+    assert.equal(await page.locator('#layers-panel-list .empty-hint').innerText(), 'No widgets in this scene. Open Widgets to add one.');
+    await page.locator('#widget-drawer-btn').click();
+    await page.locator('#widget-drawer-list').getByRole('button', { name: /^Progress/ }).press('Enter');
+    assert.deepEqual(await layers(), ['Progress']);
+    await undoRemoval();
+    assert.deepEqual(await layers(), []);
+    await undoRemoval();
+    assert.deepEqual(await layers(), ['First AMS']);
+    await redoRemoval();
+    assert.deepEqual(await layers(), []);
+    await redoRemoval();
+    assert.deepEqual(await layers(), ['Progress']);
+    assert.deepEqual(await request('/api/obs/published'), publishedRemoval);
+    await undoRemoval();
+    await undoRemoval();
+    assert.equal(await page.locator('#draft-state').innerText(), 'Draft saved · Live');
+    await page.unroute(mediaFixture);
+    passed.push('Removing the last widget leaves a usable empty scene and adding again works through two Undo/Redo steps');
+
     await page.goto(base + '/setup');
     await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');
     await page.locator('#p-sn').fill(''); await page.locator('#save-btn').click();
