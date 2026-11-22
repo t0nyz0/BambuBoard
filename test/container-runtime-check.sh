@@ -51,6 +51,7 @@ docker run --rm --user 0:0 --network none -v "$scratch/legacy:$data" "$image" sh
   printf "%s\n" "G90" > gcode-cache/fixture.gcode
   printf "%s\n" "host-owned sentinel" > host-file
   ln -s host-file active-scene.json
+  chown 0:0 .
   chmod 700 . scenes gcode-cache
   chmod 400 config.json accessToken.json scenes/fixture.json gcode-cache/fixture.gcode
 '
