@@ -22,6 +22,7 @@ All notable changes to this project are documented in this file. The format foll
 - Show a retry action when the widget catalog is unavailable.
 - Use the same browser source URL for OBS copy and download, including when a public URL is configured.
 - Keep YouTube setup and validation messages visible while stream status refreshes.
+- Update basic-ftp, body-parser, ip-address, and qs to versions with the reported security fixes.
 
 ---
 
