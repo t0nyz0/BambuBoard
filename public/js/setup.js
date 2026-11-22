@@ -312,7 +312,9 @@
     const section = node('cloud-section');
     const controls = [...section.querySelectorAll('button, input')];
     let busy = false, action = '', tfaKey = null, requestedEmail = '';
-    let tokenVisible = false, methodChosen = false, tokenSaved = false;
+    const forms = { email: 'cloud-email-form', code: 'cloud-code-step', mfa: 'cloud-mfa', token: 'cloud-method-token' };
+    const inputs = { account: 'cloud-check', email: 'cloud-email', code: 'cloud-code', mfa: 'cloud-mfa-code', token: 'cloud-token' };
+    let step = 'account', returnStep = 'account', tokenSaved = false, signedInAccount = false, emailCodeExpired = false;
     let resendDeadline = 0, throttleDeadline = 0, resendTimer = null;
 
     function message(id, text = '', tone = '') {
@@ -324,11 +326,14 @@
       controls.forEach(control => { control.disabled = busy; });
       const wait = Math.max(0, Math.ceil((throttleDeadline - Date.now()) / 1000));
       const seconds = Math.max(wait, Math.max(0, Math.ceil((resendDeadline - Date.now()) / 1000)));
-      for (const id of ['cloud-verify', 'cloud-mfa-submit', 'cloud-token-save']) node(id).disabled = busy || wait > 0;
+      for (const id of ['cloud-mfa-submit', 'cloud-token-save']) node(id).disabled = busy || wait > 0;
+      node('cloud-verify').disabled = busy || wait > 0 || emailCodeExpired;
       node('cloud-check').disabled = busy || (tokenSaved && wait > 0);
       node('cloud-send-code').disabled = busy || seconds > 0;
-      node('cloud-send-code').textContent = action === 'send' ? 'Sending code…' : seconds > 0 ? 'Resend in ' + seconds + 's' : requestedEmail ? 'Resend code' : 'Send sign-in code';
-      node('cloud-verify').textContent = action === 'verify' ? 'Signing in…' : wait ? 'Retry in ' + wait + 's' : 'Sign in';
+      node('cloud-resend-code').disabled = busy || seconds > 0;
+      node('cloud-send-code').textContent = action === 'send' ? 'Sending code…' : seconds ? 'Send in ' + seconds + 's' : 'Send sign-in code';
+      node('cloud-resend-code').textContent = action === 'send' ? 'Sending code…' : seconds ? 'Resend in ' + seconds + 's' : 'Resend code';
+      node('cloud-verify').textContent = action === 'verify' ? 'Verifying…' : wait ? 'Retry in ' + wait + 's' : 'Verify email code';
       node('cloud-mfa-submit').textContent = action === 'mfa' ? 'Verifying…' : wait ? 'Retry in ' + wait + 's' : 'Verify and sign in';
       node('cloud-token-save').textContent = action === 'token' ? 'Verifying token…' : wait ? 'Retry in ' + wait + 's' : 'Verify and save token';
       node('cloud-check').textContent = action === 'check' ? 'Checking…' : tokenSaved ? wait ? 'Retry in ' + wait + 's' : 'Check connection' : 'Retry status';
@@ -362,45 +367,32 @@
       }
       return result;
     }
-    function showMethod(method) {
-      for (const name of ['email', 'token']) {
-        const selected = name === method;
-        node('cloud-method-' + name).hidden = !selected;
-        node('cloud-tab-' + name).className = 'btn ' + (selected ? 'btn-primary' : 'btn-ghost');
-        node('cloud-tab-' + name).setAttribute('aria-pressed', String(selected));
-      }
-    }
-    for (const method of ['email', 'token']) node('cloud-tab-' + method).addEventListener('click', () => { methodChosen = true; showMethod(method); });
-    node('cloud-use-token').addEventListener('click', () => {
-      methodChosen = true;
-      showMethod('token');
-      node('cloud-token-instructions').open = true;
+    function showStep(next) {
+      step = next;
+      for (const [name, form] of Object.entries(forms)) node(form).hidden = step !== name;
+      node('cloud-change-account').hidden = step !== 'account' || !signedInAccount;
+      node('cloud-back-account').hidden = !signedInAccount || step === 'account' || step === 'token';
+      node('cloud-troubleshooting').hidden = step === 'token';
       node('cloud-fallback').hidden = true;
-      node('cloud-token').focus();
-    });
-
-    function maskToken() {
-      node('cloud-token').type = tokenVisible ? 'text' : 'password';
-      node('cloud-token-show').textContent = tokenVisible ? 'Hide token' : 'Show token';
-      node('cloud-token-show').setAttribute('aria-pressed', String(tokenVisible));
+      return inputs[step];
     }
-    async function refresh() {
+    async function refresh(resetStep = false) {
       try {
-        const [status, saved] = await Promise.all([request('/auth/status'), request('/auth/token')]);
-        tokenSaved = !!saved.token;
+        const status = await request('/auth/status');
+        const recovered = status.signedIn && !signedInAccount;
+        tokenSaved = status.tokenSaved;
+        signedInAccount = status.signedIn;
         const rejected = status.needsSignIn || status.connection?.code === 'TOKEN_REJECTED';
         const pill = node('cloud-status-pill');
         pill.className = 'pill ' + (status.signedIn ? 'pill-ok' : rejected ? 'pill-warn' : '');
         pill.textContent = status.signedIn ? status.email ? 'Signed in as ' + status.email : 'Signed in' : rejected ? 'Sign in again' : 'Not signed in';
-        node('cloud-status-note').textContent = status.connection?.ok === false ? status.connection.error : status.signedIn ? status.connection?.ok ? 'Connection checked successfully. Your cloud widgets can now use this account.' : 'Your sign-in is saved. Use Check connection to confirm Bambu still accepts it.' : 'Choose a sign-in method below. Your printer connection works without cloud sign-in.';
+        node('cloud-status-note').textContent = status.connection?.ok === false ? status.connection.error : '';
         node('cloud-actions').hidden = !tokenSaved;
         node('cloud-signout-link').hidden = !tokenSaved;
-        node('cloud-token').value = saved.token || '';
-        maskToken();
-        node('cloud-token-hint').textContent = tokenSaved ? 'Saved token. You can replace it without signing out first.' : 'Paste the complete token cookie value.';
-        node('cloud-token-email').value = saved.email || '';
-        if (!node('cloud-email').value) node('cloud-email').value = saved.email || '';
-        if (!methodChosen) { showMethod(tokenSaved ? 'token' : 'email'); methodChosen = true; }
+        if (status.email && (resetStep || step === 'account' || !node('cloud-email').value)) node('cloud-email').value = status.email;
+        if (resetStep || (step === 'account' && !signedInAccount) || (step === 'email' && recovered)) {
+          showStep(signedInAccount ? 'account' : 'email');
+        }
         updateControls();
         window.dispatchEvent(new Event('bambuboard:cloud-updated'));
         return true;
@@ -410,6 +402,7 @@
         node('cloud-status-note').textContent = e.message;
         node('cloud-actions').hidden = false;
         node('cloud-signout-link').hidden = !tokenSaved;
+        if (resetStep) showStep(signedInAccount ? 'account' : 'email');
         updateControls();
         return false;
       }
@@ -417,19 +410,34 @@
     function resetEmailSteps() {
       requestedEmail = '';
       tfaKey = null;
-      node('cloud-code-step').hidden = true;
-      node('cloud-mfa').hidden = true;
+      emailCodeExpired = false;
       node('cloud-code').value = '';
       node('cloud-mfa-code').value = '';
+      message('cloud-send-status');
       message('cloud-verify-status');
       message('cloud-mfa-status');
     }
     function showError(target, error) {
-      if (error.code === 'MFA_EXPIRED') { resetEmailSteps(); cooldown(0); target = 'cloud-send-status'; }
-      message(target, error.message, 'error');
-      node('cloud-fallback').hidden = !error.tryManual;
+      let focus = target === 'cloud-account-status' ? 'cloud-check' : inputs[step];
+      if (error.code === 'MFA_EXPIRED') {
+        resetEmailSteps();
+        cooldown(0);
+        showStep('email');
+        target = 'cloud-send-status';
+        focus = 'cloud-send-code';
+      }
+      if (error.code === 'CODE_EXPIRED') {
+        emailCodeExpired = true;
+        node('cloud-code').value = '';
+        cooldown(0);
+        focus = 'cloud-resend-code';
+      }
+      if (error.code === 'TOKEN_REJECTED' && action === 'check' && step === 'email') focus = 'cloud-email';
+      const hint = error.tryManual && step !== 'token';
+      message(target, hint && error.code === 'SECURITY_TOKEN' ? 'Bambu couldn’t verify this sign-in. Try again in a moment.' : error.message, 'error');
+      node('cloud-fallback').hidden = !hint;
       if (error.code === 'RATE_LIMITED') cooldown(error.retryAfter || 60, true);
-      if (error.code === 'CODE_EXPIRED') cooldown(0);
+      return focus;
     }
     async function run(name, target, pending, work) {
       if (busy || (Date.now() < throttleDeadline && name !== 'signout' && !(name === 'check' && !tokenSaved))) return;
@@ -442,61 +450,68 @@
       node('cloud-fallback').hidden = true;
       updateControls();
       message(target, pending);
-      try { await work(); }
-      catch (e) { showError(target, e); }
+      let focus;
+      try { focus = await work(); }
+      catch (e) { focus = showError(target, e); }
       finally { busy = false; action = ''; section.setAttribute('aria-busy', 'false'); updateControls(); }
+      if (focus) node(focus).focus();
     }
-    async function signedIn(target) {
+    async function signedIn() {
       resetEmailSteps();
       cooldown(0);
-      tokenVisible = false;
-      const loaded = await refresh();
-      message(target, loaded ? 'Signed in. Your cloud widgets can now use this account.' : 'Signed in, but the saved status could not be reloaded. Use Retry status.', loaded ? 'ok' : 'error');
+      clearImportedToken();
+      signedInAccount = tokenSaved = true;
+      const loaded = await refresh(true);
+      message('cloud-account-status', loaded ? 'Signed in. Your cloud widgets can now use this account.' : 'Signed in. Use Check connection to reload your account status.', loaded ? 'ok' : 'error');
       window.toast && window.toast('Signed in to Bambu Cloud');
+      return 'cloud-check';
     }
 
-    node('cloud-email').addEventListener('input', () => {
-      if (requestedEmail && node('cloud-email').value.trim() !== requestedEmail) {
-        resetEmailSteps();
-        message('cloud-send-status', 'Email changed. Request a code for this address.');
-        updateControls();
-      }
-    });
-    node('cloud-email-form').addEventListener('submit', async e => {
-      e.preventDefault();
+    async function sendCode(email, target) {
       if (busy || Date.now() < resendDeadline) return;
-      const email = node('cloud-email').value.trim();
-      await run('send', 'cloud-send-status', 'Asking Bambu to send a sign-in code…', async () => {
+      await run('send', target, 'Asking Bambu to send a sign-in code…', async () => {
         const result = await request('/sendVerificationCode', { username: email });
         resetEmailSteps();
         requestedEmail = email;
-        node('cloud-code-step').hidden = false;
-        node('cloud-code-hint').textContent = 'Sent to ' + email + '. Enter the latest code from Bambu; check your spam folder if needed.';
-        message('cloud-send-status', 'Code sent. Check your email.', 'ok');
+        node('cloud-code-hint').textContent = 'Code sent to ' + email + '. Check your spam folder if it hasn’t arrived.';
         cooldown(result.retryAfter || 60);
+        return showStep('code');
       });
-      if (!node('cloud-code-step').hidden) node('cloud-code').focus();
+    }
+    function changeEmail() {
+      resetEmailSteps();
+      node(showStep('email')).focus();
+    }
+    node('cloud-email-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (step === 'email') sendCode(node('cloud-email').value.trim(), 'cloud-send-status');
+    });
+    node('cloud-resend-code').addEventListener('click', () => sendCode(requestedEmail, 'cloud-verify-status'));
+    for (const id of ['cloud-change-email', 'cloud-mfa-change-email', 'cloud-change-account']) node(id).addEventListener('click', changeEmail);
+    node('cloud-back-account').addEventListener('click', () => {
+      resetEmailSteps();
+      showStep('account');
+      node('cloud-change-account').focus();
     });
     node('cloud-code-step').addEventListener('submit', async e => {
       e.preventDefault();
-      if (!requestedEmail || busy) return;
+      if (step !== 'code' || !requestedEmail || emailCodeExpired) return;
       await run('verify', 'cloud-verify-status', 'Checking your email code…', async () => {
         const result = await request('/verify', { username: requestedEmail, code: node('cloud-code').value.trim() });
         if (result.mfa) {
           tfaKey = result.tfaKey;
-          node('cloud-code-step').hidden = true;
-          node('cloud-mfa').hidden = false;
-          message('cloud-send-status', 'Email confirmed. Complete two-step verification below.', 'ok');
-        } else await signedIn('cloud-send-status');
+          node('cloud-code').value = '';
+          return showStep('mfa');
+        }
+        return signedIn();
       });
-      if (!node('cloud-mfa').hidden) node('cloud-mfa-code').focus();
     });
     node('cloud-mfa').addEventListener('submit', async e => {
       e.preventDefault();
-      if (!tfaKey || busy) return;
+      if (step !== 'mfa' || !tfaKey) return;
       await run('mfa', 'cloud-mfa-status', 'Checking your authenticator code…', async () => {
         await request('/mfa', { username: requestedEmail, tfaKey, tfaCode: node('cloud-mfa-code').value.trim() });
-        await signedIn('cloud-send-status');
+        return signedIn();
       });
     });
     for (const id of ['cloud-code', 'cloud-mfa-code']) node(id).addEventListener('paste', e => {
@@ -504,25 +519,29 @@
       if (/^\d{6}$/.test(code)) { e.preventDefault(); node(id).value = code; }
     });
 
-    node('cloud-token-show').addEventListener('click', () => { tokenVisible = !tokenVisible; maskToken(); });
-    node('cloud-token-clear').addEventListener('click', () => {
+    function clearImportedToken() {
       node('cloud-token').value = '';
-      tokenVisible = false; maskToken();
-      message('cloud-token-status', 'Field cleared. Your saved sign-in stays active until you sign out.');
-      node('cloud-token').focus();
+      node('cloud-token-email').value = '';
+      node('cloud-token-instructions').open = false;
+      node('cloud-troubleshooting').open = false;
+      message('cloud-token-status');
+    }
+    for (const id of ['cloud-import-token', 'cloud-use-token']) node(id).addEventListener('click', () => {
+      returnStep = step;
+      clearImportedToken();
+      node('cloud-token-instructions').open = true;
+      node(showStep('token')).focus();
     });
-    node('cloud-token-copy').addEventListener('click', async () => {
-      if (!node('cloud-token').value) return message('cloud-token-status', 'There is no token to copy.', 'error');
-      try {
-        await navigator.clipboard.writeText(node('cloud-token').value);
-        message('cloud-token-status', 'Token copied.');
-      } catch (_) { message('cloud-token-status', 'Clipboard access is unavailable here. Use Show token, select the value and copy it.', 'error'); }
+    node('cloud-token-cancel').addEventListener('click', () => {
+      clearImportedToken();
+      node(showStep(returnStep === 'account' && !signedInAccount ? 'email' : returnStep)).focus();
     });
     node('cloud-method-token').addEventListener('submit', async e => {
       e.preventDefault();
+      if (step !== 'token') return;
       await run('token', 'cloud-token-status', 'Checking this token with Bambu Cloud…', async () => {
         await request('/auth/manual-token', { token: node('cloud-token').value.trim(), email: node('cloud-token-email').value.trim() });
-        await signedIn('cloud-token-status');
+        return signedIn();
       });
     });
     node('cloud-check').addEventListener('click', async () => {
@@ -541,14 +560,13 @@
       await run('signout', 'cloud-account-status', 'Signing out…', async () => {
         try { await request('/auth/signout', { disable: true }); }
         catch (e) { await refresh(); throw e; }
-        tokenVisible = false;
         resetEmailSteps(); cooldown(0);
-        message('cloud-send-status'); message('cloud-token-status');
-        showMethod('email');
+        clearImportedToken();
         message('cloud-account-status', 'Signed out. Your printer connection is still available.', 'ok');
-        await refresh();
+        await refresh(true);
+        return 'cloud-email';
       });
     });
-    refresh();
+    refresh(true);
   }
 })();

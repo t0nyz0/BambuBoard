@@ -25,6 +25,7 @@ global.fetch = async (url, options = {}) => {
   if (String(url).endsWith('/sign-in/tfa')) {
     if (options.headers.Cookie !== 'bbl_csrf_token=fixture-csrf' || options.headers['x-bbl-csrf-token'] !== 'fixture-csrf') return Response.json({ reason: 'missing_cookie' }, { status: 403 });
     if (body.tfaCode === '111111') return Response.json({ message: 'Invalid code' }, { status: 400 });
+    if (body.tfaCode === '222222') return Response.json({ message: 'Challenge expired' }, { status: 400 });
     return new Response('{}', { headers: { 'Set-Cookie': 'token=fixture-mfa-cloud-token-value; Path=/; HttpOnly' } });
   }
   if (String(url).endsWith('/my/preference')) return Response.json({ uid: 'fixture-account' });

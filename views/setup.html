@@ -90,8 +90,6 @@
 
       </div>
 
-      <!-- Bambu Cloud auth — keep both sign-in methods available without
-           requiring the user to sign out before replacing a token. -->
       <section class="card cloud-section" id="cloud-section" aria-labelledby="cloud-heading">
         <div class="cloud-heading"><h2 class="card-title" id="cloud-heading">Bambu Cloud</h2><span class="pill">Optional</span></div>
         <p class="cloud-status">Sign in for your <strong>MakerWorld profile</strong>, <strong>model images</strong> and extra print details. Your printer connection works without cloud sign-in.</p>
@@ -103,40 +101,48 @@
         <p class="text-dim cloud-status-note" id="cloud-status-note">Checking your saved sign-in.</p>
         <div class="btn-row cloud-account-actions" id="cloud-actions" hidden>
           <button class="btn" id="cloud-check" type="button">Check connection</button>
+          <button class="btn btn-ghost" id="cloud-change-account" type="button" hidden>Change account</button>
           <button class="btn btn-ghost" id="cloud-signout-link" type="button">Sign out</button>
         </div>
         <p class="cloud-feedback" id="cloud-account-status" role="status"></p>
 
-        <div class="btn-row cloud-methods" role="group" aria-label="Cloud sign-in method">
-          <button id="cloud-tab-email" class="btn btn-primary" type="button" aria-pressed="true" aria-controls="cloud-method-email">Email code</button>
-          <button id="cloud-tab-token" class="btn btn-ghost" type="button" aria-pressed="false" aria-controls="cloud-method-token">Paste token</button>
-        </div>
-
-        <div id="cloud-method-email">
-          <p class="text-dim cloud-help">Use your Bambu account email. We’ll ask Bambu to send a sign-in code; no password is needed here.</p>
-          <form id="cloud-email-form">
-            <label class="field"><span>Bambu account email</span><input id="cloud-email" class="input" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com"></label>
-            <button id="cloud-send-code" class="btn btn-primary" type="submit">Send sign-in code</button>
-            <p id="cloud-send-status" class="cloud-feedback" role="status"></p>
-          </form>
-          <form id="cloud-code-step" class="cloud-step" hidden>
-            <h3 class="cloud-step-title">Check your email</h3>
-            <p class="text-dim cloud-help" id="cloud-code-hint">Enter the latest code from Bambu. Check your spam folder if it hasn’t arrived.</p>
-            <label class="field"><span>Six-digit email code</span><input id="cloud-code" class="input cloud-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required aria-describedby="cloud-code-hint" placeholder="000000"></label>
-            <button id="cloud-verify" class="btn btn-primary" type="submit">Sign in</button>
-            <p id="cloud-verify-status" class="cloud-feedback" role="status"></p>
-          </form>
-          <form id="cloud-mfa" class="cloud-step" hidden>
-            <h3 class="cloud-step-title">Two-step verification</h3>
-            <p class="text-dim cloud-help">Enter the current six-digit code from your authenticator app.</p>
-            <label class="field"><span>Authenticator code</span><input id="cloud-mfa-code" class="input cloud-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="000000"></label>
+        <form id="cloud-email-form" hidden>
+          <p class="text-dim cloud-help">Bambu will email you a code to sign in.</p>
+          <label class="field"><span>Bambu account email</span><input id="cloud-email" class="input" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com"></label>
+          <button id="cloud-send-code" class="btn btn-primary" type="submit">Send sign-in code</button>
+          <p id="cloud-send-status" class="cloud-feedback" role="status"></p>
+        </form>
+        <form id="cloud-code-step" class="cloud-step" hidden>
+          <h3 class="cloud-step-title">Check your email</h3>
+          <p class="text-dim cloud-help" id="cloud-code-hint">Enter the latest code from Bambu. Check your spam folder if it hasn’t arrived.</p>
+          <label class="field"><span>Six-digit email code</span><input id="cloud-code" class="input cloud-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required aria-describedby="cloud-code-hint" placeholder="000000"></label>
+          <div class="btn-row">
+            <button id="cloud-verify" class="btn btn-primary" type="submit">Verify email code</button>
+            <button id="cloud-resend-code" class="btn btn-ghost" type="button">Resend code</button>
+            <button id="cloud-change-email" class="btn btn-ghost" type="button">Change email</button>
+          </div>
+          <p id="cloud-verify-status" class="cloud-feedback" role="status"></p>
+        </form>
+        <form id="cloud-mfa" class="cloud-step" hidden>
+          <h3 class="cloud-step-title">Verify with your authenticator app</h3>
+          <p class="text-dim cloud-help" id="cloud-mfa-hint">Your email is verified. Use the current six-digit code from your authenticator app.</p>
+          <label class="field"><span>Authenticator app code</span><input id="cloud-mfa-code" class="input cloud-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required aria-describedby="cloud-mfa-hint" placeholder="000000"></label>
+          <div class="btn-row">
             <button id="cloud-mfa-submit" class="btn btn-primary" type="submit">Verify and sign in</button>
-            <p id="cloud-mfa-status" class="cloud-feedback" role="status"></p>
-          </form>
-        </div>
+            <button id="cloud-mfa-change-email" class="btn btn-ghost" type="button">Change email</button>
+          </div>
+          <p id="cloud-mfa-status" class="cloud-feedback" role="status"></p>
+        </form>
+        <button id="cloud-back-account" class="btn btn-ghost" type="button" hidden>Back to account</button>
 
-        <form id="cloud-method-token" hidden>
-          <p class="text-dim cloud-help">Already signed in on MakerWorld, or having trouble with email sign-in? Paste its access token here.</p>
+        <p class="cloud-feedback" id="cloud-fallback" hidden><button id="cloud-use-token" class="btn btn-ghost" type="button">Import a MakerWorld token</button></p>
+        <details id="cloud-troubleshooting" class="cloud-step" hidden>
+          <summary>Troubleshooting</summary>
+          <button id="cloud-import-token" class="btn btn-ghost" type="button">Import a MakerWorld token</button>
+        </details>
+
+        <form id="cloud-method-token" class="cloud-step" hidden>
+          <h3 class="cloud-step-title">Import a MakerWorld token</h3>
           <details id="cloud-token-instructions" class="cloud-token-instructions">
             <summary>How to get a MakerWorld token</summary>
             <ol>
@@ -146,21 +152,14 @@
               <li>Paste it below, then choose <strong>Verify and save token</strong>.</li>
             </ol>
           </details>
-          <label class="field"><span>Access token</span><input id="cloud-token" class="input text-mono" type="password" autocomplete="off" spellcheck="false" maxlength="8192" required aria-describedby="cloud-token-hint" placeholder="Paste your MakerWorld token"><small id="cloud-token-hint" class="text-dim">Paste the complete token cookie value.</small></label>
-          <div class="btn-row cloud-token-actions">
-            <button id="cloud-token-show" class="btn btn-ghost" type="button" aria-pressed="false" aria-controls="cloud-token">Show token</button>
-            <button id="cloud-token-copy" class="btn btn-ghost" type="button">Copy token</button>
-            <button id="cloud-token-clear" class="btn btn-ghost" type="button">Clear field</button>
-          </div>
+          <label class="field"><span>New access token</span><input id="cloud-token" class="input text-mono" type="password" autocomplete="off" spellcheck="false" maxlength="8192" required placeholder="Paste your MakerWorld token"></label>
           <label class="field"><span>Account email <small class="text-dim">(optional, to label this sign-in)</small></span><input id="cloud-token-email" class="input" type="email" autocomplete="email" maxlength="254"></label>
-          <button id="cloud-token-save" class="btn btn-primary" type="submit">Verify and save token</button>
+          <div class="btn-row">
+            <button id="cloud-token-save" class="btn btn-primary" type="submit">Verify and save token</button>
+            <button id="cloud-token-cancel" class="btn btn-ghost" type="button">Cancel</button>
+          </div>
           <p id="cloud-token-status" class="cloud-feedback" role="status"></p>
         </form>
-
-        <div id="cloud-fallback" class="cloud-step" hidden>
-          <p class="text-dim cloud-help">You can complete sign-in in your browser and bring the token here.</p>
-          <button id="cloud-use-token" class="btn" type="button">Use a MakerWorld token</button>
-        </div>
 
         <p class="text-dim cloud-privacy">Your token is stored on this BambuBoard instance and sent only to Bambu Lab. Signing out returns cloud widgets to their placeholders.</p>
       </section>

@@ -13,14 +13,97 @@ Design a dashboard, save the draft, and choose **Apply to Live**. Add a *single*
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-60-51a34f?style=flat-square)](docs/qa-3.3.1.md)
+[![Server tests](https://img.shields.io/badge/server_tests-60-51a34f?style=flat-square)](.github/workflows/validate.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
-**Setup → Connect → Layout → Publish.** One printer per BambuBoard instance.
+**Setup → Connect → Layout → Apply to Live.** One printer per BambuBoard instance.
 
 [Quickstart](#quickstart) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
 
 </div>
+
+---
+
+## Quickstart
+
+Choose an install method below. The Docker host must be able to reach your printer on the LAN. Images are published for `linux/amd64` and `linux/arm64`. Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
+
+### Synology NAS (Container Manager)
+
+For a new install on DSM 7.2 or later, check that your NAS model supports [Synology Container Manager](https://www.synology.com/en-us/dsm/packages/ContainerManager).
+
+The image is also searchable as **t0nyz/bambuboard** in the default Docker Hub registry in Synology and QNAP. [Docker Hub listing](https://hub.docker.com/r/t0nyz/bambuboard)
+
+1. Install **Container Manager** from **Package Center**.
+2. Open **Container Manager → Project → Create**, name the project `bambuboard`, and choose a project folder. Paste this Compose file in the editor, or save it as `docker-compose.yml` and upload it. [Synology Project guide](https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project)
+
+   ```yaml
+   services:
+     bambuboard:
+       image: ghcr.io/t0nyz0/bambuboard:latest
+       restart: unless-stopped
+       ports:
+         - "8080:8080"
+       volumes:
+         - bambuboard-data:/usr/src/app/data
+
+   volumes:
+     bambuboard-data:
+   ```
+
+3. Finish the wizard, start the project, and open `http://<your-nas-ip>:8080`. [Connect your printer](#setup-layout-and-obs).
+
+The named volume keeps settings, scenes and cached files across container updates. If port 8080 is already in use on the NAS, change the left-hand port in `8080:8080` and open that port in your browser. [Synology bind mounts and terminal installs](#synology-bind-mounts-and-terminal-installs).
+
+### QNAP, Portainer and TrueNAS
+
+Use the same Compose file for a new installation. Keep the named data volume when updating.
+
+- **QNAP Container Station** — Paste it under **Applications → Create**. Use `18080:8080` because QTS commonly uses port 8080 for NAS management, then open `http://<your-nas-ip>:18080`. [Container Station setup](https://www.qnap.com/en/how-to/tutorial/article/how-to-use-container-station-3) · [QNAP system ports](https://www.qnap.com/en-uk/how-to/faq/article/what-network-ports-are-used-by-qts-quts-hero-and-qutscloud-systems)
+- **Portainer** — Paste it in **Stacks → Add stack → Web editor**. [Portainer stack setup](https://docs.portainer.io/user/docker/stacks/add)
+- **TrueNAS** — Use **Apps → Install via YAML** on a version that supports Docker apps. [TrueNAS custom app setup](https://apps.truenas.com/managing-apps/installing-custom-apps/)
+
+### Docker command line
+
+```bash
+docker run -d --name bambuboard --restart unless-stopped -p 8080:8080 \
+  -v bambuboard-data:/usr/src/app/data \
+  ghcr.io/t0nyz0/bambuboard:latest
+```
+
+Open `http://localhost:8080`, or use `http://<your-host-ip>:8080` if Docker runs on another machine. [Connect your printer](#setup-layout-and-obs).
+
+[`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Edit or remove its example `BAMBUBOARD_PRINTER_*` environment settings before running `docker compose up -d`. Populated overrides replace values saved through Setup when the app starts. Keep the included `OBS_settings` directory when using its template mount.
+
+### From source
+
+Use **Node.js 24** (see [`.nvmrc`](.nvmrc)) and **npm 11 or newer**:
+
+```bash
+git clone https://github.com/t0nyz0/BambuBoard.git
+cd BambuBoard
+npm ci
+npm start
+```
+
+Open **http://localhost:8080**. Source installs use `ffmpeg-static`, or an explicit `FFMPEG_BIN` path; Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs; see [streaming setup](docs/youtube-streaming.md#requirements).
+
+## Setup, layout and OBS
+
+Have your printer's **IP address, serial number and LAN access code** ready. These are available through the printer's settings and Bambu Studio; menu labels vary by model and firmware.
+
+1. **Setup** (`/setup`) — Enter the printer details, then select **Save and connect**. To check the address and LAN access code first, select **Test LAN connection**.
+2. **Connect** (`/setup#connect`) — Check MQTT, telemetry and camera status, then select **Continue to Layout →** once connected. Printer model detection runs over MQTT.
+3. **Layout** (`/scene-editor`) — Arrange widgets in a draft. Choose the **Scene to show live**, then select **Save draft** and **Apply to Live**.
+4. **Live workspace** (`/`) — Choose **Copy URL** and paste it into one OBS Browser Source, or choose **Download OBS scene** and import the collection in OBS.
+
+If a widget's details are cut off, select it and choose **Fit to content**. **Width** and **Height** change how much room its content has. **Advanced → Scale on canvas** changes how large it appears.
+
+**`/live` is the broadcast output; `/` is the management page.** The broadcast renders the published snapshot, falling back to a matching default template before the first publication. Re-publish to update it automatically. If OBS runs on another machine, use the BambuBoard host's address rather than `localhost`.
+
+Match the Browser Source dimensions and OBS **Settings → Video → Base (Canvas) Resolution** to the published scene size shown under Live preview. The OBS download includes that size, including custom resolutions. A differently sized browser viewport scales the scene to fit and may letterbox. Use `/live?transparent=1` to make the page background transparent; individual widget and scene backgrounds still apply.
+
+Default templates are layout starters in [`OBS_settings/templates`](OBS_settings/templates): `default-x1` for single-nozzle layouts and `default-h2d` for the H2D-class dual layout. The editor chooses by detected type and falls back to `default-x1`. Customize the starter to match your actual hardware, including its AMS selection.
 
 ---
 
@@ -57,42 +140,7 @@ Screenshots show the actual app in an isolated demo installation, with sample te
 - **Run on your LAN.** App scripts, fonts and other assets are bundled locally. Core telemetry, camera and toolpath features do not require cloud sign-in. Optional Bambu Cloud data supplies MakerWorld content and extra print details.
 - **Stream directly to YouTube (beta).** The optional section at the bottom of Live can render `/live` on the server, continuing after you close the controls, or share a browser tab with optional tab audio. Choose quality, check setup, monitor encoding and download redacted diagnostics. Browser sharing needs HTTPS or localhost; server capture works from an HTTP LAN address. [Streaming setup and limitations](docs/youtube-streaming.md).
 
-## Quickstart
-
-### Docker (recommended)
-
-Images are published for `linux/amd64` and `linux/arm64`. The Docker host must be able to reach your printer on the LAN.
-
-```bash
-docker run -d --name bambuboard --restart unless-stopped -p 8080:8080 \
-  -v bambuboard-data:/usr/src/app/data \
-  ghcr.io/t0nyz0/bambuboard:latest
-```
-
-Open **http://localhost:8080**, or **http://<your-host-ip>:8080** when Docker runs on another machine. An unconfigured installation opens Setup automatically. Settings, scenes and cached files persist in the mounted volume. If upgrading, reuse the same data mount and follow the [Docker upgrade steps](#upgrading-an-existing-docker-installation).
-
-[`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Edit or remove its example `BAMBUBOARD_PRINTER_*` environment settings before running `docker compose up -d`: populated overrides replace values saved through Setup when the app starts. Keep the included `OBS_settings` directory when using its template mount.
-
-### Synology NAS
-
-The [Synology Compose file](docker-compose.synology.yml) pulls the published image, uses host networking and mounts `~/bambuboard-data`. Save the file on your NAS, then follow the [Compose data preparation steps](#upgrading-an-existing-docker-installation) before starting a new bind mount or upgrading older root-owned data.
-
-```bash
-docker compose -f docker-compose.synology.yml pull
-docker compose -f docker-compose.synology.yml up -d
-```
-
-Alternatively, use the [install/update script](update-synology.sh):
-
-```bash
-curl -O https://raw.githubusercontent.com/t0nyz0/BambuBoard/main/update-synology.sh
-chmod +x update-synology.sh
-./update-synology.sh
-```
-
-The script elevates with `sudo`, pulls `latest` and replaces the `bambuboard` container. Its bind mount is `$HOME/bambuboard-data` **after elevation**, usually `/root/bambuboard-data`; it prints the actual path. Compose resolves `~` from the account running Compose. For an existing installation, retain its current data mount when choosing either method so your settings and scenes carry over. Open **http://<your-nas-ip>:8080**.
-
-### Upgrading an existing Docker installation
+## Upgrading an existing Docker installation
 
 BambuBoard 3.3.2 runs as UID and GID `1000:1000` by default and reports its health using its local HTTP listener. A new named volume works with the default user. Keep your current volume when upgrading.
 
@@ -113,33 +161,24 @@ BambuBoard 3.3.2 runs as UID and GID `1000:1000` by default and reports its heal
 
   The command can also prepare a new bind mount created by Docker for Compose. It updates ownership and owner permissions of BambuBoard data and leaves the contents and unrelated files alone. Start the updated container with its default user after the command succeeds. The install/update scripts perform this step for their own data mount when required. If a NAS or network share restricts ownership changes, set permissions on the host or use the mount's existing non-root UID and GID.
 
-### From source
+### Synology bind mounts and terminal installs
 
-Use **Node.js 24** (see [`.nvmrc`](.nvmrc)) and **npm 11 or newer**:
+The [Synology Compose file](docker-compose.synology.yml) pulls the published image, uses host networking and mounts `~/bambuboard-data`. Save the file on your NAS, then follow the [Compose data preparation steps](#upgrading-an-existing-docker-installation) before starting a new bind mount or upgrading older root-owned data.
 
 ```bash
-git clone https://github.com/t0nyz0/BambuBoard.git
-cd BambuBoard
-npm ci
-npm start
+docker compose -f docker-compose.synology.yml pull
+docker compose -f docker-compose.synology.yml up -d
 ```
 
-Open **http://localhost:8080**. Source installs use `ffmpeg-static`, or an explicit `FFMPEG_BIN` path; Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs; see [streaming setup](docs/youtube-streaming.md#requirements).
+Alternatively, use the [install/update script](update-synology.sh):
 
-## Setup, layout and OBS
+```bash
+curl -O https://raw.githubusercontent.com/t0nyz0/BambuBoard/main/update-synology.sh
+chmod +x update-synology.sh
+./update-synology.sh
+```
 
-Have your printer's **IP address, serial number and LAN access code** ready. These are available through the printer's settings and Bambu Studio; menu labels vary by model and firmware.
-
-1. **Setup** (`/setup`) — Enter the credentials, save settings and test the connection. MQTT port and display preferences are in secondary sections.
-2. **Connect** (`/setup#connect`) — Check MQTT, telemetry and camera status. The app requests the printer's model over MQTT; **Continue to Layout →** becomes available once it is connected and identified.
-3. **Layout** (`/scene-editor`) — Open a saved draft or start with a default template. Select a widget and use **Fit to content** when details are cut off. **Width** and **Height** change how much room its content has. Use **Advanced → Scale on canvas** to change its display size. Choose the **Scene to show live** and save the draft. When ready, select **Apply to Live**.
-4. **Live workspace** (`/`) — Preview the published output and copy its URL. Add one OBS Browser Source pointing at **`http://<your-host>:8080/live`**, or use **Download OBS scene** and import the exported collection into OBS.
-
-**`/live` is the broadcast output; `/` is the management page.** The broadcast renders the published snapshot, falling back to a matching default template before the first publication. Re-publish to update it automatically. If OBS runs on another machine, use the BambuBoard host's address rather than `localhost`.
-
-Match the Browser Source dimensions and OBS **Settings → Video → Base (Canvas) Resolution** to the published scene size shown under Live preview. The OBS download includes that size, including custom resolutions. A differently sized browser viewport scales the scene to fit and may letterbox. Use `/live?transparent=1` to make the page background transparent; individual widget and scene backgrounds still apply.
-
-Default templates are layout starters in [`OBS_settings/templates`](OBS_settings/templates): `default-x1` for single-nozzle layouts and `default-h2d` for the H2D-class dual layout. The editor chooses by detected type and falls back to `default-x1`. Customize the starter to match your actual hardware, including its AMS selection.
+The script elevates with `sudo`, pulls `latest` and replaces the `bambuboard` container. Its bind mount is `$HOME/bambuboard-data` **after elevation**, usually `/root/bambuboard-data`; it prints the actual path. Compose resolves `~` from the account running Compose. For an existing installation, retain its current data mount when choosing either method so your settings and scenes carry over. Open **http://<your-nas-ip>:8080**.
 
 ## Supported printers
 
@@ -211,7 +250,9 @@ Combine parameters with `&`, for example `/widgets/ams/?ams=0&theme=dark&accent=
 
 Cloud sign-in is off by default. In **Setup**, the Bambu Cloud card appears alongside printer settings on desktop; the **Cloud settings** shortcut jumps to it on smaller screens. `/login` redirects to this card.
 
-Choose **Email code**, enter your Bambu account email, then enter the latest six-digit code Bambu sends you. The form guides you through MFA if required and shows when you can resend a code. If Bambu blocks sign-in, choose **Paste token** for browser-specific MakerWorld instructions. BambuBoard verifies pasted tokens before saving them; rejected tokens and temporary service failures keep your existing sign-in intact.
+In **Setup → Bambu Cloud**, enter your Bambu account email, then enter the latest six-digit code Bambu sends you. Use **Resend code** if it hasn't arrived or **Change email** if the address is wrong. If Bambu requests another step, enter the code from your authenticator app.
+
+If email sign-in is blocked, open **Troubleshooting → Import a MakerWorld token** for browser-specific instructions. BambuBoard verifies the new token before saving it. A rejected token or temporary service failure keeps your existing sign-in intact.
 
 Successful sign-in enables cloud features and stores the token locally in `data/accessToken.json` (gitignored). **Check connection** verifies a saved sign-in; **Sign out** clears it and disables cloud features.
 
@@ -228,7 +269,7 @@ Allow the BambuBoard host to reach the printer on the ports used by your feature
 | Chamber-image camera | TLS image stream, **6000** for P1/A1-class types |
 | G-code download | Implicit TLS FTPS, **990**, plus the printer's negotiated passive data ports |
 
-The viewer/OBS connects to BambuBoard on **8080** by default. MQTT success alone does not verify camera or file access. The Synology examples use host networking; the standard Docker example uses a bridge with port 8080 published. Cloud widgets need internet access; YouTube streaming uses outbound encrypted RTMPS on **443**. App assets have no CDN dependency, though custom remote sources and cloud content can still make external requests.
+The viewer/OBS connects to BambuBoard on **8080** by default. MQTT success alone does not verify camera or file access. The Docker Quickstart examples publish port 8080 through Docker's bridge network. The Synology terminal installs above use host networking. Cloud widgets need internet access; YouTube streaming uses outbound encrypted RTMPS on **443**. App assets have no CDN dependency, though custom remote sources and cloud content can still make external requests.
 
 Keep BambuBoard on a trusted network or behind an authenticated reverse proxy. BambuBoard accepts browser controls from its own address. If the proxy rewrites the request Host header, set `BAMBUBOARD_PUBLIC_URL` to the public browser address.
 
