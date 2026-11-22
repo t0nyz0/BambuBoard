@@ -27,9 +27,6 @@ test('management pages work inside a hidden installation directory without expos
     assert.equal(response.status, 200, route);
     assert.equal(await response.text(), `<main>${file}</main>`);
   }
-  const legacy = await fetch(base + '/scene-editor.html', { redirect: 'manual' });
-  assert.equal(legacy.status, 301);
-  assert.equal(legacy.headers.get('location'), '/scene-editor');
   const privateFile = await fetch(base + '/.private');
   assert.equal(privateFile.status, 404);
   assert.ok(!(await privateFile.text()).includes('private fixture'));
@@ -38,6 +35,32 @@ test('management pages work inside a hidden installation directory without expos
     const response = await fetch(base + '/', { redirect: 'manual' });
     assert.equal(response.status, 302);
     assert.equal(response.headers.get('location'), '/setup?firstRun=1');
+  }
+});
+
+test('legacy HTML redirects preserve local paths and reject ambiguous paths', async t => {
+  const app = express();
+  const views = await temporary(t);
+  app.use(buildPagesRouter({ paths: { views }, getConfig: () => ({ printer }) }));
+  const base = await listen(t, app);
+  const bookmarks = [
+    ['/index.html', '/'],
+    ['/setup.html', '/setup'],
+    ['/scene-editor.html', '/scene-editor'],
+    ['/widgets/ams/index.html', '/widgets/ams/index'],
+    ['/layouts/my%20preview.html', '/layouts/my%20preview'],
+    ['/layouts/preview%3Fv1%23draft%25.html', '/layouts/preview%3Fv1%23draft%25'],
+  ];
+  for (const [bookmark, destination] of bookmarks) {
+    const response = await fetch(base + bookmark, { redirect: 'manual' });
+    assert.equal(response.status, 301, bookmark);
+    assert.equal(response.headers.get('location'), destination, bookmark);
+    assert.equal(new URL(destination, base).origin, base, bookmark);
+  }
+  for (const invalid of ['//.html', '/%2f.html', '/%5c.html', '/layouts/old%09name.html']) {
+    const response = await fetch(base + invalid, { redirect: 'manual' });
+    assert.equal(response.status, 404, invalid);
+    assert.equal(response.headers.get('location'), null, invalid);
   }
 });
 

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const tls = require('node:tls');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { once } = require('node:events');
+const { EventEmitter, once } = require('node:events');
 const packets = require('mqtt-packet');
 const { fetchPlateGcode } = require('../src/services/printerFiles');
 const { createPrinterClient } = require('../src/mqtt');
@@ -23,6 +23,54 @@ test('FTPS and missing-plate failures retain actionable errors', async t => {
   const wrongPlate = await ftpsFixture(t, { files: { '/cache/Fixture.gcode.3mf': archive({ 'Metadata/plate_2.gcode': 'G90' }) } });
   await assert.rejects(fetchPlateGcode({ ...options, port: wrongPlate.port }), { code: 'PLATE_NOT_FOUND' });
 });
+
+test('Cancelling a pending MQTT client preserves cleanup and leaves its replacement active', async t => {
+  const dir = await temporary(t);
+  const dataPath = path.join(dir, 'data.json');
+  const pending = new EventEmitter();
+  const replacement = new EventEmitter();
+  const onLibraryClose = t.mock.fn();
+  const onLibraryError = t.mock.fn();
+  pending.on('close', onLibraryClose);
+  pending.on('error', onLibraryError);
+  pending.end = t.mock.fn(() => pending.emit('close'));
+  pending.subscribe = t.mock.fn();
+  replacement.subscribe = t.mock.fn();
+  replacement.publish = t.mock.fn();
+  replacement.end = t.mock.fn();
+  const connections = [pending, replacement];
+  const log = t.mock.fn();
+  const client = createPrinterClient({
+    printer: { type: 'H2D', url: 'printer.fixture', serialNumber: 'FIXTURE', accessCode: 'fixture-only' },
+    dataPath,
+    log,
+    connectMqtt: () => connections.shift(),
+  });
+  t.after(() => client.stop());
+
+  client.connect();
+  client.stop();
+  assert.deepEqual(pending.end.mock.calls[0].arguments, [true]);
+  assert.equal(onLibraryClose.mock.callCount(), 1);
+  assert.equal(client.status, 'offline');
+
+  client.connect();
+  pending.emit('connect');
+  assert.equal(pending.subscribe.mock.callCount(), 0);
+  assert.equal(client.status, 'offline');
+  replacement.emit('connect');
+  assert.equal(replacement.subscribe.mock.callCount(), 1);
+  pending.emit('error', new Error('Retired connection closed'));
+  assert.equal(onLibraryError.mock.callCount(), 1);
+  assert.equal(client.status, 'online');
+  assert.equal(log.mock.calls.some(call => call.arguments[0].includes('Reconnecting')), false);
+
+  replacement.emit('message', 'device/FIXTURE/report', JSON.stringify({ print: { gcode_state: 'IDLE', bed_temper: 27 } }));
+  await until(() => client.telemetryConnection === 'online');
+  const reading = JSON.parse(await fs.readFile(dataPath, 'utf8'));
+  assert.equal(reading.print.bed_temper, 27);
+});
+
 test('MQTT connects, detects a printer, persists telemetry and reconnects', async t => {
   const dir = await temporary(t), cert = await certificate(dir), sockets = new Set();
   let connections = 0, detected = null, sendReconnectedSnapshot;

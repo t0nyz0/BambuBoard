@@ -28,7 +28,7 @@ function autoUpdateNote(printObj, dataPath) {
   } catch (_) {}
 }
 
-function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
+function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connectMqtt = mqtt.connect }) {
   let client = null;
   let reconnectTimer = null;
   let refreshTimer = null;
@@ -51,10 +51,11 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
     reconnectTimer = null;
     clearInterval(refreshTimer);
     refreshTimer = null;
-    if (client) {
-      try { client.removeAllListeners(); client.end(true); } catch (_) {}
-      client = null;
-    }
+    const retiringClient = client;
+    client = null;
+    // Leave MQTT.js's cleanup and error handlers in place. Our handlers
+    // ignore events from a client once it is no longer current.
+    try { retiringClient?.end(true); } catch (_) {}
     status = 'offline';
     telemetryPublished = false;
     if (!previousJobSnapshot && !['IDLE', 'FAILED'].includes(printSnapshot.gcode_state)
@@ -96,7 +97,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
 
     log(`Connecting to ${printer.name || printer.type} at ${url}`);
 
-    const connection = mqtt.connect(url, {
+    const connection = connectMqtt(url, {
       clientId,
       clean: true,
       connectTimeout: 5000,

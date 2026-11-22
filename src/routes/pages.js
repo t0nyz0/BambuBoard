@@ -8,7 +8,13 @@ function buildPagesRouter({ paths, getConfig }) {
   // Drop legacy *.html links → pretty paths
   router.get(/^(.+)\.html$/, (req, res) => {
     const stripped = req.params[0];
-    res.redirect(301, stripped === '/index' ? '/' : stripped);
+    // Express decodes regexp captures. Require a local path before handing
+    // it to the browser, and keep decoded query, fragment, and percent
+    // characters in the path rather than reinterpreting them.
+    if (!/^\/(?!\/)/.test(stripped) || /[\\\u0000-\u001f\u007f]/u.test(stripped)) {
+      return res.sendStatus(404);
+    }
+    res.redirect(301, stripped === '/index' ? '/' : stripped.replace(/[%?#]/g, encodeURIComponent));
   });
 
   // First-run gate: anything that isn't /setup or /api/* gets redirected.
