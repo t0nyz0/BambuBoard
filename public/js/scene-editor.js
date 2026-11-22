@@ -2157,7 +2157,9 @@ function showMediaPlaceholder (body, name, hint) {
 // size from Live.
 function updateCanvasInfoBtn () {
   const btn = document.getElementById('canvas-res-btn');
-  if (btn) btn.textContent = `${CANVAS_W}×${CANVAS_H}`;
+  const size = `${CANVAS_W}×${CANVAS_H}`;
+  btn.textContent = size;
+  btn.setAttribute('aria-label', `${size}, change draft canvas size`);
 }
 
 function pickCanvasResolution () {

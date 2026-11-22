@@ -69,7 +69,7 @@ jobs:
         run: |
           docker run --platform "$PLATFORM" --rm bambuboard:test sh -ec '"$FFMPEG_BIN" -version; "$FFMPEG_BIN" -v error -f lavfi -i testsrc2=size=320x180:rate=15 -t 1 -c:v mpeg1video -r 30 -f mpegts /tmp/camera.ts; "$FFMPEG_BIN" -v error -f lavfi -i testsrc2=size=320x180:rate=15 -f lavfi -i anullsrc -t 1 -c:v libx264 -pix_fmt yuv420p -c:a aac -f flv /tmp/stream.flv; "$FFMPEG_BIN" -v error -i /tmp/camera.ts -f null -; "$FFMPEG_BIN" -v error -i /tmp/stream.flv -f null -'
           docker run --platform "$PLATFORM" -d --name bambuboard-test -p 8080:8080 bambuboard:test
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl --fail http://localhost:8080/api/status; then exit 0; fi
             sleep 2
           done
