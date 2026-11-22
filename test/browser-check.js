@@ -424,8 +424,20 @@ async function checkAms3h(context, base, artifactDir) {
       connectionChecks.push(route.request().postDataJSON());
       return route.fulfill({ json: { ok: true } });
     });
+    const gcodeChecks = [];
+    const testGcodeUrl = base + '/api/test-gcode-connection';
+    const testGcode = page.getByRole('button', { name: 'Test G-code connection' });
+    const gcodeResult = page.locator('#test-gcode-result');
+    await page.route(testGcodeUrl, route => {
+      gcodeChecks.push({ method: route.request().method(), body: route.request().postDataJSON() });
+      return gcodeChecks.length === 1 ? route.fulfill({ json: { ok: true, message: 'Secure G-code file access is available.' } })
+        : route.fulfill({ status: 503, json: { ok: false, error: 'The printer reports that file access is busy.' } });
+    });
+    assert.equal(gcodeChecks.length, 0, 'Setup must not test FTPS automatically');
     const address = page.locator('#p-url'), savedAddress = await address.inputValue();
     await address.fill('printer-replacement.test');
+    assert.equal(await testGcode.isDisabled(), true, 'Save changed printer settings before probing FTPS');
+    assert.match(await page.locator('#test-gcode-hint').innerText(), /Save the printer changes/);
     await page.locator('#test-btn').click();
     assert.match(await page.locator('#test-result').innerText(), /Enter the LAN access code/);
     assert.equal(connectionChecks.length, 0);
@@ -434,6 +446,12 @@ async function checkAms3h(context, base, artifactDir) {
     await page.waitForFunction(() => document.getElementById('test-result').textContent.includes('Connection test passed'));
     assert.equal(connectionChecks[0].accessCode, '');
     await page.unroute(testConnectionUrl);
+    await testGcode.click();
+    await gcodeResult.filter({ hasText: 'Secure G-code file access is available.' }).waitFor();
+    await testGcode.click();
+    await gcodeResult.filter({ hasText: 'The printer reports that file access is busy.' }).waitFor();
+    assert.deepEqual(gcodeChecks, [{ method: 'POST', body: {} }, { method: 'POST', body: {} }]);
+    await page.unroute(testGcodeUrl);
     assert.equal(credentialReads, 0, 'Setup should not call the legacy credentials endpoint');
 
     await page.locator('.display-preferences > summary').click();

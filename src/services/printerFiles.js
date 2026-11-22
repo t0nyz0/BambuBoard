@@ -7,6 +7,7 @@ const { describe } = require('../../public/js/gcode-job');
 const { archiveMiB, toolpathMiB } = require('../../public/js/gcode-limits');
 
 const MiB = 1024 * 1024;
+const FTPS_PORT = 990;
 const LIMITS = { archive: archiveMiB * MiB, gcode: toolpathMiB * MiB, entries: 20000, listing: 1024 * 1024, timeout: 15000, deadline: 90000 };
 class GcodeError extends Error {
   constructor(code, message, { retryable = false, status = 502, stage = 'download' } = {}) {
@@ -23,6 +24,9 @@ function safePath(value) {
 }
 function stem(name) { return name.replace(/(?:\.gcode\.3mf|\.3mf|\.gcode)$/i, ''); }
 function normalized(name) { return stem(name).normalize('NFKC').toLowerCase().replace(/[\s_-]+/g, ''); }
+function fileDirectories(model) {
+  return /H2|X2|\bH3C\b/i.test(model || '') ? ['/cache', '', '/model'] : ['', '/cache', '/model'];
+}
 function candidates(job, model) {
   const paths = [], names = new Set();
   const h3c = /\bH3C\b/i.test(model || '');
@@ -46,7 +50,7 @@ function candidates(job, model) {
     if (/\.gcode$/i.test(job.name)) names.add(job.name);
   }
   for (const name of [...names]) if (name.includes(' ')) names.add(name.replaceAll(' ', '_'));
-  const dirs = h3c || /H2|X2/i.test(model || '') ? ['/cache', '', '/model'] : ['', '/cache', '/model'];
+  const dirs = fileDirectories(model);
   for (const dir of dirs) for (const name of names) add(`${dir}/${name}`);
   return { paths: paths.slice(0, 36), dirs, names };
 }
@@ -65,14 +69,13 @@ const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   for (let bit = 0; bit < 8; bit++) value = (value >>> 1) ^ ((value & 1) ? 0xedb88320 : 0);
   return value >>> 0;
 });
-function crc32(data) {
-  let crc = -1;
-  for (const value of data) {
-    crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ value) & 255];
-  }
-  return (crc ^ -1) >>> 0;
+function cancelledTransfer() {
+  return new GcodeError('JOB_CHANGED', 'This toolpath transfer was canceled or superseded.', { status: 409, retryable: true });
 }
-async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent = () => {}, limits = LIMITS } = {}) {
+
+async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent = () => {}, limits = LIMITS, signal } = {}) {
+  const check = () => { if (signal?.aborted) throw cancelledTransfer(); };
+  check();
   const oversizedToolpath = (bytes, stage) => {
     const size = (bytes / MiB).toFixed(2);
     return new GcodeError('FILE_TOO_LARGE', `The unpacked G-code is ${size} MiB and exceeds the ${toolpathMiB} MiB preview limit. Open this plate in Bambu Studio.`, { stage, status: 413 });
@@ -88,6 +91,7 @@ async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent
     const entries = await new Promise((resolve, reject) => {
       const found = [];
       const onEntry = entry => {
+        if (signal?.aborted) return fail(cancelledTransfer());
         found.push(entry);
         if (found.length > limits.entries) return fail(new GcodeError('ARCHIVE_LIMIT', 'This archive contains too many entries.', { stage: 'extract' }));
         zip.readEntry();
@@ -109,31 +113,47 @@ async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent
     }
     if (toolpaths.filter(entry => entry.fileName.toLowerCase() === chosen.fileName.toLowerCase()).length > 1) throw new GcodeError('PLATE_AMBIGUOUS', 'The sliced archive contains duplicate toolpaths for the selected plate.', { stage: 'extract' });
     const read = (entry, max, oversized) => new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(cancelledTransfer());
       if (entry.generalPurposeBitFlag & 1) return reject(new GcodeError('ARCHIVE_ENCRYPTED', 'The sliced plate archive contains an encrypted entry.', { stage: 'extract' }));
       if (entry.uncompressedSize > max) return reject(oversized(entry.uncompressedSize));
       zip.openReadStream(entry, (err, stream) => {
         if (err) return reject(err);
+        if (signal?.aborted) { stream.destroy(); return reject(cancelledTransfer()); }
         // Hold only one uncompressed copy, even for the largest permitted plate.
         const data = Buffer.allocUnsafe(entry.uncompressedSize);
         const corruptEntry = () => new GcodeError('FILE_CORRUPT', 'The sliced archive failed its length/CRC integrity check.', { stage: 'validate', retryable: true });
-        let count = 0;
+        let count = 0, crc = -1;
+        const abort = () => stream.destroy(cancelledTransfer());
+        const cleanup = () => signal?.removeEventListener('abort', abort);
+        signal?.addEventListener('abort', abort, { once: true });
         stream.on('data', chunk => {
           if (count + chunk.length > data.length) return stream.destroy(corruptEntry());
           chunk.copy(data, count);
+          for (let index = 0; index < chunk.length; index++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ chunk[index]) & 255];
           count += chunk.length;
+          if (entry === chosen) onEvent({ stage: 'extract', result: 'progress', bytes: count, expectedBytes: data.length });
         });
-        stream.once('error', reject);
+        stream.once('error', error => { cleanup(); reject(error); });
         stream.once('end', () => {
-          if (count !== data.length || crc32(data) !== entry.crc32) return reject(corruptEntry());
+          cleanup();
+          if (count !== data.length || ((crc ^ -1) >>> 0) !== entry.crc32) return reject(corruptEntry());
           resolve(data);
         });
       });
     });
     const data = await read(chosen, limits.gcode, bytes => oversizedToolpath(bytes, 'extract'));
+    check();
     const checksum = entries.find(e => e.fileName.toLowerCase() === chosen.fileName.toLowerCase() + '.md5');
     if (checksum) {
       const expected = (await read(checksum, 128, () => new GcodeError('ARCHIVE_INVALID', 'The sliced archive has an oversized plate checksum. Re-export the exact sliced plate.', { stage: 'extract' }))).toString('ascii').trim();
-      if (!/^[a-f\d]{32}$/i.test(expected) || createHash('md5').update(data).digest('hex') !== expected.toLowerCase()) {
+      const hash = createHash('md5');
+      for (let offset = 0; offset < data.length; offset += MiB) {
+        check();
+        hash.update(data.subarray(offset, offset + MiB));
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      check();
+      if (!/^[a-f\d]{32}$/i.test(expected) || hash.digest('hex') !== expected.toLowerCase()) {
         throw new GcodeError('FILE_CORRUPT', 'The plate G-code does not match its slicer MD5 checksum.', { stage: 'validate', retryable: true });
       }
     }
@@ -154,27 +174,105 @@ function transportError(err, stage) {
   if (/timeout|timed out/i.test(err?.message || '') || code === 'ETIMEDOUT') return new GcodeError('FTPS_TIMEOUT', `Printer file transfer timed out during ${stage}. Check port 990 and passive data ports between BambuBoard and the printer.`, { stage, retryable: true });
   return new GcodeError('FTPS_TRANSFER', `Printer file transfer failed during ${stage}${code ? ` (${code.replace(/[^\w-]/g, '').slice(0, 30)})` : ''}. Check the diagnostic log.`, { stage, retryable: true });
 }
+
+function fileClient({ timeout, listing }) {
+  const client = new ftp.Client(timeout, { maxListingBytes: listing });
+  client.ftp.verbose = false;
+  return client;
+}
+
+function openPrinterFiles(client, { host, port, accessCode }) {
+  return client.access({ host, port, user: 'bblp', password: accessCode, secure: 'implicit', secureOptions: {
+    rejectUnauthorized: false, minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2',
+  } });
+}
+
+function listUnavailable() {
+  return new GcodeError('FTPS_LIST_UNAVAILABLE', 'Secure sign-in passed, but BambuBoard could not list files. Check printer storage, local file access, and passive FTP ports.', { stage: 'list' });
+}
+
+function probeTimeout(stage) {
+  const message = stage === 'list' ? 'Secure sign-in passed, but the file listing timed out. Check access to the printer’s passive FTP ports.'
+    : 'The printer did not respond in time. Check the saved address and local file access.';
+  return new GcodeError('FTPS_TIMEOUT', message, { stage, status: 504 });
+}
+
+async function probePrinterFiles({ host, port = FTPS_PORT, accessCode, model, timeout = 5000, deadline = 10000 }) {
+  const client = fileClient({ timeout, listing: LIMITS.listing });
+  let stage = 'connect';
+  let timer;
+  async function check() {
+    await openPrinterFiles(client, { host, port, accessCode });
+    stage = 'list';
+    for (const directory of fileDirectories(model)) {
+      try {
+        await client.list(directory || '/');
+        return;
+      } catch (err) {
+        if (Number(err.code) !== 550) throw err;
+      }
+    }
+    throw listUnavailable();
+  }
+  try {
+    const deadlineHit = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(probeTimeout(stage)), deadline);
+    });
+    await Promise.race([check(), deadlineHit]);
+  } catch (err) {
+    if (err instanceof GcodeError) throw err;
+    // A temporary FTP reply alone does not establish that the printer is busy.
+    const code = String(err?.code || '');
+    const reply = String(err?.message || '').replace(/^\d{3}[\s-]+/, '');
+    const reportsBusy = /^(?:(?:the )?(?:printer(?: file access)?|file access|server|device) (?:is )?)?busy\b/i.test(reply)
+      || /^(?:(?:another|a) )?(?:file )?(?:transfer|operation) (?:is )?in progress\b/i.test(reply);
+    if (/^4\d\d$/.test(code) && reportsBusy) {
+      throw new GcodeError('FTPS_BUSY', 'The printer reports that file access is busy. Try again when the current operation finishes.', { stage, status: 503 });
+    }
+    const error = transportError(err, stage);
+    if (stage === 'list' && ['FTPS_REFUSED', 'FTPS_AUTH'].includes(error.code)) throw listUnavailable();
+    if (error.code === 'FTPS_TIMEOUT') throw probeTimeout(stage);
+    if (['FTPS_DNS', 'FTPS_REFUSED', 'FTPS_AUTH', 'FTPS_TLS'].includes(error.code)) throw error;
+    if (['ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN', 'EHOSTDOWN', 'ECONNRESET', 'ECONNABORTED'].includes(code)) {
+      throw new GcodeError('FTPS_NETWORK', 'The printer file connection was unreachable or dropped. Check local network access to the saved printer.', { stage });
+    }
+    if (stage === 'list') throw listUnavailable();
+    throw new GcodeError('FTPS_TRANSFER', 'The printer did not establish secure file access. Check that LAN file access is available on the printer.', { stage });
+  } finally {
+    clearTimeout(timer);
+    client.close();
+  }
+}
+
 async function fetchPlateGcode(options) {
-  const { host, port = 990, accessCode, model, signal, onEvent = () => {}, limits = LIMITS } = options;
+  const { host, port = FTPS_PORT, accessCode, model, signal, onEvent = () => {}, limits = LIMITS } = options;
   const job = options.job || describe({ subtask_name: options.subtaskName, plate_idx: options.plateIdx });
   const plan = candidates(job, model);
   let client, stage = 'connect', expired = false;
   const abort = () => client?.close();
-  const deadline = setTimeout(() => { expired = true; abort(); }, limits.deadline);
+  let remaining = limits.deadline, lookupStarted, deadline;
+  function startLookup() {
+    lookupStarted = Date.now();
+    deadline = setTimeout(() => { expired = true; abort(); }, remaining);
+  }
+  function pauseLookup() {
+    clearTimeout(deadline);
+    remaining = Math.max(0, remaining - (Date.now() - lookupStarted));
+  }
+  startLookup();
   signal?.addEventListener('abort', abort);
   const event = data => onEvent({ ...data, stage: data.stage || stage });
   const check = () => {
-    if (signal?.aborted) throw new GcodeError('JOB_CHANGED', 'The print changed during download. Loading the current print instead.', { status: 409, retryable: true });
-    if (expired) throw new GcodeError('FTPS_TIMEOUT', 'The printer file lookup exceeded its 90 second deadline.', { retryable: true, stage });
+    if (signal?.aborted) throw cancelledTransfer();
+    if (expired) throw new GcodeError('FTPS_TIMEOUT', 'Finding the file on the printer took too long. Check file access and retry.', { retryable: true, stage });
   };
   try {
     for (let attempt = 1; attempt <= 2; attempt++) {
       check();
-      client = new ftp.Client(limits.timeout, { maxListingBytes: limits.listing });
-      client.ftp.verbose = false;
+      client = fileClient(limits);
       try {
         stage = 'connect'; event({ result: 'start', attempt, port, tls: 'TLSv1.2', data: 'protected', passive: 'EPSV with PASV fallback' });
-        await client.access({ host, port, user: 'bblp', password: accessCode, secure: 'implicit', secureOptions: { rejectUnauthorized: false, minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2' } });
+        await openPrinterFiles(client, { host, port, accessCode });
         // basic-ftp reuses the control TLS session on its protected data channel.
         event({ result: 'ok', protocol: client.ftp.socket.getProtocol?.() });
         const tried = new Set();
@@ -200,15 +298,22 @@ async function fetchPlateGcode(options) {
             if (expected) chunk.copy(expected, count);
             else chunks.push(chunk);
             count += chunk.length;
+            event({ result: 'progress', bytes: count, expectedBytes: size });
             callback();
           } });
-          await client.downloadTo(sink, remote); check();
-          if (!count || (size != null && count !== size)) throw incomplete();
-          stage = 'extract';
-          const data = await extractPlateGcode(expected || Buffer.concat(chunks, count), { plate: job.plate, plateKnown: job.plateKnown, onEvent: event, limits });
-          check();
-          event({ stage: 'download', result: 'ok', path: remote, bytes: data.length });
-          return data;
+          // The socket has an idle timeout. An actively transferring file can
+          // exceed the separate deadline for locating it without being stalled.
+          pauseLookup();
+          try {
+            await client.downloadTo(sink, remote); check();
+            if (!count || (size != null && count !== size)) throw incomplete();
+            stage = 'extract';
+            event({ result: 'start' });
+            const data = await extractPlateGcode(expected || Buffer.concat(chunks, count), { plate: job.plate, plateKnown: job.plateKnown, onEvent: event, limits, signal });
+            check();
+            event({ stage: 'download', result: 'ok', path: remote, bytes: data.length });
+            return data;
+          } finally { startLookup(); }
         };
         let extractionFailure;
         const tryPath = async remote => {
@@ -255,4 +360,4 @@ async function fetchPlateGcode(options) {
     throw new GcodeError('ARCHIVE_INVALID', 'The sliced archive is damaged or unsupported. Re-export the exact sliced plate.', { stage: 'extract' });
   } finally { clearTimeout(deadline); signal?.removeEventListener('abort', abort); client?.close(); }
 }
-module.exports = { fetchPlateGcode, extractPlateGcode, GcodeError, LIMITS, describe, safePath };
+module.exports = { fetchPlateGcode, probePrinterFiles, extractPlateGcode, GcodeError, LIMITS, describe, safePath };

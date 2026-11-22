@@ -24,7 +24,9 @@ async function routeFixture(t, fetchGcode, extra = {}) {
   routes = buildGcodeRouter({ paths: { data }, getConfig: () => config, fetchGcode, log: line => logs.push(line), ...extra });
   app.use('/api/gcode', routes.router);
   const base = await listen(t, app);
-  return { data, config, logs, write, get: query => fetch(base + '/api/gcode/current' + (query || '')), diagnostics: () => fetch(base + '/api/gcode/diagnostics').then(r => r.json()), post: (body, query = '') => fetch(base + '/api/gcode/current' + query, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body }) };
+  return { data, config, logs, write, get: (query = '', init) => fetch(base + '/api/gcode/current' + query, init),
+    progress: () => fetch(base + '/api/gcode/progress'), diagnostics: () => fetch(base + '/api/gcode/diagnostics').then(r => r.json()),
+    post: (body, query = '') => fetch(base + '/api/gcode/current' + query, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body }) };
 }
 
 test('printer FTPS uses TLS 1.2, session reuse and protected PASV fallback at the storage root', async t => {
@@ -98,6 +100,20 @@ test('short transfers and missing completion replies retry once then stop', asyn
     await assert.rejects(fetchPlateGcode({ ...options, port: fixture.port, limits: { ...LIMITS, timeout: 180, deadline: 2000 } }), { code, retryable: true });
     assert.equal(fixture.connections, 2); assert.equal(fixture.downloads, 2);
   }
+});
+test('FTPS keeps transferring a toolpath that progresses past the lookup deadline', async t => {
+  const raw = Buffer.concat([gcode, Buffer.from('; preview progress fixture\n'.repeat(330))]);
+  const fixture = await ftpsFixture(t, { files: { '/Slow.gcode': raw }, slowData: { bytes: 512, interval: 60 } });
+  const events = [];
+  const start = Date.now();
+  const result = await fetchPlateGcode({ ...options, job: describe({ gcode_file: '/Slow.gcode' }), port: fixture.port,
+    limits: { ...LIMITS, timeout: 400, deadline: 650 }, onEvent: event => events.push(event) });
+  assert.ok(Date.now() - start >= 650);
+  assert.deepEqual(result, raw);
+  const progress = events.filter(event => event.stage === 'download' && event.result === 'progress');
+  assert.ok(progress.length > 2);
+  assert.equal(progress.at(-1).bytes, raw.length);
+  assert.equal(fixture.downloads, 1);
 });
 test('plate selection honors MQTT filenames, multi-plate order and a sole non-1 plate', async () => {
   assert.equal(describe({ plate_idx: 0, plate_id: 1, param: 'Metadata/plate_2.gcode' }).plate, 2);
@@ -192,6 +208,34 @@ test('a new print cancels stale transfers and cannot reuse a zero task ID cache'
   assert.equal((await fs.readdir(path.join(fixture.data, 'gcode-cache'))).length, 1);
   const mismatch = await fixture.get('?job=' + encodeURIComponent(describe(telemetry()).key));
   assert.equal(mismatch.status, 409); assert.equal(pending.length, 2);
+});
+test('progress describes a shared download and the last disconnected viewer cancels it', async t => {
+  let transfer, downloads = 0;
+  const fixture = await routeFixture(t, opts => {
+    downloads++;
+    if (downloads > 1) return Promise.resolve(gcode);
+    transfer = opts;
+    opts.onEvent({ stage: 'download', result: 'progress', bytes: 50, expectedBytes: 100 });
+    return new Promise((resolve, reject) => opts.signal.addEventListener('abort', () => reject(new GcodeError('JOB_CHANGED', 'Canceled.')), { once: true }));
+  });
+  const first = new AbortController(), second = new AbortController();
+  const firstResponse = assert.rejects(fixture.get('', { signal: first.signal }), { name: 'AbortError' });
+  const secondResponse = assert.rejects(fixture.get('', { signal: second.signal }), { name: 'AbortError' });
+  await until(() => transfer);
+  const progress = await (await fixture.progress()).json();
+  assert.deepEqual(progress, { phase: 'download', bytes: 50, total: 100, activity: 1 });
+  transfer.onEvent({ stage: 'download', result: 'progress', bytes: 65, expectedBytes: 100 });
+  assert.deepEqual(await (await fixture.progress()).json(), { phase: 'download', bytes: 65, total: 100, activity: 2 });
+  first.abort();
+  await firstResponse;
+  assert.equal(transfer.signal.aborted, false);
+  second.abort();
+  await secondResponse;
+  await until(() => transfer.signal.aborted);
+  assert.equal((await fixture.progress()).status, 204);
+  assert.equal(downloads, 1);
+  assert.deepEqual(Buffer.from(await (await fixture.get()).arrayBuffer()), gcode);
+  assert.equal(downloads, 2);
 });
 test('manual sliced-file recovery feeds all widget clients while preserving a valid cache on bad uploads', async t => {
   let count = 0;

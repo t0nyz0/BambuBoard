@@ -9,6 +9,8 @@
 
 import * as GCodePreview from '../../vendor/gcode-preview.esm.js';
 import * as THREE from '../../vendor/three.module.js';
+import { openToolpathFramer } from './toolpath-framing.js';
+import { createPreviewBudget, PREVIEW_WORKLOAD_LIMITS } from './preview-workload.js';
 import '../../js/gcode-limits.js';
 import '../../js/gcode-view.js';
 
@@ -573,7 +575,7 @@ function recomputeModelLayerOffset() {
   }
 }
 
-function buildLayerPaths() {
+async function buildLayerPaths(layers, signal) {
   // Build a per-layer list of segments. Each segment carries:
   //   ax,ay → bx,by   start/end positions in gcode coords
   //   ext             true for extrusion moves (G1 with positive E in M83 mode,
@@ -582,8 +584,8 @@ function buildLayerPaths() {
   //                   including travels between extrusion segments.
   // Per-layer total = total movement time, which becomes the loop length for
   // the simulated nozzle walk so it moves at real print speed.
-  layerPaths = [];
-  const layers = preview.layers || [];
+  const paths = [];
+  let commands = 0, yieldAt = performance.now() + 8;
   let curX = 0, curY = 0;
   let curF = 6000;          // mm/min, initial guess
   let absoluteE = false;    // M83 (relative) is the Bambu default
@@ -606,6 +608,11 @@ function buildLayerPaths() {
     const segs = [];
     const cmds = (layer && layer.commands) || [];
     for (const c of cmds) {
+      if (++commands % 512 === 0 && performance.now() >= yieldAt) {
+        await yieldTask();
+        signal.throwIfAborted();
+        yieldAt = performance.now() + 8;
+      }
       const g = c.gcode;
       if (g === 'm82') { absoluteE = true; prevE = 0; continue; }
       if (g === 'm83') { absoluteE = false; continue; }
@@ -668,8 +675,9 @@ function buildLayerPaths() {
       total += s.dur;
       cumTime.push(total);
     }
-    layerPaths.push({ segs, cumTime, total });
+    paths.push({ segs, cumTime, total });
   }
+  return paths;
 }
 
 function nozzleXYAt(layerIdx, elapsedSec) {
@@ -944,7 +952,7 @@ function clearScene() {
   fastTick();                               // commit the empty state to the GPU
 }
 
-const { archiveMiB, toolpathMiB, toolpathLines } = window.BBGcodeLimits;
+const { archiveMiB, toolpathMiB, transferIdleMs, transferPollMs } = window.BBGcodeLimits;
 const PREVIEW_MAX_BYTES = toolpathMiB * 1024 * 1024;
 const MAX_AUTO_ATTEMPTS = 5;
 function previewLimit(detail) {
@@ -965,6 +973,7 @@ function paintLoading() {
     frame = requestAnimationFrame(() => setTimeout(finish, 0));
   });
 }
+const yieldTask = () => new Promise(resolve => setTimeout(resolve, 0));
 function invalidateLoad() {
   loadSerial++;
   loadController?.abort();
@@ -982,59 +991,135 @@ function showFailure() {
   setOverlay(failure.detail + next, 'error');
   window.BBGcodeUI.recovery(recovery, recovery && !failure.rawFallback);
 }
-async function readToolpath(res, progress) {
-  const total = Number(res.headers.get('Content-Length')) || 0;
+function transferWatchdog(controller) {
+  let timer;
+  function touch() {
+    clearTimeout(timer);
+    if (!controller.signal.aborted) timer = setTimeout(() => {
+      controller.abort(new Error(`No file data received for ${Math.round(transferIdleMs / 1000)} seconds. Check the printer connection and retry.`));
+    }, transferIdleMs);
+  }
+  touch();
+  return { touch, stop() { clearTimeout(timer); } };
+}
+
+function byteProgress(bytes, total) {
+  const received = (bytes / (1024 * 1024)).toFixed(1);
+  if (!total) return `${received} MiB received`;
+  return `${Math.min(100, Math.floor(bytes / total * 100))}% (${received} / ${(total / (1024 * 1024)).toFixed(1)} MiB)`;
+}
+
+function watchPrinterTransfer(job, signal, onProgress) {
+  let timer, activity;
+  const watcher = new AbortController();
+  const abort = () => { clearTimeout(timer); watcher.abort(); };
+  signal.addEventListener('abort', abort, { once: true });
+  async function poll() {
+    try {
+      const reply = await fetch('/api/gcode/progress?' + new URLSearchParams({ job }), {
+        cache: 'no-store', signal: AbortSignal.any([watcher.signal, AbortSignal.timeout(3000)]),
+      });
+      if (reply.ok && !watcher.signal.aborted) {
+        const status = await reply.json();
+        if (!watcher.signal.aborted && Number.isSafeInteger(status.activity) && activity !== status.activity) {
+          activity = status.activity;
+          onProgress(status);
+        }
+      }
+    } catch (_) { /* A status poll is optional; the file request has its own deadline. */ }
+    if (!watcher.signal.aborted) timer = setTimeout(poll, transferPollMs);
+  }
+  timer = setTimeout(poll, transferPollMs);
+  return () => { signal.removeEventListener('abort', abort); abort(); };
+}
+
+// XHR exposes actual upload progress; using a Blob keeps the validated
+// response compatible with the same streaming decoder as an automatic GET.
+function uploadToolpath(url, file, signal, onProgress) {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.responseType = 'blob';
+    xhr.upload.onprogress = event => onProgress('upload', event.loaded, file.size);
+    xhr.upload.onload = () => onProgress('validate');
+    xhr.onprogress = event => onProgress('download', event.loaded, event.lengthComputable ? event.total : 0);
+    xhr.onload = () => {
+      const headers = new Headers();
+      for (const name of ['Content-Length', 'Content-Encoding', 'Content-Type', 'X-Gcode-Job', 'Retry-After']) {
+        const value = xhr.getResponseHeader(name);
+        if (value !== null) headers.set(name, value);
+      }
+      resolve(new Response(xhr.response, { status: xhr.status, headers }));
+    };
+    xhr.onabort = () => reject(signal.reason || new Error('Toolpath upload canceled.'));
+    xhr.onerror = () => reject(new Error('The file upload connection was interrupted.'));
+    xhr.onloadend = () => signal.removeEventListener('abort', abort);
+    signal.addEventListener('abort', abort, { once: true });
+    xhr.send(file);
+  });
+}
+
+async function readToolpath(res, budget, signal, onBytes) {
+  const encoding = res.headers.get('Content-Encoding');
+  const total = !encoding || encoding === 'identity' ? Number(res.headers.get('Content-Length')) || 0 : 0;
   if (total > PREVIEW_MAX_BYTES) {
     await res.body.cancel().catch(() => {});
     throw previewLimit(`This toolpath exceeds the ${toolpathMiB} MiB preview limit.`);
   }
+  if (!res.body) throw new Error('BambuBoard returned no toolpath data.');
   const reader = res.body.getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  const parts = [];
-  let bytes = 0, characters = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.length;
-      if (bytes > PREVIEW_MAX_BYTES) throw previewLimit(`This toolpath exceeds the ${toolpathMiB} MiB preview limit.`);
-      const part = decoder.decode(value, { stream: true });
-      parts.push(part);
-      characters += part.length;
-      progress(bytes, total);
+  let bytes = 0, framer, yieldAt = performance.now() + 8;
+  async function parse(lines) {
+    for (let offset = 0; offset < lines.length; offset += 512) {
+      signal.throwIfAborted();
+      budget.parseBatch(lines.slice(offset, offset + 512));
+      if (performance.now() >= yieldAt) {
+        await yieldTask();
+        yieldAt = performance.now() + 8;
+      }
     }
-    const last = decoder.decode();
-    parts.push(last);
-    return { parts, bytes, characters: characters + last.length };
-  } finally { await reader.cancel().catch(() => {}); }
-}
-
-function* splitToolpath(parts) {
-  let pending = '';
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    parts[i] = null;
-    let start = 0;
-    for (let end = part.indexOf('\n'); end !== -1; end = part.indexOf('\n', start)) {
-      yield pending + part.slice(start, end);
-      pending = '';
-      start = end + 1;
-    }
-    pending += part.slice(start);
   }
-  if (pending) yield pending;
+  try {
+    framer = await openToolpathFramer(PREVIEW_WORKLOAD_LIMITS.commandCharacters, signal);
+    for (;;) {
+      signal.throwIfAborted();
+      let result;
+      try { result = await reader.read(); }
+      catch (_) {
+        signal.throwIfAborted();
+        throw new Error('The file download was interrupted. Retry the transfer.');
+      }
+      const { done, value } = result;
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > PREVIEW_MAX_BYTES) throw previewLimit(`This toolpath exceeds the ${toolpathMiB} MiB preview limit.`);
+      onBytes(bytes, total);
+      await parse(await framer.frame(value));
+    }
+    if (total && bytes !== total) throw new Error('The file transfer ended before all toolpath bytes arrived. Retry the transfer.');
+    await parse(await framer.frame(undefined, true));
+    return bytes;
+  } finally {
+    framer?.close();
+    await reader.cancel().catch(() => {});
+  }
 }
 
 async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = null, manual = false) {
   const serial = ++loadSerial;
   loadController?.abort();
   const controller = loadController = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('The file request timed out. Check the diagnostic log.')), 100000);
+  const watchdog = transferWatchdog(controller);
+  let stopWatching = () => {};
   const attempts = manual ? 1 : (failure?.attempts || 0) + 1;
   inFlight = true;
   dbg(`loadGcode START job=${wantedJob?.task || 'LAN'} attempt=${attempts} source=${file ? 'manual' : 'printer'}`);
   canvas.style.visibility = 'hidden';
   clearScene();
+  const parser = new preview.parser.constructor(preview.minLayerThreshold);
   setOverlay(overlayMsg, 'loading');
   let stage = 'fetch';
   try {
@@ -1050,10 +1135,30 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       }
       if (file.size > PREVIEW_MAX_BYTES) throw previewLimit(`This file exceeds the ${toolpathMiB} MiB upload limit.`);
     }
-    const res = await fetch('/api/gcode/current?' + query, {
-      cache: 'no-store', signal: controller.signal,
-      ...(file ? { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file } : {}),
-    });
+    const url = '/api/gcode/current?' + query;
+    let res;
+    if (file) {
+      res = await uploadToolpath(url, file, controller.signal, (phase, bytes, total) => {
+        if (serial !== loadSerial || controller.signal.aborted) return;
+        watchdog.touch();
+        if (phase === 'validate') setOverlay('BambuBoard is validating the uploaded file…', 'loading');
+        else {
+          const label = phase === 'upload' ? 'Uploading sliced file' : 'Downloading print file';
+          setOverlay(`${label}… ${byteProgress(bytes, total)}`, 'loading');
+        }
+      });
+    } else {
+      stopWatching = watchPrinterTransfer(taskKey, controller.signal, status => {
+        if (serial !== loadSerial || controller.signal.aborted) return;
+        watchdog.touch();
+        if (status.phase === 'download') setOverlay(`Reading file from printer… ${byteProgress(status.bytes || 0, status.total || 0)}`, 'loading');
+        else if (status.phase === 'extract') setOverlay(`Unpacking and checking the plate… ${byteProgress(status.bytes || 0, status.total || 0)}`, 'loading');
+        else setOverlay(status.phase === 'cache' ? 'Saving the verified toolpath…' : overlayMsg, 'loading');
+      });
+      res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    }
+    stopWatching();
+    watchdog.touch();
     if (!res.ok) {
       let report = {};
       try { report = await res.json(); } catch (_) {}
@@ -1072,47 +1177,34 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     const header = res.headers.get('X-Gcode-Job');
     if (header && decodeURIComponent(header) !== taskKey) throw Object.assign(new Error('The print changed during download.'), { code: 'JOB_CHANGED' });
     let lastProgressAt = -Infinity;
-    const { parts, bytes, characters } = await readToolpath(res, (receivedBytes, total) => {
+    const budget = createPreviewBudget(parser, { inches: preview.inches });
+    const bytes = await readToolpath(res, budget, controller.signal, (receivedBytes, total) => {
+      watchdog.touch();
       if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
       if (performance.now() - lastProgressAt < 150 && receivedBytes !== total) return;
       lastProgressAt = performance.now();
-      const received = (receivedBytes / (1024 * 1024)).toFixed(1);
-      const amount = total ? `${Math.min(100, Math.floor(receivedBytes / total * 100))}% (${received} / ${(total / (1024 * 1024)).toFixed(1)} MiB)` : `${received} MiB received`;
-      setOverlay(`Downloading print file… ${amount}`, 'loading');
+      setOverlay(`Downloading print file… ${byteProgress(receivedBytes, total)}`, 'loading');
     });
-    clearTimeout(timer);
+    watchdog.stop();
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     stage = 'parse';
-    setOverlay('Processing toolpath… 0%', 'loading');
+    setOverlay('Processing toolpath… Building layer paths', 'loading');
     await paintLoading();
-    // Release each decoded chunk as it is parsed, without joining a second
-    // copy of the full file. Yield between batches for cancellation and paint.
-    const input = splitToolpath(parts);
-    let offset = 0, parsedLines = 0;
-    for (;;) {
-      if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
-      const lines = [];
-      for (let i = 0; i < 5000; i++) {
-        const next = input.next();
-        if (next.done) break;
-        lines.push(next.value);
-        offset += next.value.length + 1;
-      }
-      if (!lines.length) break;
-      parsedLines += lines.length;
-      if (parsedLines > toolpathLines) throw previewLimit(`This plate exceeds the ${toolpathLines.toLocaleString('en-US')}-line preview limit.`);
-      preview.parser.parseGCode(lines);
-      setOverlay(`Processing toolpath… ${Math.min(100, Math.floor(offset / characters * 100))}%`, 'loading');
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
+    controller.signal.throwIfAborted();
+    // The renderer includes the parser's preamble in its public layer index.
+    const layers = [parser.preamble, ...parser.layers];
+    const paths = await buildLayerPaths(layers, controller.signal);
+    controller.signal.throwIfAborted();
     setOverlay('Rendering 3D preview…', 'loading');
     await paintLoading();
     if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
-    recomputeCumZ(); buildLayerPaths(); recomputeCumLayerTime(); recomputeModelLayerOffset();
-    totalLayers = preview.layers?.length || 0;
-    if (!totalLayers || !layerPaths.some(layer => layer.segs.some(seg => seg.ext))) {
+    if (!parser.layers.length || !paths.some(layer => layer.segs.some(seg => seg.ext))) {
       throw Object.assign(new Error('The file has no printable extrusion toolpath. Choose the exact sliced .3mf or .gcode.'), { retryable: false });
     }
+    preview.parser = parser;
+    layerPaths = paths;
+    recomputeCumZ(); recomputeCumLayerTime(); recomputeModelLayerOffset();
+    totalLayers = layers.length;
     stage = 'render';
     cameraDistance = 0; trailBuf.length = 0; lastTrailPos = null; lastEndLayer = -1;
     const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
@@ -1132,14 +1224,16 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
   } catch (error) {
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     currentTaskKey = null;
-    const detail = controller.signal.aborted ? 'The file request timed out. Check the printer connection and diagnostic log.' : error.message;
-    const retryable = stage === 'fetch' && error.retryable !== false;
+    if (error.code === 'PREVIEW_COMPLEXITY' && error.recovery !== false) error = previewLimit(error.message);
+    const detail = controller.signal.aborted ? controller.signal.reason.message : error.message;
+    const retryable = stage === 'fetch' && error.retryable !== false && error.code !== 'TOOLPATH_ENCODING';
     const backoff = [5000, 15000, 30000, 60000, 120000][Math.min(attempts - 1, 4)];
     failure = { taskKey, attempts, detail, retryable, recovery: error.recovery, rawFallback: error.rawFallback, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
     dbg(`loadGcode FAIL stage=${stage} attempts=${attempts} retryable=${retryable}: ${detail}`);
     showFailure();
   } finally {
-    clearTimeout(timer);
+    stopWatching();
+    watchdog.stop();
     if (serial === loadSerial) { inFlight = false; loadController = null; }
   }
 }
@@ -1804,6 +1898,12 @@ window.BBGcodeUI.bindRetry(() => {
   if (!wantedTaskKey || !canRequestToolpath) return void tick();
   invalidateLoad();
   void loadGcode(wantedTaskKey, 'Retrying file transfer…', null, true);
+});
+window.BBGcodeUI.bindCancel(() => {
+  if (!inFlight || !wantedTaskKey) return;
+  invalidateLoad();
+  failure = { taskKey: wantedTaskKey, detail: 'Toolpath loading canceled.', retryable: false };
+  showFailure();
 });
 const fileInput = document.getElementById('gcodeFile');
 let filePickerTaskKey = null;

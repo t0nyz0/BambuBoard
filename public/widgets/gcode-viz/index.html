@@ -103,7 +103,8 @@
         pointer-events: auto;
       }
       .gcode-log.show { display: block; }
-      .gcode-stage.error-state .gcode-debug { display: none; }
+      .gcode-stage.error-state .gcode-debug,
+      .gcode-stage[aria-busy="true"] .gcode-debug { display: none; }
       .gcode-stage.error-state .gcode-log {
         top: auto; bottom: calc(8% + 65px); max-height: 35%;
       }
@@ -135,6 +136,7 @@
       <canvas id="gcodeCanvas"></canvas>
       <div class="gcode-overlay waiting" id="gcodeOverlay" style="display:flex" role="status" aria-live="polite">Waiting for print…</div>
       <div class="gcode-recovery" id="gcodeRecovery" hidden>
+        <button type="button" id="gcodeCancel" hidden>Cancel</button>
         <button type="button" id="gcodeRetry">Retry now</button>
         <button type="button" id="gcodeDownloadLog">Download diagnostics</button>
         <button type="button" id="gcodeFileButton" disabled>Load sliced file</button>

@@ -5,6 +5,7 @@ const path = require('path');
 const { PRINTER_TYPES, PRINTER_CAPS, capsFor } = require('../lib/caps');
 const { printerConnection, samePrinterConnection, hasSavedAccessCode } = require('../lib/printerConnection');
 const { testConnection } = require('../mqtt');
+const { probePrinterFiles, GcodeError } = require('../services/printerFiles');
 const { isFirstRun, publicSnapshot, needsRecovery } = require('../config');
 
 function readTokenSync(paths) {
@@ -51,8 +52,12 @@ const printerChecks = {
   detectedFrom: value => ['config', 'mqtt'].includes(value),
 };
 
-function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths, checkPrinterConnection = testConnection }) {
+function buildApiRouter({
+  getConfig, saveConfig, reloadPrinter, getStatus, paths,
+  checkPrinterConnection = testConnection, checkGcodeConnection = probePrinterFiles,
+}) {
   const router = express.Router();
+  let checkingGcode = false;
 
   router.get('/settings', (req, res) => {
     const c = getConfig();
@@ -130,6 +135,39 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
     }
     // Use the saved destination itself whenever the saved code is used.
     return res.json(await checkPrinterConnection({ ...printerConnection(saved), accessCode: saved.accessCode }));
+  });
+
+  router.post('/test-gcode-connection', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    // This is an explicit check of the saved printer. Unlike the Setup MQTT
+    // check it never accepts a connection target or credentials from a form.
+    if (!isRecord(req.body) || Object.keys(req.body).length || Object.keys(req.query).length) {
+      return res.status(400).json({ ok: false, code: 'INVALID_GCODE_CHECK', error: 'Run the G-code check for the saved printer from Setup.' });
+    }
+    const saved = getConfig().printer;
+    const connection = printerConnection(saved);
+    if (!connection || !isPrinterHost(connection.url) || !hasSavedAccessCode(saved) || needsRecovery()) {
+      return res.status(422).json({ ok: false, code: 'PRINTER_NOT_CONFIGURED', error: 'Save the printer address, serial number, and LAN access code before testing G-code access.' });
+    }
+    if (checkingGcode) {
+      return res.status(409).json({ ok: false, code: 'GCODE_CHECK_ACTIVE', error: 'A G-code connection check is already running. Wait for it to finish.' });
+    }
+
+    checkingGcode = true;
+    let failure;
+    try {
+      await checkGcodeConnection({ host: connection.url, accessCode: saved.accessCode, model: saved.model || saved.type });
+    } catch (err) {
+      failure = err instanceof GcodeError ? err : new GcodeError('GCODE_CHECK_FAILED', 'Could not check printer file access. Try again.', { status: 502 });
+    } finally {
+      checkingGcode = false;
+    }
+    const current = getConfig().printer;
+    if (!samePrinterConnection(saved, current) || saved.accessCode !== current.accessCode) {
+      return res.status(409).json({ ok: false, code: 'PRINTER_CHANGED', error: 'The saved printer changed during the check. Test the new connection.' });
+    }
+    if (failure) return res.status(failure.status).json({ ok: false, code: failure.code, error: failure.message });
+    return res.json({ ok: true, message: 'Secure G-code file access is available.' });
   });
 
   router.get('/status', (req, res) => {

@@ -83,16 +83,30 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
     res.setHeader('Cache-Control', 'no-store');
     res.status(error.status).json(redact({ error: error.code, code: error.code, detail: error.message, stage: error.stage, retryable: error.retryable, retryAfterMs: retryAfter, diagnostics: '/api/gcode/diagnostics' }));
   }
-  async function download(ctx) {
+  function download(ctx) {
     const controller = new AbortController();
     const started = now();
     const report = { schema: 1, startedAt: new Date(started).toISOString(), source: 'printer', printer: { model: ctx.printer.model || ctx.printer.type, port: 990 }, job: { task: ctx.job.task, name: ctx.job.name, plate: ctx.job.plate, plateKnown: ctx.job.plateKnown }, events: [] };
-    const work = { key: ctx.key, controller, promise: null };
+    const work = { key: ctx.key, controller, promise: null, readers: 0, finished: false,
+      progress: { phase: 'connect', bytes: 0, total: 0, activity: 0 } };
+    const updateProgress = event => {
+      const progress = work.progress;
+      const bytes = event.result === 'progress' ? event.bytes : 0;
+      const total = event.expectedBytes || 0;
+      const phaseChanged = event.stage !== progress.phase;
+      if (phaseChanged || bytes > progress.bytes) {
+        work.progress = { phase: event.stage, bytes, total, activity: progress.activity + 1 };
+      }
+    };
     active = work;
     work.promise = (async () => {
       try {
         const data = await fetchGcode({ host: ctx.printer.url, port: 990, accessCode: ctx.printer.accessCode, model: ctx.printer.model || ctx.printer.type, job: ctx.job, signal: controller.signal,
-          onEvent(event) { if (report.events.length < 100) report.events.push({ atMs: now() - started, ...event }); } });
+          onEvent(event) {
+            updateProgress(event);
+            if (event.result !== 'progress' && report.events.length < 100) report.events.push({ atMs: now() - started, ...event });
+          } });
+        updateProgress({ stage: 'cache' });
         await saveCache(ctx, data, controller.signal);
         failures.delete(ctx.key);
         Object.assign(report, { result: 'ok', bytes: data.length, durationMs: now() - started }); record(report);
@@ -107,10 +121,46 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
           if (failures.size > 50) failures.delete(failures.keys().next().value);
         }
         throw error;
-      } finally { if (active === work) active = null; }
+      } finally {
+        work.finished = true;
+        if (active === work) active = null;
+      }
     })();
-    return work.promise;
+    return work;
   }
+
+  async function serveDownload(res, ctx, work) {
+    work.readers++;
+    let released = false;
+    function release() {
+      if (released) return;
+      released = true;
+      if (--work.readers === 0 && !work.finished) {
+        if (active === work) active = null;
+        work.controller.abort();
+      }
+    }
+    res.once('close', release);
+    if (res.destroyed) release();
+    try {
+      const data = await work.promise;
+      if (res.destroyed) return;
+      await stillCurrent(ctx);
+      if (!res.destroyed) send(res, ctx, data);
+    } finally {
+      res.removeListener('close', release);
+      release();
+    }
+  }
+
+  router.get('/progress', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const ctx = await context(req);
+      if (active?.key === ctx.key) return res.json(active.progress);
+    } catch (_) { /* No confirmed current transfer. */ }
+    res.status(204).end();
+  });
   router.get('/diagnostics', async (_req, res) => {
     if (!latest) {
       try { latest = redact(JSON.parse(await fs.readFile(diagnosticPath, 'utf8'))); } catch (_) {}
@@ -126,28 +176,38 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
         try { const data = await fs.readFile(ctx.cachePath); if (data.length && data.length <= LIMITS.gcode) { await stillCurrent(ctx); return send(res, ctx, data); } } catch (err) { if (err instanceof GcodeError) throw err; }
       }
       if (!ctx.printer.url || !ctx.printer.accessCode || ctx.printer.accessCode === 'FILL_THIS_OUT') throw new GcodeError('PRINTER_NOT_CONFIGURED', 'Set the printer address and LAN access code in Setup.', { status: 422, stage: 'connect' });
-      if (active && active.key === ctx.key) return send(res, ctx, await active.promise);
+      if (active && active.key === ctx.key) return await serveDownload(res, ctx, active);
       const recent = failures.get(ctx.key);
       if (recent && recent.until > now() && req.query.retry !== '1') return fail(res, recent.error, recent.until - now());
       if (active) active.controller.abort();
-      return send(res, ctx, await download(ctx));
-    } catch (err) { fail(res, err, ctx ? Math.max(0, (failures.get(ctx.key)?.until || 0) - now()) : 0); }
+      return await serveDownload(res, ctx, download(ctx));
+    } catch (err) {
+      if (!res.destroyed) fail(res, err, ctx ? Math.max(0, (failures.get(ctx.key)?.until || 0) - now()) : 0);
+    }
   });
   // Raw G-code can be larger than a 3MF. The extractor applies the smaller
   // archive limit based on the file contents.
   router.post('/current', express.raw({ type: 'application/octet-stream', limit: LIMITS.gcode }), async (req, res) => {
     const started = now();
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    const { signal } = controller;
+    res.once('close', abort);
+    if (res.destroyed) abort();
     try {
       const ctx = await context(req);
       if (!Buffer.isBuffer(req.body) || !req.body.length) throw new GcodeError('FILE_REQUIRED', 'Choose the exact sliced .3mf or .gcode for this print.', { status: 400 });
       const report = { schema: 1, startedAt: new Date(started).toISOString(), source: 'manual', job: { name: ctx.job.name, plate: ctx.job.plate }, events: [] };
-      const data = await extractPlateGcode(req.body, { plate: ctx.job.plate, plateKnown: ctx.job.plateKnown, onEvent: event => report.events.push(event) });
-      await stillCurrent(ctx);
+      const data = await extractPlateGcode(req.body, { plate: ctx.job.plate, plateKnown: ctx.job.plateKnown, signal,
+        onEvent: event => { if (event.result !== 'progress') report.events.push(event); } });
+      await stillCurrent(ctx, signal);
       if (active?.key === ctx.key) { active.controller.abort(); active = null; }
-      await saveCache(ctx, data);
+      await saveCache(ctx, data, signal);
       failures.delete(ctx.key); Object.assign(report, { result: 'ok', bytes: data.length, durationMs: now() - started }); record(report);
-      send(res, ctx, data);
-    } catch (err) { fail(res, err); }
+      if (!res.destroyed) send(res, ctx, data);
+    } catch (err) {
+      if (!res.destroyed) fail(res, err);
+    } finally { res.removeListener('close', abort); }
   });
   router.use((err, _req, res, next) => {
     if (err.type === 'entity.too.large') return fail(res, new GcodeError('FILE_TOO_LARGE', `The file exceeds the ${toolpathMiB} MiB upload limit. Open this plate in Bambu Studio.`, { status: 413 }));

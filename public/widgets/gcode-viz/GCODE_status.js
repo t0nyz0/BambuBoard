@@ -4,7 +4,10 @@
   const tools = document.getElementById('gcodeRecovery');
   const log = [];
   let retry = () => location.reload();
+  let cancel = () => {};
   const fileButton = document.getElementById('gcodeFileButton');
+  const cancelButton = document.getElementById('gcodeCancel');
+  const downloadButton = document.getElementById('gcodeDownloadLog');
   window.BBGcodeUI = {
     log,
     message(text, kind) {
@@ -14,14 +17,17 @@
       overlay.textContent = text;
       for (const name of ['loading', 'error', 'waiting']) overlay.classList.toggle(name, kind === name);
       overlay.style.display = text ? (kind === 'waiting' ? 'flex' : 'block') : 'none';
-      tools.hidden = kind !== 'error';
-      this.recovery(true);
+      tools.hidden = kind !== 'error' && kind !== 'loading';
+      cancelButton.hidden = kind !== 'loading';
+      downloadButton.hidden = kind !== 'error';
+      this.recovery(kind === 'error');
     },
     recovery(available, canRetry = available) {
       document.getElementById('gcodeRetry').hidden = !canRetry;
       fileButton.hidden = !available;
     },
     bindRetry(callback) { retry = callback; },
+    bindCancel(callback) { cancel = callback; },
     allowFile(value) { fileButton.disabled = !value; },
     fail(error) {
       const detail = error?.message || String(error);
@@ -30,9 +36,10 @@
     },
   };
   document.getElementById('gcodeRetry').addEventListener('click', () => retry());
+  cancelButton.addEventListener('click', () => cancel());
   const fileInput = document.getElementById('gcodeFile');
   fileButton.addEventListener('click', () => fileInput.click());
-  document.getElementById('gcodeDownloadLog').addEventListener('click', async () => {
+  downloadButton.addEventListener('click', async () => {
     let server;
     try { server = await fetch('/api/gcode/diagnostics', { cache: 'no-store', signal: AbortSignal.timeout(10000) }).then(r => r.json()); }
     catch (_) { server = { result: 'unreachable', detail: 'BambuBoard diagnostic endpoint could not be reached.' }; }

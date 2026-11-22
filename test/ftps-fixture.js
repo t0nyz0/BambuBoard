@@ -20,7 +20,8 @@ function archive(entries) {
 }
 async function ftpsFixture(t, options = {}) {
   const cert = await certificate(await temporary(t));
-  const settings = { ...cert, minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2', sessionIdContext: 'bb-fixture' };
+  const version = options.tlsVersion || 'TLSv1.2';
+  const settings = { ...cert, minVersion: version, maxVersion: version, sessionIdContext: 'bb-fixture' };
   const sockets = new Set(), servers = [], commands = [], protocols = [], reused = [];
   const files = options.files || {};
   let connections = 0, downloads = 0;
@@ -35,7 +36,22 @@ async function ftpsFixture(t, options = {}) {
       socket.write('150 Data connection\r\n');
       const data = dataSocket; dataSocket = null;
       data.once('close', () => { if (!socket.destroyed && !options.stallCompletion) socket.write('226 Complete\r\n'); });
-      data.end(options.truncate ? body.subarray(0, Math.max(1, body.length - 5)) : body);
+      const payload = options.truncate ? body.subarray(0, Math.max(1, body.length - 5)) : body;
+      if (!options.slowData) return data.end(payload);
+      let sent = 0, timer;
+      function writeChunk() {
+        if (data.destroyed) return;
+        const end = Math.min(sent + options.slowData.bytes, payload.length);
+        const chunk = payload.subarray(sent, end);
+        sent = end;
+        if (sent === payload.length) data.end(chunk);
+        else {
+          data.write(chunk);
+          timer = setTimeout(writeChunk, options.slowData.interval);
+        }
+      }
+      data.once('close', () => clearTimeout(timer));
+      writeChunk();
     }
     async function passive(command) {
       const server = tls.createServer(settings, s => { track(s); reused.push(s.isSessionReused()); dataSocket = s; deliver(); });
@@ -61,6 +77,11 @@ async function ftpsFixture(t, options = {}) {
           else { downloads++; transfer = files[arg]; deliver(); }
         } else if (verb === 'LIST') {
           const directory = arg.replace(/^-a\s*/, '') || '/';
+          if (options.stallListing) continue;
+          if (options.listReplies?.[directory]) {
+            socket.write(options.listReplies[directory] + '\r\n');
+            continue;
+          }
           const prefix = directory === '/' ? '/' : directory.replace(/\/$/, '') + '/';
           const rows = Object.entries(files).filter(([name]) => name.startsWith(prefix) && !name.slice(prefix.length).includes('/')).map(([name, body]) => `-rw-r--r-- 1 bblp bblp ${body.length} Oct 07 12:00 ${name.slice(prefix.length)}\r\n`).join('');
           transfer = Buffer.from(rows); deliver();
@@ -71,6 +92,9 @@ async function ftpsFixture(t, options = {}) {
   });
   servers.push(control); control.listen(0, '127.0.0.1'); await once(control, 'listening');
   t.after(async () => { for (const socket of sockets) socket.destroy(); await Promise.all(servers.map(server => new Promise(resolve => server.close(resolve)))); });
-  return { port: control.address().port, commands, protocols, reused, get connections() { return connections; }, get downloads() { return downloads; } };
+  return {
+    port: control.address().port, commands, protocols, reused,
+    get connections() { return connections; }, get downloads() { return downloads; }, get openSockets() { return sockets.size; },
+  };
 }
 module.exports = { archive, ftpsFixture };

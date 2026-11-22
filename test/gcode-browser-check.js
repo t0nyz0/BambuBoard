@@ -9,15 +9,21 @@ const { archive, ftpsFixture } = require('./ftps-fixture');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode, LIMITS } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
-const { toolpathMiB, toolpathLines } = require('../public/js/gcode-limits');
+const { toolpathMiB } = require('../public/js/gcode-limits');
 const root = path.resolve(__dirname, '..');
 const firstLayer = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X10 Y70 E1\nG1 X10 Y10 E1\n';
 const lastLayer = 'G1 Z0.4\nG1 X70 Y10 E1\nG1 X70 Y70 E1\n';
 const sample = firstLayer + lastLayer;
+const modalPrefix = 'G90\nM82\nG92 E0\nT0\nG1 X10 Y10 Z0.2 F6000\nG1 X50 Y10 E1\nG1 X50 Y40 E2\n';
+const modalSuffix = 'M83\nT1\nG1 Z0.4\nG1 X10 Y40 E0.5\nG1 X10 Y10 E0.5';
+const modalSample = modalPrefix + modalSuffix;
+const denseSquare = 'G1 X30 Y20 E0.1\nG1 X30 Y30 E0.1\nG1 X20 Y30 E0.1\nG1 X20 Y20 E0.1\n';
+const denseArcs = 'G2 X70 Y50 I10 J0 E0.5\nG2 X50 Y50 I-10 J0 E0.5\n';
+const sampleBytes = Buffer.from(sample);
 const mebibyte = 1024 * 1024;
-const paddingLine = Buffer.from('; preview fixture padding 0123456789\n');
-const paddingLines = Math.ceil((92 * mebibyte - Buffer.byteLength(sample)) / paddingLine.length);
-const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLine.length;
+const paddingLine = Buffer.from('; fixture padding 0123456789\n');
+const paddingLines = Math.ceil((92 * mebibyte - Buffer.byteLength(modalSample)) / paddingLine.length);
+const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddingLine.length;
 (async () => {
   const cleanup = [], t = { after: fn => cleanup.push(fn) };
   const data = await temporary(t), artifacts = process.env.BB_SCREENSHOTS || await fs.mkdtemp(path.join(os.tmpdir(), 'bambuboard-gcode-browser-'));
@@ -27,7 +33,7 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
   let clock = Date.now(), mode = 'normal', count = 0, releaseSlow = null, telemetryBroken = false, telemetryStale = false;
   let printerConnection = 'online';
   let printerType = 'H2D';
-  let print;
+  let print, responseBody, pendingPrinter;
   const writePacket = async packet => {
     print = packet;
     const temp = path.join(data, 'data.json.tmp');
@@ -41,15 +47,33 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
     fetchGcode: async options => {
       count++;
       if (options.job.name === 'Slow job') return new Promise(resolve => { releaseSlow = () => resolve(Buffer.from(sample)); });
+      if (mode === 'slow-printer') {
+        for (let step = 1; step <= 8; step++) {
+          await new Promise(resolve => setTimeout(resolve, 240));
+          options.signal.throwIfAborted();
+          options.onEvent({ stage: 'download', result: 'progress', bytes: Math.floor(sampleBytes.length * step / 8), expectedBytes: sampleBytes.length });
+        }
+        return sampleBytes;
+      }
+      if (mode === 'stalled-printer') {
+        return new Promise((resolve, reject) => {
+          const request = pendingPrinter = { stopped: false };
+          options.signal.addEventListener('abort', () => {
+            request.stopped = true;
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      }
       if (mode === 'large') {
         const toolpath = Buffer.alloc(largeToolpathBytes);
-        const paddingStart = toolpath.write(firstLayer);
+        const paddingStart = toolpath.write(modalPrefix);
         const paddingEnd = paddingStart + paddingLines * paddingLine.length;
         toolpath.fill(paddingLine, paddingStart, paddingEnd);
-        toolpath.write(lastLayer, paddingEnd);
+        toolpath.write(modalSuffix, paddingEnd);
         return toolpath;
       }
-      if (mode === 'many-lines') return Buffer.from(sample + ';\n'.repeat(toolpathLines + 1));
+      if (mode === 'dense') return Buffer.from('G90\nM83\nG1 X20 Y20 Z0.2\n' + denseSquare.repeat(4000) + 'G1 Z0.4\n' + denseSquare);
+      if (mode === 'complexity') return Buffer.from('G90\nM83\nG1 X50 Y50 Z0.2\n' + denseArcs.repeat(80000));
       if (mode === 'unprintable') return Buffer.from('G90\nG1 X10 Y10 Z0.2\n');
       const limits = mode === 'oversize-archive' ? { ...LIMITS, archive: 10 } : LIMITS;
       return fetchPlateGcode({ ...options, port: ftp.port, limits });
@@ -62,6 +86,33 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.get('/api/gcode/current', (_req, res, next) => {
+    if (['slow-response', 'stalled-response', 'truncated-response'].includes(mode)) {
+      count++;
+      const sent = responseBody = { started: Date.now(), closed: false, bytes: 0 };
+      const truncated = mode === 'truncated-response';
+      res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(sampleBytes.length + (truncated ? 64 : 0)) });
+      if (truncated) res.set('Connection', 'close');
+      let interval;
+      res.on('close', () => { clearInterval(interval); sent.closed = true; });
+      const remaining = () => sampleBytes.subarray(sent.bytes);
+      const push = size => {
+        const chunk = remaining().subarray(0, size);
+        sent.bytes += chunk.length;
+        res.write(chunk);
+      };
+      if (truncated) {
+        push(sampleBytes.length);
+        return res.end();
+      }
+      push(mode === 'stalled-response' ? Buffer.byteLength(firstLayer) : 16);
+      if (mode === 'slow-response') {
+        interval = setInterval(() => {
+          push(16);
+          if (!remaining().length) { clearInterval(interval); res.end(); }
+        }, 240);
+      }
+      return;
+    }
     if (mode !== 'oversize') return next();
     // The viewer should refuse the declared size without reading the body.
     // Keep the response open for cancellation rather than allocating a 250 MiB fixture.
@@ -225,6 +276,112 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
     assert.equal((await fs.readdir(path.join(data, 'gcode-cache'))).length, 4);
     passed.push('A confirmed new print renders after a provisional report while its obsolete download is still pending');
 
+    // Accelerate the inactivity wait on this page only. The standalone
+    // fixture still uses real HTTP body chunks and actual progress responses.
+    await page.goto('about:blank');
+    const transport = await context.newPage();
+    await transport.addInitScript(() => {
+      window.__framedTestLines = 0;
+      const NativeWorker = window.Worker;
+      window.Worker = class extends NativeWorker {
+        constructor(url, options) {
+          super(url, options);
+          if (String(url).endsWith('/toolpath-reader-worker.js')) {
+            this.addEventListener('message', ({ data }) => { window.__framedTestLines += data.lines?.length || 0; });
+          }
+        }
+      };
+    });
+    await transport.route('**/js/gcode-limits.js', async route => {
+      const response = await route.fetch();
+      const source = await response.text();
+      const faster = source.replace(/\btransferIdleMs:\s*[\d_]+/, 'transferIdleMs: 1200')
+        .replace(/\btransferPollMs:\s*[\d_]+/, 'transferPollMs: 180');
+      assert.notEqual(faster, source, 'The production limit module supplies the inactivity timing');
+      await route.fulfill({ response, body: faster });
+    });
+    const transportOpen = async (nextMode, job, state = 'FINISH') => {
+      await transport.goto('about:blank');
+      responseBody = null;
+      mode = nextMode;
+      await write(job, state);
+      await transport.goto(base + '/widgets/gcode-viz/?debug=1');
+    };
+    const transportRendered = () => transport.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')) && window.__preview.renderer.info.render.calls > 0);
+    const progressReceipts = [];
+    transport.on('response', response => {
+      if (new URL(response.url()).pathname !== '/api/gcode/progress') return;
+      response.json().then(body => progressReceipts.push(body)).catch(() => {});
+    });
+    await transportOpen('slow-printer', 'Slowly progressing printer transfer');
+    await transportRendered();
+    assert.ok(new Set(progressReceipts.filter(item => item.bytes > 0).map(item => item.bytes)).size >= 2, 'The real progress route reports ongoing bytes before the response body starts');
+    assert.ok(await transport.evaluate(() => window.__loadingMessages.some(message => /Reading file from printer.*\d+%/.test(message))), 'Printer progress is visible before BambuBoard sends the toolpath');
+    passed.push('A progressing printer transfer outlasts the idle deadline while the viewer polls for actual activity');
+
+    await transportOpen('slow-response', 'Slowly progressing response body');
+    await transportRendered();
+    assert.ok(Date.now() - responseBody.started > 1200);
+    assert.equal(responseBody.bytes, sampleBytes.length);
+    passed.push('A progressing browser response outlasts the idle deadline and renders its full toolpath');
+
+    await transportOpen('stalled-printer', 'Stalled printer transfer');
+    await until(() => pendingPrinter);
+    await transport.locator('#gcodeOverlay').filter({ hasText: /No file data received/i }).waitFor();
+    assert.equal(await transport.locator('#gcodeRetry').isVisible(), true);
+    assert.equal(await transport.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
+    await until(() => pendingPrinter.stopped);
+    passed.push('A printer transfer that never sends headers times out and releases its obsolete backend download');
+
+    await transportOpen('stalled-response', 'Stalled response body');
+    await transport.locator('#gcodeOverlay').filter({ hasText: /No file data received/i }).waitFor();
+    await until(() => responseBody.closed);
+    assert.equal(await transport.locator('#gcodeRetry').isVisible(), true);
+    assert.equal(await transport.locator('#gcodeCancel').isVisible(), false);
+    assert.equal(await transport.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
+    passed.push('A stalled response is aborted and presents an actionable retry while the widget stays responsive');
+
+    await transportOpen('truncated-response', 'Interrupted response body');
+    await transport.locator('#gcodeOverlay.error').waitFor();
+    assert.match(await transport.locator('#gcodeOverlay').innerText(), /before all toolpath bytes|incomplete|truncat|interrupted|network|connection/i);
+    assert.equal(await transport.evaluate(() => window.__log().some(line => line.includes('loadGcode OK'))), false);
+    assert.equal(await transport.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
+    passed.push('A truncated HTTP response gives a transport error and never renders partial geometry');
+
+    await transportOpen('stalled-response', 'Canceled preview', 'RUNNING');
+    await until(() => responseBody?.bytes > 0);
+    await transport.waitForFunction(() => window.__framedTestLines >= 5);
+    await transport.locator('#gcodeCancel').click();
+    await transport.locator('#gcodeOverlay').filter({ hasText: /Toolpath loading canceled/i }).waitFor();
+    await until(() => responseBody.closed);
+    const afterCancel = count;
+    files['/Canceled preview.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
+    mode = 'normal';
+    clock += 300000;
+    await transport.evaluate(() => { window.__timeOffset += 300000; });
+    await transport.waitForTimeout(1800);
+    assert.equal(count, afterCancel, 'A user-canceled job stays canceled through later polls');
+    assert.equal(await transport.evaluate(() => window.__log().some(line => line.includes('loadGcode OK'))), false, 'Cancel must not publish a partial preview');
+    await transport.locator('#gcodeRetry').click();
+    await transportRendered();
+    assert.equal(count, afterCancel + 1);
+    passed.push('Cancel closes the active response, stops automatic retries and allows an explicit retry of the same job');
+
+    await transportOpen('stalled-response', 'Old in-flight body');
+    await until(() => responseBody?.bytes > 0);
+    await transport.waitForFunction(() => window.__framedTestLines >= 5);
+    const retiredBody = responseBody;
+    files['/Replacement after body abort.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': modalSample });
+    mode = 'normal';
+    await write('Replacement after body abort', 'FINISH');
+    await transportRendered();
+    await until(() => retiredBody.closed);
+    assert.ok(await transport.evaluate(() => window.__preview.layers.at(-1).commands.some(command => command.params.x === 10 && command.params.y === 10 && command.params.e === 0.5)));
+    assert.equal(await transport.evaluate(() => window.__preview.layers.some(layer => layer.commands.some(command => command.params?.x === 70))), false, 'The replacement must not include partially parsed geometry from its predecessor');
+    assert.equal(await transport.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length), 1);
+    await transport.close();
+    passed.push('Changing the print closes an obsolete partially read response and renders only the replacement geometry');
+
     const rectangle = (x1, y1, x2, y2, layers) => {
       const lines = ['G90', 'M83', 'G1 F6000'];
       for (let layer = 1; layer <= layers; layer++) lines.push(`G1 X${x1} Y${y1} Z${(layer * 0.2).toFixed(1)}`, `G1 X${x2} Y${y1} E1`, `G1 X${x2} Y${y2} E1`, `G1 X${x1} Y${y2} E1`, `G1 X${x1} Y${y1} E1`);
@@ -302,17 +459,38 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
     assert.equal(await frame.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length), 1);
     passed.push('Widget URL presets and editor updates change the actual camera and zoom without reloading the toolpath');
 
+    const renderedToolpath = (target = page) => target.evaluate(() => {
+      const preview = window.__preview;
+      const layers = preview.layers.map(layer => ({ height: layer.height,
+        commands: layer.commands.filter(command => command.gcode).map(command => [command.gcode, command.params]),
+      }));
+      const paths = [];
+      preview.scene.traverse(object => {
+        const position = object.geometry?.getAttribute('position');
+        if (object.material?.isLineBasicMaterial && position && !object.geometry.getAttribute('color')) {
+          paths.push(Array.from(position.array));
+        }
+      });
+      return { layers, paths };
+    });
+    files['/Small modal fixture.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': modalSample });
+    await write('Small modal fixture', 'FINISH'); await open(); await rendered();
+    const smallPreview = await renderedToolpath();
+    assert.equal(smallPreview.layers.length, 3, 'The pinned parser retains its prep layer before the two extrusion layers');
+    assert.ok(smallPreview.paths.some(path => path.length > 0), 'The comparison has real geometry');
+    assert.ok(smallPreview.layers.at(-1).commands.some(([code, params]) => code === 'g1' && params.x === 10 && params.y === 10 && params.e === 0.5), 'The last command without a newline reaches the final layer');
+
     assert.ok(largeToolpathBytes > 91.45 * mebibyte && largeToolpathBytes < 93 * mebibyte);
-    assert.ok(paddingLines + sample.split('\n').length < toolpathLines);
+    assert.ok(paddingLines > 3000000);
     mode = 'large'; await write('Large printable job', 'FINISH'); await open(); await rendered();
     const largeReport = await fetch(base + '/api/gcode/diagnostics').then(response => response.json());
     assert.equal(largeReport.bytes, largeToolpathBytes);
     const loading = await page.evaluate(() => window.__loadingMessages);
     for (const phase of ['Getting print file', 'Downloading print file', 'Processing toolpath', 'Rendering 3D preview']) assert.ok(loading.some(text => text.includes(phase)), JSON.stringify(loading));
-    assert.ok(loading.some(text => /Processing toolpath.*\d+%/.test(text)));
+    assert.ok(loading.some(text => /Downloading print file.*\d+%/.test(text)), 'Known body length shows meaningful download percentages');
     assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
     assert.equal(await page.locator('#gcodeOverlay').isVisible(), false);
-    assert.ok(await page.evaluate(() => window.__preview.layers.length >= 2), 'The extrusion after the padding is parsed and rendered');
+    assert.deepEqual(await renderedToolpath(), smallPreview, 'Over three million comment lines leave the modal commands, layers and WebGL geometry intact');
     assert.ok(await page.evaluate(() => window.__preview.endLayer === window.__preview.layers.length));
     await page.evaluate(() => {
       window.__drawCount = 0;
@@ -325,7 +503,37 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
     await page.setViewportSize({ width: 400, height: 320 });
     await page.waitForFunction(before => window.__drawCount > before, beforeResize);
     await page.setViewportSize({ width: 640, height: 640 });
-    passed.push('A 92 MiB toolpath above the previous 80 MiB cap renders with visible progress');
+    passed.push('A 92 MiB plate with over three million comment lines renders the exact small-file modal toolpath and layers with visible progress');
+
+    await page.goto('about:blank');
+    mode = 'normal';
+    files['/Worker unavailable.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': modalSample });
+    await write('Worker unavailable', 'FINISH');
+    const fallback = await context.newPage();
+    await fallback.addInitScript(() => { window.Worker = class { constructor() { throw new Error('Worker blocked in fixture'); } }; });
+    await fallback.goto(base + '/widgets/gcode-viz/?debug=1');
+    await fallback.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')));
+    assert.deepEqual(await renderedToolpath(fallback), smallPreview);
+    await fallback.close();
+    passed.push('The same bounded decoder preserves layers and geometry when the browser blocks Worker creation');
+
+    mode = 'dense'; await write('Dense printable plate', 'FINISH'); await open(); await rendered();
+    const densePreview = await renderedToolpath();
+    assert.equal(densePreview.layers.length, 3);
+    assert.equal(densePreview.layers[1].commands.filter(([code, params]) => code === 'g1' && params.e > 0).length, 16000);
+    assert.ok(densePreview.paths.some(path => path.length >= 16000 * 3), 'The dense printable fixture draws its actual motion geometry');
+    passed.push('A dense two-layer fixture renders all 16,000 extrusion moves on its first layer');
+
+    const beforeDenseOverflow = count;
+    mode = 'complexity'; await write('Dense arc plate above the geometry budget', 'FINISH'); await open();
+    await page.locator('#gcodeOverlay').filter({ hasText: /Bambu Studio/ }).waitFor();
+    assert.match(await page.locator('#gcodeOverlay').innerText(), /geometry|complex|dense|detail|preview capacity/i);
+    assert.equal(await page.locator('#gcodeRetry').isVisible(), false);
+    assert.equal(await page.locator('#gcodeFileButton').isVisible(), false);
+    assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
+    assert.equal(await page.evaluate(() => window.__log().some(line => line.includes('loadGcode OK'))), false);
+    assert.equal(count, beforeDenseOverflow + 1);
+    passed.push('A dense arc plate above the geometry budget offers Bambu Studio without rendering a partial path or retrying');
 
     mode = 'normal'; await write('Suspended animation frames', 'FINISH');
     files['/Suspended animation frames.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
@@ -359,11 +567,6 @@ const largeToolpathBytes = Buffer.byteLength(sample) + paddingLines * paddingLin
     assert.equal(await page.locator('#gcodeDownloadLog').isVisible(), true);
     assert.equal(count, beforeOversize + 1);
     let before = count; await page.waitForTimeout(1000); assert.equal(count, before);
-    mode = 'many-lines'; await write('Too many lines'); await open();
-    await page.waitForFunction(limit => document.getElementById('gcodeOverlay').textContent.includes(`${limit}-line`), toolpathLines.toLocaleString('en-US'));
-    assert.equal(await page.locator('#gcodeRetry').isVisible(), false);
-    assert.equal(await page.locator('#gcodeFileButton').isVisible(), false);
-    assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
     mode = 'unprintable'; await write('No extrusion'); await open();
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('no printable extrusion'));
     before = count; await page.waitForTimeout(1000); assert.equal(count, before);

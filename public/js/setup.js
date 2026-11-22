@@ -53,6 +53,9 @@
 
   const testButton = document.getElementById('test-btn');
   const testResult = document.getElementById('test-result');
+  const testGcodeButton = document.getElementById('test-gcode-btn');
+  const testGcodeHint = document.getElementById('test-gcode-hint');
+  const testGcodeResult = document.getElementById('test-gcode-result');
   const saveButton = document.getElementById('save-btn');
   const connectSection = document.getElementById('connect-step');
   const connectTitle = document.getElementById('connect');
@@ -64,6 +67,7 @@
   let latestStatus = null, statusUnavailable = false, reconnectUntil = 0;
   let statusVersion = 0, statusTimer, checkingCamera = false;
   let testing = false, saving = false, testVersion = 0;
+  let testingGcode = false, gcodeTestVersion = 0;
 
   if (isFirst) {
     document.body.classList.add('first-run');
@@ -78,9 +82,11 @@
   for (const id of ['p-url', 'p-port', 'p-sn', 'p-ac']) {
     document.getElementById(id).addEventListener('input', () => {
       testVersion++;
-      setTestResult('');
+      gcodeTestVersion++;
+      setTestResult(testResult, '');
+      setTestResult(testGcodeResult, '');
       updateAccessCodeStatus();
-      updateContinue();
+      updateButtons();
     });
   }
 
@@ -88,13 +94,13 @@
     const body = readPrinterFields();
     const missingDetails = printerDetailsError(body);
     if (missingDetails) {
-      setTestResult(missingDetails, 'error');
+      setTestResult(testResult, missingDetails, 'error');
       return;
     }
     const attempt = ++testVersion;
     testing = true;
     updateButtons();
-    setTestResult('Testing LAN connection…');
+    setTestResult(testResult, 'Testing LAN connection…');
     try {
       const r = await fetch('/api/test-connection', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -104,15 +110,39 @@
       const j = await r.json();
       if (attempt !== testVersion) return;
       if (r.ok && j.ok) {
-        setTestResult('Connection test passed. ' + (hasUnsavedCredentials() || !configured ?
+        setTestResult(testResult, 'Connection test passed. ' + (hasUnsavedCredentials() || !configured ?
           'Save to connect with these credentials.' : 'See the saved printer connection below.'), 'ok');
       } else {
-        setTestResult(j.error || 'Connection test failed.', 'error');
+        setTestResult(testResult, j.error || 'Connection test failed.', 'error');
       }
     } catch (_) {
-      if (attempt === testVersion) setTestResult('Could not complete the test. Try again.', 'error');
+      if (attempt === testVersion) setTestResult(testResult, 'Could not complete the test. Try again.', 'error');
     } finally {
       testing = false;
+      updateButtons();
+    }
+  });
+
+  testGcodeButton.addEventListener('click', async () => {
+    if (testGcodeButton.disabled) return;
+    const attempt = ++gcodeTestVersion;
+    testingGcode = true;
+    updateButtons();
+    setTestResult(testGcodeResult, 'Testing G-code connection…');
+    try {
+      const response = await fetch('/api/test-gcode-connection', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        signal: AbortSignal.timeout(12000),
+      });
+      const result = await response.json();
+      if (attempt !== gcodeTestVersion) return;
+      const success = response.ok && result.ok === true;
+      const resultMessage = success ? result.message : result.error;
+      setTestResult(testGcodeResult, typeof resultMessage === 'string' ? resultMessage : 'Could not confirm G-code access. Try again.', success ? 'ok' : 'error');
+    } catch (_) {
+      if (attempt === gcodeTestVersion) setTestResult(testGcodeResult, 'Could not complete the G-code check. Try again.', 'error');
+    } finally {
+      testingGcode = false;
       updateButtons();
     }
   });
@@ -131,12 +161,12 @@
     };
     const missingDetails = printerDetailsError(body.printer);
     if (missingDetails) {
-      setTestResult(missingDetails, 'error');
+      setTestResult(testResult, missingDetails, 'error');
       return;
     }
     const changedConnection = !configured || hasUnsavedCredentials();
     saving = true;
-    setTestResult('');
+    setTestResult(testResult, '');
     updateButtons();
     try {
       const r = await fetch('/api/settings', {
@@ -176,6 +206,7 @@
   continueButton.addEventListener('click', () => {
     location.href = isFirst ? '/scene-editor?firstRun=1' : '/scene-editor';
   });
+  updateButtons();
   if (configured) {
     revealConnectSection();
     if (location.hash === '#connect') connectTitle.focus();
@@ -215,14 +246,19 @@
       ? 'Saved. Leave blank to keep it.' : 'Enter the code from your printer.';
   }
 
-  function setTestResult(message, tone = '') {
-    testResult.hidden = !message;
-    testResult.className = 'test-result' + (tone ? ' ' + tone : '');
-    testResult.textContent = message;
+  function setTestResult(field, message, tone = '') {
+    field.hidden = !message;
+    field.className = 'test-result' + (tone ? ' ' + tone : '');
+    field.textContent = message;
   }
 
   function updateButtons() {
     testButton.disabled = saveButton.disabled = testing || saving;
+    const dirty = hasUnsavedCredentials();
+    testGcodeButton.disabled = !configured || dirty || saving || testingGcode;
+    testGcodeHint.textContent = dirty
+      ? 'Save the printer changes before checking G-code access.'
+      : 'Checks whether BambuBoard can access files on the saved printer.';
     updateContinue();
   }
 

@@ -56,6 +56,12 @@
         </div>
         <div class="card-row"><span>Camera</span><span id="connect-camera" class="text-dim">Checking…</span></div>
         <p id="connect-camera-hint" class="text-dim"></p>
+        <div class="card-row">
+          <span>G-code file access</span>
+          <button id="test-gcode-btn" class="btn" type="button" aria-describedby="test-gcode-hint" disabled>Test G-code connection</button>
+        </div>
+        <p id="test-gcode-hint" class="text-dim">Checks whether BambuBoard can access files on the saved printer.</p>
+        <div role="status"><p class="test-result" id="test-gcode-result" hidden></p></div>
         <p id="connect-next" class="text-dim" role="status">Checking the saved printer connection.</p>
         <div class="btn-row" style="justify-content:flex-end; margin-top:var(--space-3)">
           <button id="continue-btn" class="btn btn-primary" type="button" aria-describedby="connect-next" disabled>Continue to Layout →</button>
