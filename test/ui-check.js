@@ -14,10 +14,10 @@ const fixture = () => ({
   transitions: [{ name: 'Cut', id: 'cut_transition', settings: {} }], fixtureMarker: 'preserve unknown metadata',
   sources: [
     { name: 'Backdrop', id: 'color_source', settings: { width: 2560, height: 1440, color: 4278190080 } },
-    { name: 'First AMS', uuid: 'qa-ams-one', id: 'browser_source', settings: { width: 400, height: 460, url: 'http://old-host.invalid/widgets/ams/?ams=2&title=Before' } },
+    { name: 'First AMS', uuid: 'qa-ams-one', id: 'browser_source', settings: { width: 400, height: 58, url: 'http://old-host.invalid/widgets/ams/?ams=2&title=Before' } },
     { name: 'Second AMS', uuid: 'qa-ams-two', id: 'browser_source', settings: { width: 400, height: 460, url: 'http://old-host.invalid/widgets/ams/?ams=3&title=Keep&theme=light' } },
     { name: 'Progress', uuid: 'qa-progress', id: 'browser_source', settings: { width: 600, height: 80, url: 'http://old-host.invalid/widgets/progress-info/' } },
-    { name: 'Main', id: 'scene', settings: { items: [item('Backdrop', 0, 0), item('First AMS', 20, 120), { ...item('Second AMS', 900, 500), align: 0 }] } },
+    { name: 'Main', id: 'scene', settings: { items: [item('Backdrop', 0, 0), item('First AMS', 20, 120), { ...item('Second AMS', 900, 500), align: 0, scale: { x: 0.9, y: 1 } }] } },
     { name: 'Second scene', id: 'scene', settings: { items: [item('Progress', 100, 100)] } },
   ],
 });
@@ -42,7 +42,7 @@ async function runEngine(name, artifactDir) {
       try { if ((await fetch(base + '/api/status')).ok) break; } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    browser = await engines[name].launch({ headless: true });
+    browser = await engines[name].launch({ headless: true, ...(name === 'chromium' && process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: 'dark', reducedMotion: 'reduce' });
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     context.on('request', request => { if (!request.url().startsWith(base) && !request.url().startsWith('data:')) external.add(request.url()); });
@@ -62,9 +62,9 @@ async function runEngine(name, artifactDir) {
         page.locator('#save-btn').click(),
       ]);
       assert.equal((await response.json()).ok, true);
-      await page.waitForFunction(() => !document.getElementById('save-btn').disabled && ['Draft saved', 'Published to /live'].includes(document.getElementById('draft-state').textContent));
+      await page.waitForFunction(() => ['Draft saved', 'Draft saved · Live'].includes(document.getElementById('draft-state').textContent));
     };
-    const select = async layer => page.locator('.layer-row').filter({ hasText: layer }).click();
+    const select = async layer => page.getByText(layer, { exact: true }).and(page.locator('.lr-name')).click();
     const openEditor = async () => { await page.goto(base + '/scene-editor'); await page.waitForSelector('.scene-item'); await page.evaluate(() => document.fonts.ready); };
     const audit = async label => {
       const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).exclude('#canvas').exclude('#live-frame').analyze();
@@ -89,7 +89,12 @@ async function runEngine(name, artifactDir) {
     assert.ok(samplePixels[0].every((value, index) => Math.abs(value - samplePixels[1][index]) < 5), `Transparent widget backdrop differs between Layout and /live: ${JSON.stringify(samplePixels)}`);
     await output.close(); passed.push('Transparent widget pixels match between the dark editor and published output');
     await audit('Layout inspector');
-    await page.locator('#bindings-block').evaluate(node => { node.open = true; });
+    await page.locator('#bindings-block').evaluate(node => {
+      node.open = true;
+      for (let ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if (ancestor.tagName === 'DETAILS') ancestor.open = true;
+      }
+    });
     await audit('Telemetry bindings');
     await page.locator('#widget-drawer-btn').click(); await audit('Widget library'); await page.locator('#widget-drawer-close').click();
     for (const route of ['/', '/setup', '/login']) {
@@ -122,7 +127,51 @@ async function runEngine(name, artifactDir) {
     passed.push('WCAG automated scan on six management states');
 
     await openEditor(); await select('First AMS');
-    await page.locator('#cust-title').fill('');
+    const widgetFrame = () => page.frameLocator('.scene-item.selected iframe').locator('body');
+    const viewport = () => widgetFrame().evaluate(body => ({
+      height: window.innerHeight,
+      contentHeight: Math.max(body.scrollHeight, document.documentElement.scrollHeight),
+    }));
+    const waitForWidgetHeight = expected => page.waitForFunction(height => {
+      const iframe = document.querySelector('.scene-item.selected iframe');
+      return iframe?.contentWindow?.innerHeight === height;
+    }, expected);
+    await waitForWidgetHeight(58);
+    const clipped = await viewport();
+    assert.ok(clipped.contentHeight > clipped.height, 'AMS content should overflow the intentionally small fixture');
+    await edit('#insp-h', 220); await waitForWidgetHeight(220);
+    assert.equal(await page.locator('.scene-item.selected iframe').evaluate(frame => new DOMMatrix(getComputedStyle(frame).transform).d), 1);
+    await page.locator('#autosize-btn').click();
+    await page.waitForFunction(() => {
+      const frame = document.querySelector('.scene-item.selected iframe');
+      const height = Number(document.querySelector('#insp-h').value);
+      return height > 220 && frame?.contentWindow?.innerHeight === height;
+    });
+    const fitted = await viewport();
+    assert.ok(fitted.height >= fitted.contentHeight);
+    await page.locator('#undo-btn').click(); await waitForWidgetHeight(220);
+    await page.locator('#undo-btn').click(); await waitForWidgetHeight(58);
+    passed.push('Widget dimensions reflow clipped AMS content without stretching; Fit to content grows the viewport and is undoable');
+
+    await page.evaluate(() => {
+      window.changedPreviewSources = [];
+      new MutationObserver(records => {
+        for (const { target } of records) window.changedPreviewSources.push(target.title);
+      }).observe(document.getElementById('canvas'), { subtree: true, attributes: true, attributeFilter: ['src'] });
+    });
+    const title = page.locator('#cust-title');
+    await title.fill('Pending title');
+    await page.frameLocator('.scene-item.selected iframe').locator('body').evaluate(() => {
+      parent.postMessage({ type: 'bambuboard:size', slug: 'ams', w: 493, h: 376 }, location.origin);
+    });
+    await page.waitForFunction(() => !document.querySelector('#autosize-btn').disabled);
+    assert.equal(await title.inputValue(), 'Pending title', 'Preview measurements must preserve the field being edited');
+    assert.equal(await page.evaluate(() => window.changedPreviewSources.length), 0, 'Typing in an appearance field must not reload the preview');
+    await title.press('Enter');
+    await page.waitForFunction(() => window.changedPreviewSources.length === 1);
+    assert.deepEqual(await page.evaluate(() => window.changedPreviewSources), ['First AMS']);
+    await title.fill('');
+    await title.press('Enter');
     assert.equal(await page.locator('#draft-state').innerText(), 'Unsaved changes', 'Removing the final styling parameter is an edit');
     await save();
     let scene = await saved();
@@ -130,26 +179,46 @@ async function runEngine(name, artifactDir) {
     assert.equal(query.has('title'), false); assert.equal(query.get('ams'), '2');
     assert.equal(new URL(scene.sources.find(s => s.name === 'Second AMS').settings.url).searchParams.get('title'), 'Keep');
     assert.deepEqual(await request('/api/obs/published'), original, 'Upgrade snapshots survive draft saves');
-    passed.push('Legacy upgrade and clearing independent duplicate-widget styling');
+    passed.push('Legacy upgrade, committed widget edits reload only the affected iframe, and duplicate widget styling stays independent');
 
-    await select('Second AMS'); await edit('#insp-x', 950);
+    await select('Second AMS');
+    const scale = () => page.locator('.scene-item.selected iframe').evaluate(frame => {
+      const matrix = new DOMMatrix(frame.style.transform);
+      return [matrix.a, matrix.d].map(value => Math.round(value * 10000) / 10000);
+    });
+    assert.deepEqual(await scale(), [0.9, 1]);
+    await page.getByRole('button', { name: 'Remove stretching' }).click();
+    await page.locator('#reset-stretch').waitFor({ state: 'hidden' });
+    assert.deepEqual(await scale(), [0.9, 0.9]);
+    await page.locator('#undo-btn').click();
+    assert.deepEqual(await scale(), [0.9, 1]);
+    await edit('#insp-x', 950);
     const beforeReload = await page.locator('.scene-item.selected').boundingBox();
     await save(); await page.reload(); await page.waitForSelector('.scene-item'); await select('Second AMS');
     const afterReload = await page.locator('.scene-item.selected').boundingBox();
     assert.ok(Math.abs(beforeReload.x - afterReload.x) < 1, 'Anchor-aligned sources must stay in the same place after saving and reloading');
     passed.push('Anchor-aligned geometry is stable before and after reload');
 
-    await select('First AMS'); await edit('#insp-x', 321);
+    await page.locator('#scene-picker').selectOption('Second scene');
+    assert.equal(await page.locator('#draft-state').innerText(), 'Draft saved', 'Browsing scenes must not dirty the draft');
+    assert.equal(await page.locator('#live-scene-picker').inputValue(), 'Main', 'Browsing must not choose a new live scene');
+    await page.locator('#scene-picker').selectOption('Main'); await select('First AMS'); await edit('#insp-x', 321);
     await page.locator('#scene-picker').selectOption('Second scene');
     await select('Progress'); await edit('#insp-y', 234);
     await page.locator('#scene-picker').selectOption('Main'); await select('First AMS');
     assert.equal(await page.locator('#insp-x').inputValue(), '321', 'Switching scenes must retain pending geometry');
+    await page.locator('#undo-btn').click();
+    assert.notEqual(await page.locator('#insp-x').inputValue(), '321');
+    await page.locator('#redo-btn').click();
+    assert.equal(await page.locator('#insp-x').inputValue(), '321');
     await save(); scene = await saved();
     assert.equal(scene.sources.find(s => s.name === 'Second scene').settings.items[0].pos.y, 234);
     assert.equal(scene.fixtureMarker, original.fixtureMarker); assert.deepEqual(scene.transitions, original.transitions);
     passed.push('Multi-scene edits and unrelated OBS metadata survive round-trip');
 
     await page.locator('#insp-locked').check();
+    assert.equal(await page.locator('#insp-x').isEnabled(), false, 'Inspector geometry must respect layer lock');
+    assert.equal(await page.locator('#cust-title').isEnabled(), false, 'Appearance must respect layer lock');
     await page.locator('.layer-row.selected .lr-name').focus(); await page.keyboard.press('Shift+ArrowRight');
     assert.equal(await page.locator('#insp-x').inputValue(), '321', 'Keyboard movement must respect layer lock');
     await page.locator('#insp-locked').uncheck();
@@ -187,9 +256,11 @@ async function runEngine(name, artifactDir) {
     passed.push('In-flight save preserves newer edits and prevents overlapping publish');
 
     await edit('#insp-x', 430);
+    assert.equal(await page.locator('#golive-btn').isEnabled(), false, 'Apply to Live requires a separately saved revision');
+    await save();
     await page.route('**/api/obs/active', route => route.request().method() === 'POST' ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Fixture failure"}' }) : route.continue());
     await page.locator('#golive-btn').click();
-    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('Publish failed')));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /apply.+failed|fixture failure/i.test(t.textContent)));
     assert.equal(await page.locator('#draft-state').innerText(), 'Draft saved');
     assert.deepEqual(await request('/api/obs/published'), original);
     assert.equal(await page.locator('#golive-btn').isEnabled(), true);
@@ -200,7 +271,7 @@ async function runEngine(name, artifactDir) {
     await live.locator('.live-item').first().evaluate(node => { node.dataset.qaIdentity = 'stable'; });
     await save(); await live.waitForTimeout(2200);
     assert.equal(await live.locator('[data-qa-identity="stable"]').count(), 1, 'Draft save must not remount the live output');
-    await page.locator('#golive-btn').click(); await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Published to /live');
+    await page.locator('#golive-btn').click(); await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved · Live');
     await live.waitForFunction(() => !document.querySelector('[data-qa-identity="stable"]'));
     const published = await request('/api/obs/published');
     const exportScene = await request('/api/obs/single-source');
@@ -212,8 +283,36 @@ async function runEngine(name, artifactDir) {
     page.once('dialog', dialog => dialog.dismiss()); await page.locator('#loader').selectOption('tpl:default-x1');
     assert.equal(await page.locator('#loader').inputValue(), 'scn:Upgrade');
     assert.equal(await page.locator('#insp-x').inputValue(), '999');
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.locator('#reset-btn').click(); assert.equal(await page.locator('#insp-x').inputValue(), '999');
+    page.once('dialog', dialog => dialog.accept());
     await page.locator('#reset-btn').click(); await select('First AMS'); assert.equal(await page.locator('#insp-x').inputValue(), '430');
-    passed.push('Discard cancellation and reset recover the correct saved draft');
+    await page.locator('#undo-btn').click(); await select('First AMS'); assert.equal(await page.locator('#insp-x').inputValue(), '999');
+    await page.locator('#redo-btn').click(); await select('First AMS'); assert.equal(await page.locator('#insp-x').inputValue(), '430');
+    passed.push('Discard and reset can be cancelled; reset has an undo and redo');
+
+    const draftName = page.locator('#draft-name');
+    await draftName.fill('Renamed fixture');
+    await draftName.press('Tab');
+    assert.equal(await page.locator('#draft-state').innerText(), 'Unsaved changes');
+    await page.locator('#undo-btn').click();
+    assert.equal(await draftName.inputValue(), 'Upgrade');
+    await page.locator('#redo-btn').click();
+    await page.locator('#live-scene-picker').selectOption('Second scene');
+    await save();
+    assert.ok((await request('/api/obs/scenes')).some(draft => draft.slug === 'Upgrade' && draft.name === 'Renamed fixture'));
+    assert.deepEqual(await request('/api/obs/published'), published);
+    await page.locator('#golive-btn').click();
+    await page.waitForFunction(() => document.querySelector('#live-state').textContent.includes('Renamed fixture / Second scene'));
+    assert.equal((await request('/api/obs/published')).current_program_scene, 'Second scene');
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.locator('#restore-live-btn').click();
+    assert.equal((await request('/api/obs/published')).current_program_scene, 'Second scene');
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#restore-live-btn').click();
+    await page.waitForFunction(() => document.querySelector('#live-state').textContent.includes('Upgrade / Main'));
+    assert.deepEqual(await request('/api/obs/published'), published);
+    passed.push('Renaming retains draft ID and participates in history; Apply chooses the saved scene and Restore reinstates the previous output');
 
     const layouts = [];
     for (const width of [1440, 1024, 736, 390, 320]) {
@@ -238,10 +337,42 @@ async function runEngine(name, artifactDir) {
         layouts.push({ width, route });
       }
     }
-    await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto(base + '/setup');
+    await page.setViewportSize({ width: 390, height: 844 }); await openEditor();
+    const preview = await page.locator('#canvas-shell').boundingBox();
+    assert.ok(preview.y < 844, 'The canvas should be visible before scrolling on a 390 × 844 phone');
+    const phoneLayer = page.getByRole('button', { name: 'Select First AMS', exact: true });
+    await phoneLayer.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.id === 'inspector-heading');
+    assert.equal(await page.locator('#inspector').isVisible(), true);
+    assert.equal(await page.locator('#layers-panel').isVisible(), false);
+    assert.equal(await page.locator('#inspector-advanced').getAttribute('open'), null);
+    const geometryInput = await page.locator('#insp-x').boundingBox();
+    assert.ok(geometryInput.height >= 44, 'Phone inspector controls should be usable touch targets');
+    if (name === 'chromium') await page.screenshot({ path: path.join(artifactDir, 'editor-inspector-phone.png') });
+    await audit('Phone inspector');
+    await page.locator('#inspector-close').click();
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'layers-panel-btn');
+    assert.equal(await page.locator('#layers-panel').isVisible(), true);
+    passed.push('Phone canvas starts in view, keyboard selection reaches the Inspector and closing restores focus');
+    assert.deepEqual(accessibility.flatMap(a => a.violations), [], 'Management UI accessibility violations');
+    await fs.writeFile(path.join(artifactDir, `accessibility-${name}.json`), JSON.stringify(accessibility, null, 2));
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    let catalogAvailable = false;
+    await page.route('**/api/widgets', route => catalogAvailable ? route.continue() : route.fulfill({ status: 503, json: { error: 'Fixture unavailable' } }));
+    await openEditor();
+    await page.locator('#widget-drawer-btn').click();
+    const retryCatalog = page.getByRole('button', { name: 'Retry loading widgets' });
+    await retryCatalog.waitFor();
+    assert.match(await page.locator('#widget-drawer-list').innerText(), /Could not load the widget catalog/);
+    catalogAvailable = true;
+    await retryCatalog.click();
+    await page.locator('#widget-drawer-list .drawer-widget').first().waitFor();
+    await page.unroute('**/api/widgets');
+    passed.push('Widget catalog shows an error and Retry recovers without reloading the editor');
+    await page.goto(base + '/setup');
     await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');
     await page.locator('#p-sn').fill(''); await page.locator('#save-btn').click();
-    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('Enter the printer')));
+    await page.waitForFunction(() => document.getElementById('test-result').textContent.includes('Enter the printer'));
     const config = JSON.parse(await fs.readFile(path.join(data, 'config.json'), 'utf8'));
     assert.equal(config.printer.serialNumber, 'QA');
     passed.push('Expanded responsive controls, reduced motion and incomplete Setup validation');

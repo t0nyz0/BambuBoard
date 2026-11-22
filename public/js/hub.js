@@ -17,7 +17,7 @@
       const r = await fetch('/api/obs/active', { cache: 'no-store' });
       if (!r.ok) throw new Error();
       const a = await r.json();
-      $('active-line').textContent = a.slug || a.label || 'Default scene';
+      $('active-line').textContent = a.name || a.label || a.slug || 'Default scene';
       $('publication-state').textContent = a.slug ? 'Published' : 'Default layout';
       $('publication-state').className = 'pill' + (a.slug ? ' pill-ok' : '');
       $('output-label').textContent = a.slug ? 'Published output' : 'Default output · nothing published yet';

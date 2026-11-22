@@ -12,17 +12,12 @@
 <body>
   <main class="page setup-page">
 
-    <div class="firstrun-hero" id="firstrun-hero" style="display:none">
-      <h1>Welcome to BambuBoard</h1>
-      <p>Tell us about your printer to get started. You'll need its IP address, serial number, and LAN access code (find these in Bambu Studio under Device → Access Code).</p>
-    </div>
-
-    <header class="page-heading"><div><p class="eyebrow">Printer connection</p><h1>Setup</h1><p class="text-dim">Connect one printer. Camera and telemetry stay on your local network.</p></div><a class="btn" href="#cloud-section">Cloud settings</a></header>
+    <header class="page-heading"><div><h1 id="setup-title">Setup</h1><p id="setup-intro" class="text-dim">Connect one printer. Camera and telemetry stay on your local network.</p></div><a class="btn" href="#cloud-section">Cloud settings</a></header>
     <div class="setup-grid">
       <div class="setup-main">
 
       <section class="card">
-        <h3 class="card-title">Printer</h3>
+        <h2 class="card-title">Printer</h2>
         <label class="field"><span>Name</span><input id="p-name" class="input" placeholder="My Printer"></label>
         <!-- Printer type is auto-detected from MQTT after Connect (see Step 2).
              We keep #p-type as a hidden input so existing setup.js logic still
@@ -35,33 +30,26 @@
           <span>LAN access code <small id="p-ac-status" class="text-dim"></small></span>
           <div class="access-code-row">
             <input id="p-ac" class="input" type="password" placeholder="••••••••" autocomplete="off">
-            <button id="show-ac" class="btn btn-ghost" type="button">Show</button>
+            <button id="show-ac" class="btn btn-ghost" type="button" aria-controls="p-ac" aria-pressed="false">Show</button>
           </div>
         </label>
         <details class="advanced-connection"><summary>Advanced connection settings</summary><label class="field"><span>MQTT port</span><input id="p-port" class="input" inputmode="numeric" placeholder="8883"></label></details>
         <div class="btn-row">
           <button id="save-btn" class="btn btn-primary" type="button">Save settings</button>
-          <button id="test-btn" class="btn" type="button">Test connection</button>
-          <span class="test-result" id="test-result" role="status"></span>
+          <button id="test-btn" class="btn" type="button" aria-describedby="test-hint">Test LAN connection</button>
         </div>
+        <p id="test-hint" class="text-dim">Testing checks the printer address and LAN access code. Saving starts telemetry.</p>
+        <div role="status"><p class="test-result" id="test-result" hidden></p></div>
       </section>
 
-      <!-- Step 2: Connect. Hidden until the user has either saved valid
-           credentials in this session or already had a complete config.
-           setup.js polls /api/status every 1s while this section is visible
-           and updates the UI as MQTT connects and the printer auto-identifies
-           via the get_version response. -->
-      <section class="card" id="connect-step" style="display:none">
-        <h3 class="card-title" id="connect-anchor">
-          <a id="connect-anchor-link" href="#connect" style="color:inherit;text-decoration:none">Connection status</a>
-        </h3>
-        <p class="text-dim">After saving credentials we connect to the printer and ask it to identify itself. This usually takes 2–5 seconds.</p>
+      <section class="card" id="connect-step" aria-labelledby="connect" hidden>
+        <h2 class="card-title" id="connect" tabindex="-1">Saved printer connection</h2>
         <div class="card-row">
-          <span>MQTT</span>
-          <span class="pill" id="connect-mqtt">Waiting…</span>
+          <span>Printer connection</span>
+          <span class="pill" id="connect-mqtt">Checking…</span>
         </div>
         <div class="card-row">
-          <span>Detected printer</span>
+          <span>Printer model</span>
           <span id="connect-detected" class="text-mono">—</span>
         </div>
         <div class="card-row">
@@ -70,14 +58,15 @@
         </div>
         <div class="card-row"><span>Camera</span><span id="connect-camera" class="text-dim">Checking…</span></div>
         <p id="connect-camera-hint" class="text-dim"></p>
+        <p id="connect-next" class="text-dim" role="status">Checking the saved printer connection.</p>
         <div class="btn-row" style="justify-content:flex-end; margin-top:var(--space-3)">
-          <button id="continue-btn" class="btn btn-primary" type="button" disabled>Continue to Layout →</button>
+          <button id="continue-btn" class="btn btn-primary" type="button" aria-describedby="connect-next" disabled>Continue to Layout →</button>
         </div>
       </section>
 
       <details class="card display-preferences">
         <summary class="card-title">Display preferences</summary>
-        <p class="text-dim">Use Save settings above to apply these preferences.</p>
+        <p class="text-dim">Use the save button above to apply these preferences.</p>
         <label class="field"><span>Temperature unit</span>
           <select id="temp" class="select">
             <option value="Celsius">Celsius</option>
@@ -180,10 +169,5 @@
 
   <script src="/js/nav.js"></script>
   <script src="/js/setup.js"></script>
-  <script>
-    if (new URLSearchParams(location.search).get('firstRun') === '1') {
-      document.getElementById('firstrun-hero').style.display = '';
-    }
-  </script>
 </body>
 </html>

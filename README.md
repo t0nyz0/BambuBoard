@@ -5,7 +5,7 @@
 # BambuBoard
 
 **Live print overlays for Bambu Lab printers, built for streamers.**
-Design a dashboard once, click **Publish to /live**, and add a *single* Browser Source to OBS — camera and all widgets composited into one page. No scene import, no SDP file, no Bambu Studio.
+Design a dashboard, save the draft, and choose **Apply to Live**. Add a *single* Browser Source to OBS for the camera and widgets together.
 
 <br>
 
@@ -13,7 +13,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-58-51a34f?style=flat-square)](docs/qa-3.3.1.md)
+[![Server tests](https://img.shields.io/badge/server_tests-60-51a34f?style=flat-square)](docs/qa-3.3.1.md)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 **Setup → Connect → Layout → Publish.** One printer per BambuBoard instance.
@@ -39,7 +39,7 @@ Design a dashboard once, click **Publish to /live**, and add a *single* Browser 
     </td>
     <td width="50%" valign="top">
       <h4>Layout editor</h4>
-      <p>Arrange widgets using the canvas, Layers panel and docked inspector. Save a draft, then Publish to /live when it is ready.</p>
+      <p>Arrange widgets using the canvas, Layers panel and inspector. Save a draft, then choose Apply to Live when it is ready.</p>
       <a href="screenshots/STUDIO-LAYOUT.png"><img src="screenshots/STUDIO-LAYOUT.png" alt="Layout editor" width="100%"></a>
     </td>
   </tr>
@@ -51,7 +51,7 @@ Screenshots show the actual app in an isolated demo installation, with sample te
 
 ## What it does
 
-- **Design and publish an overlay.** Arrange widgets with drag/resize, Layers, grid snapping and Undo/Redo. **Save draft** preserves your edits; **Publish to /live** updates the broadcast. Draft edits and deletions leave the published snapshot intact.
+- **Design and apply an overlay.** Arrange widgets with drag/resize, Layers, grid snapping and Undo/Redo. **Save draft** keeps your edits. **Apply to Live** updates the output with the saved revision and selected live scene. Use **Restore previous live** to bring back the previous output.
 - **Show printer telemetry and camera together.** Progress, temperatures, fans, AMS trays and reported drying status sit alongside a camera feed relayed by BambuBoard. Camera transport is selected from the printer's detected type.
 - **Preview the sliced toolpath.** The experimental G-code widget downloads the current print over FTPS, validates sliced archives and offers retries, diagnostics and manual file recovery. Nozzle motion is estimated from layers/progress and G-code timing; it can drift during complex or multi-color prints.
 - **Run on your LAN.** App scripts, fonts and other assets are bundled locally. Core telemetry, camera and toolpath features do not require cloud sign-in. Optional Bambu Cloud data supplies MakerWorld content and extra print details.
@@ -111,7 +111,7 @@ Have your printer's **IP address, serial number and LAN access code** ready. The
 
 1. **Setup** (`/setup`) — Enter the credentials, save settings and test the connection. MQTT port and display preferences are in secondary sections.
 2. **Connect** (`/setup#connect`) — Check MQTT, telemetry and camera status. The app requests the printer's model over MQTT; **Continue to Layout →** becomes available once it is connected and identified.
-3. **Layout** (`/scene-editor`) — Open a saved draft or start with a default template. Arrange and style your widgets, then **Publish to /live** when ready.
+3. **Layout** (`/scene-editor`) — Open a saved draft or start with a default template. Select a widget and use **Fit to content** when details are cut off. **Width** and **Height** change how much room its content has. Use **Advanced → Scale on canvas** to change its display size. Choose the **Scene to show live** and save the draft. When ready, select **Apply to Live**.
 4. **Live workspace** (`/`) — Preview the published output and copy its URL. Add one OBS Browser Source pointing at **`http://<your-host>:8080/live`**, or use **Download OBS scene** and import the exported collection into OBS.
 
 **`/live` is the broadcast output; `/` is the management page.** The broadcast renders the published snapshot, falling back to a matching default template before the first publication. Re-publish to update it automatically. If OBS runs on another machine, use the BambuBoard host's address rather than `localhost`.

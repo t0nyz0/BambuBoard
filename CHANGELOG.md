@@ -8,6 +8,21 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## 3.3.2
+
+### Changed
+
+- Separate **Save draft** from **Apply to Live** so layout edits stay off the broadcast until they are ready. Restore the previous live layout when needed.
+- Make widget width and height control the content area. Use **Fit to content** to make room for clipped content, scale proportionally when needed, or use **Remove stretching** on imported widgets.
+- Clarify printer connection and layout setup so first-time users can see what to do next.
+
+### Fixed
+
+- Reject duplicate draft names and stale saves. Preserve undo after resetting or switching scenes, respect locked layers, and keep widget previews loaded while editing.
+- Show a retry action when the widget catalog is unavailable.
+
+---
+
 ## 3.3.1 — 2026-10-13
 
 ### Changed

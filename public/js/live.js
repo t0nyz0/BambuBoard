@@ -249,10 +249,10 @@
     stage.style.top = Math.round((window.innerHeight - sh) / 2) + 'px';
   }
 
-  async function render() {
-    let slug, json;
+  async function render(outputName) {
+    const label = FORCED_SCENE || outputName || 'Published output';
+    let json;
     try {
-      slug = FORCED_SCENE || 'Published output';
       const url = FORCED_SCENE ? `/api/obs/scenes/${encodeURIComponent(FORCED_SCENE)}` : '/api/obs/published';
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -268,7 +268,7 @@
     stage.style.height = CANVAS_H + 'px';
 
     const scene = activeSceneOf(json);
-    if (!scene) { showMsg(`Scene "${slug}" has no renderable scene source.`); return; }
+    if (!scene) { showMsg(`Scene "${label}" has no renderable scene source.`); return; }
 
     const sourcesByName = {};
     (json.sources || []).forEach(s => { if (s && s.name) sourcesByName[s.name] = s; });
@@ -292,13 +292,13 @@
 
     fitStage();
     if (placed > 0) hideMsg();
-    else showMsg(`Scene "${slug}" loaded but has no renderable items.`);
+    else showMsg(`Scene "${label}" loaded but has no renderable items.`);
     return true;
   }
 
   window.addEventListener('resize', fitStage);
 
-  // Auto-update: poll the published scene's identity (slug + mtime) and only
+  // Auto-update: poll the published scene's identity (ID + application time) and only
   // re-render when it actually changes. Critical — re-rendering rebuilds the
   // camera iframe, and reconnecting every poll would trip the printer's RTSP
   // connection limit, so an unchanged scene must leave the DOM (and the live
@@ -308,19 +308,23 @@
 
   async function tick() {
     if (document.hidden) return;
-    let key;
+    let key, label;
     if (FORCED_SCENE) {
       key = `forced:${FORCED_SCENE}`;
     } else {
       try {
-        const a = await (await fetch('/api/obs/active', { cache: 'no-store' })).json();
-        key = a && a.slug ? `${a.slug}@${a.updatedAt || 0}` : 'fallback';
+        const response = await fetch('/api/obs/active', { cache: 'no-store' });
+        if (!response.ok) return;
+        const active = await response.json();
+        if (!active || !Object.hasOwn(active, 'slug')) return;
+        key = `${active.slug ?? 'default'}@${active.updatedAt ?? 0}`;
+        label = active.name || active.label || active.slug;
       } catch (_) {
         return; // transient — keep current render, try next tick
       }
     }
     if (key !== lastKey) {
-      const loaded = await render();
+      const loaded = await render(label);
       if (loaded) lastKey = key;
     }
   }

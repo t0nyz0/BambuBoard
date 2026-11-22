@@ -49,12 +49,14 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     await page.locator('#draft-name').fill('Studio fixture');
     await page.locator('#save-btn').click();
     await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved');
+    const studioDraft = (await fetch(base + '/api/obs/scenes').then(r => r.json())).find(scene => scene.name === 'Studio fixture');
+    assert.ok(studioDraft?.slug && studioDraft.slug !== studioDraft.name);
     assert.equal((await fetch(base + '/api/obs/active').then(r => r.json())).slug, null);
     await page.locator('#golive-btn').click();
-    await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Published to /live');
+    await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved · Live');
     const published = await fetch(base + '/api/obs/published').then(r => r.json());
     // Change geometry using the real inspector and save without publishing.
-    await page.locator('.layer-row').first().click();
+    await page.locator('.layer-row .lr-name').first().click();
     await page.locator('#insp-x').fill('42');
     await page.locator('#insp-x').dispatchEvent('change');
     assert.equal(await page.locator('#draft-state').innerText(), 'Unsaved changes');
@@ -62,7 +64,7 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved');
     assert.deepEqual(await fetch(base + '/api/obs/published').then(r => r.json()), published);
     await page.reload(); await page.waitForSelector('.scene-item');
-    assert.equal(await page.locator('#loader').inputValue(), 'scn:Studio fixture');
+    assert.equal(await page.locator('#loader').inputValue(), `scn:${studioDraft.slug}`);
     // Library supports keyboard addition and capability notes.
     await page.locator('#widget-drawer-btn').click();
     await page.locator('.drawer-widget').filter({ hasText: 'Progress' }).first().focus();
@@ -200,20 +202,21 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     const secondAms = structuredClone(ams); secondAms.name = 'AMS duplicate'; secondAms.uuid = 'fixture-duplicate'; secondAms.settings.url = 'http://old-board.invalid/widgets/ams/?ams=3&theme=dark&accent=51a34f'; parameters.sources.push(secondAms);
     parameters.sources.find(source => source.id === 'scene').settings.items.push({ name: secondAms.name, pos: { x: 300, y: 300 }, scale: { x: 1, y: 1 }, align: 5 });
     ams.settings.url = 'https://old-board.invalid/widgets/ams/?ams=2&nozzle=1&theme=light&accent=8c7ae6&bind.temp=%24.print.bed_temper';
-    await fetch(base + '/api/obs/scenes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Parameter fixture', json: parameters }) });
+    const parameterDraft = await fetch(base + '/api/obs/scenes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Parameter fixture', json: parameters }) }).then(r => r.json());
+    assert.ok(parameterDraft.slug);
     await page.goto(base + '/scene-editor'); await page.waitForSelector('.scene-item');
-    await page.locator('#loader').selectOption('scn:Parameter fixture');
+    await page.locator('#loader').selectOption(`scn:${parameterDraft.slug}`);
     await page.waitForFunction(() => document.getElementById('draft-name').value === 'Parameter fixture');
     assert.match(await page.locator('iframe[src*="/widgets/ams/"][src*="ams=2"]').getAttribute('src'), /ams=2/);
     await page.locator('#save-btn').click(); await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved');
-    const roundTrip = await fetch(base + '/api/obs/scenes/Parameter%20fixture').then(r => r.json());
+    const roundTrip = await fetch(base + '/api/obs/scenes/' + encodeURIComponent(parameterDraft.slug)).then(r => r.json());
     const query = new URL(roundTrip.sources.find(source => source.name === ams.name).settings.url).searchParams;
     for (const [key, value] of Object.entries({ ams: '2', nozzle: '1', theme: 'light', accent: '8c7ae6', 'bind.temp': '$.print.bed_temper' })) assert.equal(query.get(key), value);
     const duplicateQuery = new URL(roundTrip.sources.find(source => source.name === 'AMS duplicate').settings.url).searchParams;
     assert.equal(duplicateQuery.get('ams'), '3'); assert.equal(duplicateQuery.get('theme'), 'dark'); assert.equal(duplicateQuery.get('accent'), '51a34f');
     // Inspect the docked controls and expanded optional settings on a narrow screen.
     await page.setViewportSize({ width: 320, height: 1100 });
-    await page.locator('.layer-row').first().click();
+    await page.locator('.layer-row .lr-name').first().click();
     assert.equal(await page.locator('#inspector-fields').isVisible(), true);
     await page.locator('#widget-drawer-btn').click();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));

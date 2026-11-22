@@ -2,10 +2,38 @@ const express = require('express');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { randomUUID } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 
 const SAFE_NAME = /^[a-zA-Z0-9_\-. ]{1,64}$/;
 const PKG_VERSION = require('../../package.json').version;
+const DRAFT_METADATA = '__bambuboardDraft';
+const validName = value => typeof value === 'string' && SAFE_NAME.test(value) && value.trim().length > 0;
+const normalizedName = name => name.trim().replace(/ +/g, ' ').toLowerCase();
+const revisionOf = raw => createHash('sha256').update(raw).digest('hex');
+const isCollection = value => value && typeof value === 'object' && !Array.isArray(value);
+
+function sceneNameOf(collection) {
+  const scenes = Array.isArray(collection?.sources)
+    ? collection.sources.filter(source => source?.id === 'scene' && typeof source.name === 'string' && source.name)
+    : [];
+  const requested = collection?.current_program_scene || collection?.current_scene;
+  return scenes.find(scene => scene.name === requested)?.name || scenes[0]?.name || null;
+}
+
+class SceneError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function handleSceneError(res, error) {
+  if (error instanceof SceneError) return res.status(error.status).json({ error: error.message, code: error.code });
+  if (error.code === 'ENOENT') return res.status(404).json({ error: 'Draft no longer exists.', code: 'DRAFT_NOT_FOUND' });
+  return res.status(500).json({ error: error.message });
+}
 
 function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   const router = express.Router();
@@ -18,13 +46,62 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
 
   fs.mkdirSync(SCENES_DIR, { recursive: true });
 
-  async function saveDraft(name, text) {
-    const file = path.join(SCENES_DIR, `${name}.json`);
+  // Store the metadata and document in the same atomically replaced file.
+  // Older installs can still read these files as OBS collections.
+  function decodeDraft(slug, raw, updatedAt) {
+    const scene = JSON.parse(raw);
+    if (!isCollection(scene)) throw new SceneError(400, 'INVALID_DRAFT', 'The draft must be an OBS scene collection.');
+    const metadata = scene[DRAFT_METADATA];
+    const stored = metadata?.format === 1 && validName(metadata.name) && typeof metadata.writeId === 'string';
+    if (stored) delete scene[DRAFT_METADATA];
+    return { slug, name: stored ? metadata.name : slug, revision: revisionOf(raw), updatedAt, scene };
+  }
+
+  const draftPath = slug => path.join(SCENES_DIR, `${slug}.json`);
+
+  async function readStampedFile(filename) {
+    const file = await fsp.open(filename);
+    try {
+      const [raw, stat] = await Promise.all([file.readFile('utf8'), file.stat()]);
+      return { raw, updatedAt: stat.mtimeMs };
+    } finally { await file.close(); }
+  }
+
+  async function readDraft(slug) {
+    const { raw, updatedAt } = await readStampedFile(draftPath(slug));
+    return decodeDraft(slug, raw, updatedAt);
+  }
+
+  async function writeAtomically(file, text) {
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       await fsp.writeFile(temporary, text, { flag: 'wx', mode: 0o600 });
       await fsp.rename(temporary, file);
     } finally { await fsp.rm(temporary, { force: true }); }
+  }
+
+  async function storedDrafts() {
+    const files = (await fsp.readdir(SCENES_DIR, { withFileTypes: true }))
+      .filter(file => file.isFile() && file.name.endsWith('.json') && validName(file.name.slice(0, -5)));
+    return Promise.all(files.map(async file => {
+      const slug = file.name.slice(0, -5);
+      try {
+        const { scene, ...entry } = await readDraft(slug);
+        return entry;
+      } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        // Reserve the name of an unreadable legacy draft too.
+        if (e instanceof SyntaxError || e instanceof SceneError) return { slug, name: slug, unreadable: true };
+        throw e;
+      }
+    }));
+  }
+
+  let mutationQueue = Promise.resolve();
+  function mutate(action) {
+    const operation = mutationQueue.then(action);
+    mutationQueue = operation.catch(() => {});
+    return operation;
   }
 
   function originFromReq(req) {
@@ -44,23 +121,40 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   // unchanged; older versions still understand the slug in this record.
   try {
     const record = JSON.parse(fs.readFileSync(ACTIVE_FILE, 'utf8'));
-    if (SAFE_NAME.test(record.slug || '') && !record.scene) {
-      const file = path.join(SCENES_DIR, `${record.slug}.json`);
-      record.scene = JSON.parse(fs.readFileSync(file, 'utf8'));
-      record.publishedAt = fs.statSync(file).mtimeMs;
-      fs.writeFileSync(ACTIVE_FILE + '.tmp', JSON.stringify(record));
-      fs.renameSync(ACTIVE_FILE + '.tmp', ACTIVE_FILE);
+    if (validName(record.slug) && !record.scene) {
+      const file = draftPath(record.slug);
+      const draft = decodeDraft(record.slug, fs.readFileSync(file, 'utf8'), fs.statSync(file).mtimeMs);
+      record.scene = draft.scene;
+      record.name = draft.name;
+      record.revision = draft.revision;
+      record.publishedAt = draft.updatedAt;
+      const temporary = `${ACTIVE_FILE}.${randomUUID()}.tmp`;
+      try {
+        fs.writeFileSync(temporary, JSON.stringify(record), { flag: 'wx', mode: 0o600 });
+        fs.renameSync(temporary, ACTIVE_FILE);
+      } finally { fs.rmSync(temporary, { force: true }); }
     }
   } catch (e) {
     if (e.code !== 'ENOENT') console.warn('[bambuboard] could not snapshot previous published scene:', e.message);
   }
+  function liveInfo(record, updatedAt) {
+    const { slug, scene, previous } = record;
+    return {
+      slug, name: record.name || slug || 'Default scene', scene, updatedAt,
+      sceneName: sceneNameOf(scene), revision: record.revision ?? null,
+      canRollback: Boolean(previous?.scene), previous, resolution: resolutionOf(scene),
+      ...(slug === null ? { label: 'Default scene', template: record.template } : {}),
+    };
+  }
+
   async function readPublished() {
     try {
-      const record = JSON.parse(await fsp.readFile(ACTIVE_FILE, 'utf8'));
-      if (!SAFE_NAME.test(record.slug || '')) return null;
-      const scene = record.scene || JSON.parse(await fsp.readFile(path.join(SCENES_DIR, `${record.slug}.json`), 'utf8'));
-      const updatedAt = record.publishedAt || (await fsp.stat(path.join(SCENES_DIR, `${record.slug}.json`))).mtimeMs;
-      return { slug: record.slug, scene, updatedAt };
+      const { raw, updatedAt: fileTimestamp } = await readStampedFile(ACTIVE_FILE);
+      const record = JSON.parse(raw);
+      if (!validName(record.slug) && !(record.slug === null && record.scene)) return null;
+      const draft = record.scene ? null : await readDraft(record.slug);
+      const updatedAt = record.publishedAt ?? draft?.updatedAt ?? fileTimestamp;
+      return liveInfo({ ...draft, ...record, scene: record.scene || draft.scene }, updatedAt);
     } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
   }
   function resolutionOf(scene) {
@@ -72,11 +166,16 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   }
   async function outputInfo() {
     const published = await readPublished();
-    if (published) return { ...published, resolution: resolutionOf(published.scene) };
+    if (published) return published;
     const template = getConfig().printer?.type === 'H2D' ? 'default-h2d' : 'default-x1';
     const scene = JSON.parse(await fsp.readFile(path.join(TEMPLATES_DIR, `${template}.json`), 'utf8'));
-    return { slug: null, updatedAt: null, label: 'Default scene', template, scene, resolution: resolutionOf(scene) };
+    return {
+      slug: null, name: 'Default scene', updatedAt: null, label: 'Default scene', template, scene,
+      sceneName: sceneNameOf(scene), revision: null, canRollback: false, resolution: resolutionOf(scene),
+    };
   }
+
+  function publicOutputInfo({ scene, previous, ...info }) { return info; }
 
 
   // Replace `<HOST>` with the request's host and `<VERSION>` with the current
@@ -212,16 +311,9 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
 
   router.get('/scenes', async (req, res) => {
     try {
-      const files = (await fsp.readdir(SCENES_DIR)).filter(f => f.endsWith('.json'));
-      const out = [];
-      for (const f of files) {
-        const slug = f.replace(/\.json$/, '');
-        try {
-          const stat = await fsp.stat(path.join(SCENES_DIR, f));
-          out.push({ slug, name: slug, updatedAt: stat.mtimeMs });
-        } catch (_) {}
-      }
+      const out = (await storedDrafts()).filter(draft => draft && !draft.unreadable);
       out.sort((a, b) => b.updatedAt - a.updatedAt);
+      res.setHeader('Cache-Control', 'no-store');
       res.json(out);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -230,58 +322,84 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
 
   router.get('/scenes/:slug', async (req, res) => {
     const slug = req.params.slug;
-    if (!SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
+    if (!validName(slug)) return res.status(400).json({ error: 'Invalid draft ID.' });
     try {
-      const raw = await fsp.readFile(path.join(SCENES_DIR, `${slug}.json`), 'utf-8');
-      const out = substituteHost(raw, hostFromReq(req), originFromReq(req));
+      const draft = await readDraft(slug);
+      const out = substituteHost(JSON.stringify(draft.scene), hostFromReq(req), originFromReq(req));
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="${slug}.json"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${draft.name}.json"`);
+      res.setHeader('X-Draft-Revision', draft.revision);
+      res.setHeader('X-Draft-Name', draft.name);
+      res.setHeader('Cache-Control', 'no-store');
       res.send(out);
-    } catch (e) {
-      if (e.code === 'ENOENT') return res.status(404).json({ error: 'scene not found' });
-      res.status(500).json({ error: e.message });
-    }
+    } catch (e) { handleSceneError(res, e); }
   });
 
   router.post('/scenes', async (req, res) => {
-    const { name, json } = req.body || {};
-    if (!name || !SAFE_NAME.test(name)) return res.status(400).json({ error: 'invalid name' });
-    if (!json) return res.status(400).json({ error: 'missing json' });
-    try {
-      const text = typeof json === 'string' ? json : JSON.stringify(json, null, 2);
-      JSON.parse(text); // validate
-      await saveDraft(name, text);
-      // Return the slug so callers (the scene editor) can auto-select the new
-      // entry in their saved-scenes dropdown without a page reload.
-      res.json({ ok: true, slug: name });
-    } catch (e) {
-      res.status(400).json({ error: e.message });
+    const { name: enteredName, slug, revision, json } = req.body || {};
+    const updating = slug !== undefined;
+    if (!validName(enteredName) || (updating && !validName(slug))) {
+      return res.status(400).json({ error: 'Enter a valid draft name and ID.' });
     }
+    if (updating && typeof revision !== 'string') {
+      return res.status(400).json({ error: 'Reload the draft before saving.' });
+    }
+    const name = enteredName.trim();
+    let scene;
+    try {
+      scene = typeof json === 'string' ? JSON.parse(json) : json;
+      if (!isCollection(scene) || !sceneNameOf(scene)) throw new Error('Missing scene');
+    } catch (_) {
+      return res.status(400).json({ error: 'The draft must contain a valid OBS scene collection.', code: 'INVALID_DRAFT' });
+    }
+    try {
+      res.json(await mutate(async () => {
+        const current = updating ? await readDraft(slug) : null;
+        if (current && current.revision !== revision) {
+          throw new SceneError(409, 'DRAFT_CONFLICT', 'This draft changed in another window. Reload it before saving or save a copy.');
+        }
+        if (current?.name === name && isDeepStrictEqual(current.scene, scene)) {
+          return { ok: true, slug, name, revision: current.revision };
+        }
+        const normalized = normalizedName(name);
+        if (!current || normalized !== normalizedName(current.name)) {
+          const exists = (await storedDrafts()).some(draft => draft && draft.slug !== slug && normalizedName(draft.name) === normalized);
+          if (exists) throw new SceneError(409, 'DRAFT_NAME_TAKEN', 'A draft with that name already exists. Choose another name.');
+        }
+        const id = slug || randomUUID();
+        const text = JSON.stringify({ ...scene, [DRAFT_METADATA]: { format: 1, name, writeId: randomUUID() } });
+        await writeAtomically(draftPath(id), text);
+        return { ok: true, slug: id, name, revision: revisionOf(text) };
+      }));
+    } catch (e) { handleSceneError(res, e); }
   });
 
   router.delete('/scenes/:slug', async (req, res) => {
-    const slug = req.params.slug;
-    if (!SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
-    try {
-      await fsp.unlink(path.join(SCENES_DIR, `${slug}.json`));
-      res.json({ ok: true });
-    } catch (e) {
-      if (e.code === 'ENOENT') return res.status(404).json({ error: 'not found' });
-      res.status(500).json({ error: e.message });
+    const { slug } = req.params;
+    const { revision } = req.body || {};
+    if (!validName(slug) || typeof revision !== 'string') {
+      return res.status(400).json({ error: 'Reload the draft before deleting it.' });
     }
+    try {
+      await mutate(async () => {
+        const { raw } = await readStampedFile(draftPath(slug));
+        if (revisionOf(raw) !== revision) {
+          throw new SceneError(409, 'DRAFT_CONFLICT', 'This draft changed in another window. Reload it before deleting.');
+        }
+        await fsp.unlink(draftPath(slug));
+      });
+      res.json({ ok: true });
+    } catch (e) { handleSceneError(res, e); }
   });
 
-  // -------- Active ("published") scene --------
-  // `/live` renders this scene by default. The editor's "Set as Live" sets it,
-  // and /live polls it to auto-update when a new scene is published.
+  // -------- Live scene and one-step rollback --------
 
-  // Publication identity is a snapshot, so saving or deleting a draft does
-  // not alter an already-published output.
+  // Live output and its previous version are immutable snapshots. Serving
+  // either of them never depends on the draft's continued presence.
   router.get('/active', async (req, res) => {
     try {
-      const { scene, ...info } = await outputInfo();
       res.setHeader('Cache-Control', 'no-store');
-      res.json(info);
+      res.json(publicOutputInfo(await outputInfo()));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
   router.get('/published', async (req, res) => {
@@ -291,22 +409,61 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
       res.type('json').send(substituteHost(JSON.stringify(scene), hostFromReq(req), originFromReq(req)));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
-  let publishing = Promise.resolve();
+  const validLiveVersion = value => value === null || Number.isFinite(value);
+  function checkLiveVersion(current, expectedUpdatedAt) {
+    if (current.updatedAt !== expectedUpdatedAt) {
+      throw new SceneError(409, 'LIVE_CONFLICT', 'Live output changed in another window. Review the current output and try again.');
+    }
+  }
+
+  function liveSnapshot({ slug, name, revision, scene, template }) {
+    return { slug, name, revision, scene, template };
+  }
+
+  async function replaceLive(next, current) {
+    const publishedAt = Math.max(Date.now(), (current.updatedAt ?? 0) + 1);
+    const record = { ...liveSnapshot(next), publishedAt, previous: liveSnapshot(current) };
+    await writeAtomically(ACTIVE_FILE, JSON.stringify(record));
+    return { ok: true, ...publicOutputInfo(liveInfo(record, publishedAt)) };
+  }
+
   router.post('/active', async (req, res) => {
-    const { slug } = req.body || {};
-    if (!slug || !SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
-    const operation = publishing.then(async () => {
-      const scene = JSON.parse(await fsp.readFile(path.join(SCENES_DIR, `${slug}.json`), 'utf8'));
-      const current = await readPublished();
-      const publishedAt = Math.max(Date.now(), (current?.updatedAt || 0) + 1);
-      const tmp = ACTIVE_FILE + '.tmp';
-      await fsp.writeFile(tmp, JSON.stringify({ slug, scene, publishedAt }));
-      await fsp.rename(tmp, ACTIVE_FILE);
-      return { ok: true, slug, updatedAt: publishedAt };
-    });
-    publishing = operation.catch(() => {});
-    try { res.json(await operation); }
-    catch (e) { res.status(e.code === 'ENOENT' ? 404 : 500).json({ error: e.code === 'ENOENT' ? 'scene not found' : e.message }); }
+    const { slug, revision, expectedUpdatedAt } = req.body || {};
+    if (!validName(slug) || typeof revision !== 'string' || !validLiveVersion(expectedUpdatedAt)) {
+      return res.status(400).json({ error: 'Select a saved draft and check the current live output before applying.' });
+    }
+    try {
+      res.json(await mutate(async () => {
+        const current = await outputInfo();
+        checkLiveVersion(current, expectedUpdatedAt);
+        const draft = await readDraft(slug);
+        if (draft.revision !== revision) {
+          throw new SceneError(409, 'DRAFT_CONFLICT', 'This draft changed after it was saved in this window. Reload it before applying.');
+        }
+        if (!sceneNameOf(draft.scene)) {
+          throw new SceneError(400, 'INVALID_DRAFT', 'The draft does not contain a scene to apply.');
+        }
+        if (current.slug === draft.slug && current.revision === draft.revision) {
+          return { ok: true, ...publicOutputInfo(current) };
+        }
+        return replaceLive(draft, current);
+      }));
+    } catch (e) { handleSceneError(res, e); }
+  });
+
+  router.post('/active/rollback', async (req, res) => {
+    const { expectedUpdatedAt } = req.body || {};
+    if (!validLiveVersion(expectedUpdatedAt)) {
+      return res.status(400).json({ error: 'Check the current live output before restoring the previous version.' });
+    }
+    try {
+      res.json(await mutate(async () => {
+        const current = await outputInfo();
+        checkLiveVersion(current, expectedUpdatedAt);
+        if (!current.canRollback) throw new SceneError(409, 'NO_PREVIOUS_LIVE', 'There is no previous live output to restore.');
+        return replaceLive(current.previous, current);
+      }));
+    } catch (e) { handleSceneError(res, e); }
   });
 
   // -------- One-click OBS helper --------

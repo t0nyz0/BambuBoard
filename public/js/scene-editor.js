@@ -1,10 +1,9 @@
 // OBS scene-collection editor.
-//   Loads a template / saved scene / uploaded JSON, renders the first scene
+//   Loads a template, saved draft, or uploaded JSON and renders the selected scene
 //   as a scaled 1920×1080 canvas with live widget iframes positioned at their
 //   real OBS coordinates. Drag to move, drag the bottom-right handle to
 //   resize. Click a widget tile to open the inspector for theme/accent/font
-//   plus exact pos/size editing. Save back to data/scenes/<name>.json or
-//   download the modified scene-collection JSON.
+//   plus exact position and size. Save the draft independently of Live.
 //
 // Round-trip safety: we keep the original parsed JSON in `state.original`
 // and only mutate the *items* inside the active scene's `settings.items[]`
@@ -21,29 +20,32 @@ let CANVAS_H = 1080;
 const state = {
   original: null,        // the loaded scene-collection JSON
   sceneName: null,       // currently-selected OBS scene name *inside* the collection
-  savedName: null,       // the saved-scene file name this layout was loaded from / last saved as
-                         // (distinct from sceneName: an .obs collection's internal scene is
-                         // usually named "Scene", but the saved file may be "Scene2" etc.)
-  suggestedName: null,   // a friendly default name (template label / uploaded filename) used to
-                         // auto-name on Go Live so publishing a template needs no save prompt
+  savedSlug: null,       // stable storage ID of this collection
+  savedRevision: null,
+  savedName: '',
+  draftName: '',
+  draftConflict: false,
+  liveSceneName: null,   // scene in this collection chosen for live output
+  live: null,            // current output metadata from the server
   sources: {},           // name → source object (lookup)
   items: [],             // scene items, in render order
   selectedIndex: -1,
   customizations: {},    // source UUID/name → { theme, accent, fontSize, bindings }
   zoom: 1,
-  // Undo/redo: snapshots of items, sources, customizations and selection before each
-  // mutating action. Cmd/Ctrl+Z pops; Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) re-pushes.
+  // Scene edits and whole-draft edits have separate scope in the undo history.
   history: [],
   future: [],
+  pendingEdit: null,
   savedCollection: null,
   savedFingerprint: null,
-  publishedFingerprint: null,
   loaderValue: null,
+  loading: false,
   saving: false,
 };
 
 const SNAP_GRID = 10;       // px when shift held during drag
 const SNAP_PROXIMITY = 8;   // px — snap to widget edges when within this distance
+const compactEditor = window.matchMedia('(max-width: 700px)');
 
 const els = {
   canvas:    () => document.getElementById('canvas'),
@@ -51,6 +53,8 @@ const els = {
   shell:     () => document.getElementById('canvas-shell'),
   loader:    () => document.getElementById('loader'),
   scenes:    () => document.getElementById('scene-picker'),
+  liveScenes: () => document.getElementById('live-scene-picker'),
+  draftName: () => document.getElementById('draft-name'),
   fileIn:    () => document.getElementById('file-input'),
   inspector: () => document.getElementById('inspector'),
   diff:      () => document.getElementById('diff'),
@@ -94,6 +98,9 @@ function mkIframe (url, title, sz) {
   iframe.src = url;
   iframe.title = title;
   iframe.loading = 'lazy';
+  iframe.tabIndex = -1;
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.inert = true;
   iframe.style.width  = sz.naturalW + 'px';
   iframe.style.height = sz.naturalH + 'px';
   iframe.style.transformOrigin = 'top left';
@@ -158,69 +165,105 @@ function obsColorToCss (n) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// Push current state onto the undo history. Future stack is cleared on each
-// new action — standard linear-history undo semantics.
-function snapshot () {
-  state.history.push({
-    items: structuredClone(state.items),
-    customizations: structuredClone(state.customizations),
-    original: structuredClone(state.original),
-    selectedIndex: state.selectedIndex,
-  });
+// A scene's history records only the fields its own edit changed. An undo in
+// one scene must not restore earlier copies of other scenes or shared sources.
+function captureDraft () {
+  const { sources, ...collection } = structuredClone(state.original);
+  const byKey = Object.create(null);
+  const counts = new Map();
+  for (const source of sources) {
+    const name = source?.name;
+    const occurrence = (counts.get(name) || 0) + 1;
+    counts.set(name, occurrence);
+    const key = JSON.stringify([name, occurrence]);
+    if (source?.id === 'scene' && name === state.sceneName) source.settings.items = structuredClone(state.items);
+    byKey[key] = source;
+  }
+  return { collection, sources: byKey, customizations: structuredClone(state.customizations), draftName: state.draftName, liveSceneName: state.liveSceneName };
+}
+
+function sameEditValue (a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function collectEditChanges (before, after, path, changes) {
+  if (sameEditValue(before, after)) return;
+  if (before && after && typeof before === 'object' && typeof after === 'object' && !Array.isArray(before) && !Array.isArray(after)) {
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      collectEditChanges(Object.hasOwn(before, key) ? before[key] : undefined, Object.hasOwn(after, key) ? after[key] : undefined, [...path, key], changes);
+    }
+  } else {
+    changes.push({ path, before, after });
+  }
+}
+
+function finishEdit () {
+  const pending = state.pendingEdit;
+  if (!pending) return;
+  state.pendingEdit = null;
+  const changes = [];
+  collectEditChanges(pending.before, captureDraft(), [], changes);
+  if (!changes.length) return;
+  state.history.push({ scope: pending.scope, changes });
   if (state.history.length > 100) state.history.shift();
-  state.future.length = 0;
+  state.future = state.future.filter(entry => pending.scope !== null && entry.scope !== null && entry.scope !== pending.scope);
+}
+
+function snapshot (scope = state.sceneName) {
+  if (!state.original) return;
+  finishEdit();
+  state.pendingEdit = { scope, before: captureDraft() };
+  updateUndoButtons();
+}
+
+function historyIndex (stack) {
+  return stack.findLastIndex(entry => entry.scope === null || entry.scope === state.sceneName);
+}
+
+function replayEdit (from, to, expected, replacement) {
+  const index = historyIndex(state[from]);
+  if (index < 0) return updateUndoButtons();
+  const entry = state[from][index];
+  const edit = captureDraft();
+  for (const change of entry.changes) {
+    const path = change.path;
+    const parent = path.slice(0, -1).reduce((obj, key) => obj && Object.hasOwn(obj, key) ? obj[key] : undefined, edit);
+    const key = path.at(-1);
+    const value = parent && Object.hasOwn(parent, key) ? parent[key] : undefined;
+    if (!parent || !sameEditValue(value, change[expected])) {
+      window.toast('A later edit changed one of the same settings. Undo that edit first.', 'error');
+      return updateUndoButtons();
+    }
+    if (change[replacement] === undefined) delete parent[key];
+    else Object.defineProperty(parent, key, { value: structuredClone(change[replacement]), writable: true, enumerable: true, configurable: true });
+  }
+  const item = state.items[state.selectedIndex];
+  const selection = item && {
+    id: item.id,
+    name: item.name,
+    occurrence: state.items.slice(0, state.selectedIndex).filter(other => other.name === item.name).length,
+  };
+  state[from].splice(index, 1);
+  state[to].push(entry);
+  hydrateCollection({ ...edit.collection, sources: Object.values(edit.sources) }, { draftName: edit.draftName, liveSceneName: edit.liveSceneName, sceneName: state.sceneName, customizations: edit.customizations, selection });
   updateUndoButtons();
 }
 
 function undo () {
-  if (!state.history.length) return;
-  state.future.push({
-    items: structuredClone(state.items),
-    customizations: structuredClone(state.customizations),
-    original: structuredClone(state.original),
-    selectedIndex: state.selectedIndex,
-  });
-  const prev = state.history.pop();
-  state.items = prev.items;
-  state.customizations = prev.customizations;
-  state.original = prev.original;
-  state.selectedIndex = prev.selectedIndex ?? -1;
-  state.sources = Object.fromEntries((state.original.sources || []).map(src => [src.name, src]));
-  CANVAS_W = state.original.resolution?.x || 1920;
-  CANVAS_H = state.original.resolution?.y || 1080;
-  updateCanvasInfoBtn(); fitZoom();
-  render();
-  openInspector();
-  updateUndoButtons();
+  finishEdit();
+  replayEdit('history', 'future', 'after', 'before');
 }
 
 function redo () {
-  if (!state.future.length) return;
-  state.history.push({
-    items: structuredClone(state.items),
-    customizations: structuredClone(state.customizations),
-    original: structuredClone(state.original),
-    selectedIndex: state.selectedIndex,
-  });
-  const next = state.future.pop();
-  state.items = next.items;
-  state.customizations = next.customizations;
-  state.original = next.original;
-  state.selectedIndex = next.selectedIndex ?? -1;
-  state.sources = Object.fromEntries((state.original.sources || []).map(src => [src.name, src]));
-  CANVAS_W = state.original.resolution?.x || 1920;
-  CANVAS_H = state.original.resolution?.y || 1080;
-  updateCanvasInfoBtn(); fitZoom();
-  render();
-  openInspector();
-  updateUndoButtons();
+  finishEdit();
+  replayEdit('future', 'history', 'before', 'after');
 }
 
 function updateUndoButtons () {
-  const u = document.getElementById('undo-btn');
-  const r = document.getElementById('redo-btn');
-  if (u) u.disabled = state.history.length === 0;
-  if (r) r.disabled = state.future.length === 0;
+  const pending = state.pendingEdit?.scope;
+  const currentEdit = pending === null || pending === state.sceneName;
+  document.getElementById('undo-btn').disabled = !state.original || (!currentEdit && historyIndex(state.history) < 0);
+  document.getElementById('redo-btn').disabled = !state.original || currentEdit || historyIndex(state.future) < 0;
 }
 
 // ---- bootstrap ----
@@ -241,7 +284,7 @@ function updateUndoButtons () {
   //   Esc: deselect
   document.addEventListener('keydown', (e) => {
     // Don't intercept while typing in an input/textarea
-    if (e.target.matches('input, textarea, select')) return;
+    if (e.defaultPrevented || e.target.closest('input, textarea, select, [contenteditable], dialog[open]')) return;
     const meta = e.metaKey || e.ctrlKey;
     if (meta && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -249,14 +292,13 @@ function updateUndoButtons () {
       return;
     }
     if (meta && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
-    if (e.key === 'Escape') {
-      state.selectedIndex = -1;
-      document.querySelectorAll('.scene-item.selected').forEach(n => n.classList.remove('selected'));
-      document.querySelectorAll('.layer-row.selected').forEach(n => n.classList.remove('selected'));
-      closeInspector();
+    if (e.key === 'Escape' && e.target.closest('.editor-workspace')) {
+      const fromInspector = Boolean(e.target.closest('#inspector'));
+      deselectItem();
+      if (fromInspector) focusLayersButton();
       return;
     }
-    if (state.selectedIndex < 0) return;
+    if (state.selectedIndex < 0 || !e.target.closest('#canvas, .layer-row.selected .lr-name')) return;
     const step = e.shiftKey ? 10 : 1;
     let dx = 0, dy = 0;
     if (e.key === 'ArrowLeft')  dx = -step;
@@ -276,57 +318,77 @@ function updateUndoButtons () {
 
   els.fileIn().addEventListener('change', onFileUpload);
   document.getElementById('save-btn').addEventListener('click', onSave);
+  document.getElementById('save-copy-btn').addEventListener('click', onSaveCopy);
   document.getElementById('preview-btn').addEventListener('click', onPreview);
   document.getElementById('golive-btn').addEventListener('click', onGoLive);
-  document.getElementById('reset-btn').addEventListener('click', () => { if (state.savedCollection) loadCollection(structuredClone(state.savedCollection)); });
+  document.getElementById('restore-live-btn').addEventListener('click', restoreLive);
+  document.getElementById('reset-btn').addEventListener('click', resetDraft);
+  els.draftName().addEventListener('input', event => {
+    if (!state.nameEditing) { snapshot(null); state.nameEditing = true; }
+    state.draftName = event.target.value;
+    updateDiff();
+  });
+  els.draftName().addEventListener('blur', () => {
+    if (!state.nameEditing) return;
+    state.nameEditing = false;
+    finishEdit();
+    updateUndoButtons();
+  });
+  els.liveScenes().addEventListener('change', event => {
+    snapshot(null);
+    state.liveSceneName = event.target.value;
+    finishEdit();
+    updateUndoButtons();
+    updateDiff();
+  });
   document.getElementById('undo-btn').addEventListener('click', undo);
   document.getElementById('redo-btn').addEventListener('click', redo);
   document.getElementById('autolayout-btn').addEventListener('click', autoLayout);
   document.getElementById('canvas-res-btn').addEventListener('click', pickCanvasResolution);
   updateCanvasInfoBtn();
 
-  // Receive size measurements from widget iframes (sent by _customizer.js).
-  // Stash them keyed by slug so the inspector's auto-size button can use the
-  // most recent measurement for the selected widget.
-  state.measuredSizes = {};
-  window.addEventListener('message', (ev) => {
-    const m = ev.data;
-    if (m && m.type === 'bambuboard:size' && m.slug && m.w && m.h) {
-      state.measuredSizes[m.slug] = { w: m.w, h: m.h };
-      // If this widget is currently selected, refresh the inspector to enable
-      // the auto-size button now that we have a measurement.
-      if (state.selectedIndex >= 0) {
-        const src = state.sources[state.items[state.selectedIndex]?.name];
-        if (isWidgetSrc(src) && widgetSlugOf(src) === m.slug) refreshInspector();
-      }
-    }
+  // Keep each iframe’s measurements separate, including repeated widget types.
+  state.measuredFrames = new WeakSet();
+  window.addEventListener('message', (event) => {
+    const message = event.data;
+    if (event.origin !== location.origin || message?.type !== 'bambuboard:size') return;
+    const { slug, w, h } = message;
+    if (!slug || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+    const frame = Array.from(els.canvas().querySelectorAll('.scene-item iframe')).find(iframe => iframe.contentWindow === event.source);
+    if (!frame || !frame.getAttribute('src')?.startsWith(`/widgets/${slug}/`)) return;
+    state.measuredFrames.add(frame);
+    const item = state.items[state.selectedIndex];
+    const source = state.sources[item?.name];
+    if (state.selectedIndex === Number(frame.closest('.scene-item').dataset.idx)) refreshAutoSizeButton(item, source);
   });
   document.getElementById('inspector-close').addEventListener('click', () => {
-    state.selectedIndex = -1;
-    document.querySelectorAll('.scene-item.selected, .layer-row.selected').forEach(n => n.classList.remove('selected'));
-    closeInspector();
+    deselectItem();
+    focusLayersButton();
   });
   document.addEventListener('click', (e) => {
-    if (e.target.closest('.scene-item') || e.target.closest('.inspector') || e.target.closest('.editor-toolbar') || e.target.closest('.editor-heading') || e.target.closest('.draft-name') || e.target.closest('.widget-drawer') || e.target.closest('.layers-panel')) return;
-    closeInspector();
-    state.selectedIndex = -1;
-    document.querySelectorAll('.scene-item.selected').forEach(n => n.classList.remove('selected'));
-    document.querySelectorAll('.layer-row.selected').forEach(n => n.classList.remove('selected'));
+    if (e.target.closest('.canvas-shell') && !e.target.closest('.scene-item')) deselectItem();
   });
 
-  // Widget drawer toggle + populate
-  document.getElementById('widget-drawer-btn').addEventListener('click', toggleWidgetDrawer);
-  document.getElementById('widget-drawer-close').addEventListener('click', () => closeWidgetDrawer());
-  populateWidgetDrawer();
-
-  // Layers panel toggle (open by default — set in HTML class).
-  document.getElementById('layers-panel-btn').addEventListener('click', () => {
-    els.layersPanel().classList.toggle('open');
-    closeWidgetDrawer(false);
+  for (const panel of ['layers', 'widgets', 'inspector']) {
+    const toggle = panelControl(panel);
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      showPanel(open ? (panel === 'layers' ? 'none' : 'layers') : panel);
+    });
+  }
+  document.getElementById('widget-drawer-close').addEventListener('click', () => {
+    showPanel('layers');
+    panelControl('widgets').focus();
   });
   document.getElementById('layers-panel-close').addEventListener('click', () => {
-    els.layersPanel().classList.remove('open');
+    showPanel('none');
+    focusLayersButton();
   });
+  document.getElementById('layer-front').addEventListener('click', () => moveItemFromTo(state.selectedIndex, state.items.length - 1));
+  document.getElementById('layer-back').addEventListener('click', () => moveItemFromTo(state.selectedIndex, 0));
+  compactEditor.addEventListener('change', updatePanelButtons);
+  updatePanelButtons();
+  populateWidgetDrawer();
 
   // Canvas drop target — accept widgets dragged from the drawer
   setupCanvasDrop();
@@ -354,7 +416,9 @@ async function populateLoader () {
   // (covers X1/P1/A1 — the largest printer family). Show a brief loading
   // indicator while the template fetches, and dispatch a window event when
   // the scene is loaded so the stepper UI can mark Step 3 as in-progress.
-  const active = await fetch('/api/obs/active').then(r => r.json()).catch(() => null);
+  const startingRequest = loadRequest;
+  const active = await refreshPublicationState();
+  if (startingRequest !== loadRequest || state.loaderValue) return;
   const saved = scnR.find(scene => scene.slug === active?.slug) || scnR[0];
   if (saved) {
     sel.value = `scn:${saved.slug}`;
@@ -391,44 +455,69 @@ async function populateLoader () {
 
 let loadRequest = 0;
 async function onLoaderChange (e) {
-  const v = e.target.value;
+  const select = e.target;
+  const v = select.value;
   if (!v) return;
-  if (hasUnsavedChanges() && !confirm('Discard unsaved draft changes and load another layout?')) { e.target.value = state.loaderValue || ''; return; }
-  if (v === 'upload') { els.fileIn().value = ''; els.fileIn().click(); e.target.value = state.loaderValue || ''; return; }
+  if (state.saving || (hasUnsavedChanges() && !confirm('Discard unsaved draft changes and load another layout?'))) {
+    select.value = state.loaderValue || '';
+    return;
+  }
+  if (v === 'upload') { els.fileIn().value = ''; els.fileIn().click(); select.value = state.loaderValue || ''; return; }
   const requestId = ++loadRequest;
   const divider = v.indexOf(':');
   const kind = v.slice(0, divider), slug = v.slice(divider + 1);
-  // Remember which saved-scene file this came from so Save / Go Live re-publish
-  // under the right name. Templates have no saved file yet (savedName=null), but
-  // we keep their label as a suggestedName so Go Live can auto-save without a
-  // prompt instead of nagging the user to name it first.
-  const label = e.target.selectedOptions[0]?.textContent || slug;
+  const label = select.selectedOptions[0]?.textContent || slug;
+  const beforeLoad = draftFingerprint();
+  state.loading = true;
+  updateDiff();
   try {
     const url = kind === 'tpl' ? `/api/obs/templates/${encodeURIComponent(slug)}/raw` : `/api/obs/scenes/${encodeURIComponent(slug)}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error(`Request returned ${r.status}`);
     const json = await r.json();
     if (requestId !== loadRequest) return;
-    loadCollection(json, { savedName: kind === 'scn' ? slug : null, suggestedName: label });
+    if (beforeLoad !== draftFingerprint() && !confirm('Discard edits made while this layout was loading?')) {
+      select.value = state.loaderValue || '';
+      return;
+    }
+    loadCollection(json, {
+      savedSlug: kind === 'scn' ? slug : null,
+      savedRevision: r.headers.get('X-Draft-Revision'),
+      name: kind === 'scn' ? r.headers.get('X-Draft-Name') || label : label,
+    });
     state.loaderValue = v;
   } catch (error) {
     if (requestId !== loadRequest) return;
-    e.target.value = state.loaderValue || '';
+    select.value = state.loaderValue || '';
     window.toast('Load failed: ' + error.message, 'error');
+  } finally {
+    if (requestId === loadRequest) { state.loading = false; updateDiff(); }
   }
 }
 
 function onFileUpload (e) {
   const f = e.target.files[0];
-  if (!f) return;
+  if (!f || state.saving) return;
+  const beforeLoad = draftFingerprint();
+  const requestId = ++loadRequest;
+  state.loading = true;
+  updateDiff();
   const fr = new FileReader();
   fr.onload = () => {
+    if (requestId !== loadRequest) return;
     try {
-      loadCollection(JSON.parse(fr.result), { savedName: null, suggestedName: (f.name || '').replace(/\.[^.]+$/, '') || null });
-      ++loadRequest;
+      if (beforeLoad !== draftFingerprint() && !confirm('Discard edits made while this file was loading?')) return;
+      loadCollection(JSON.parse(fr.result), { name: (f.name || '').replace(/\.[^.]+$/, '') });
       state.loaderValue = '';
       els.loader().value = '';
     } catch (err) { window.toast('Invalid JSON: ' + err.message, 'error'); }
+    finally { state.loading = false; updateDiff(); }
+  };
+  fr.onerror = () => {
+    if (requestId !== loadRequest) return;
+    state.loading = false;
+    updateDiff();
+    window.toast('Could not read that file.', 'error');
   };
   fr.readAsText(f);
 }
@@ -438,34 +527,58 @@ function loadCollection (json, identity = {}) {
   if (!scenes.length || scenes.some(s => !s.name || !Array.isArray(s.settings?.items))) {
     throw new Error('The file must contain an OBS scene with a sources and items array.');
   }
-  if ('savedName' in identity) state.savedName = identity.savedName;
-  if ('suggestedName' in identity) state.suggestedName = identity.suggestedName;
+  state.history = [];
+  state.future = [];
+  state.pendingEdit = null;
+  state.nameEditing = false;
+  state.savedSlug = identity.savedSlug || null;
+  state.savedRevision = identity.savedRevision || null;
+  state.savedName = (state.savedSlug ? identity.name : sanitizeSceneName(identity.name)) || sanitizeSceneName(scenes[0].name);
+  state.draftConflict = false;
+  hydrateCollection(json, { draftName: state.savedName });
+  state.savedCollection = applyChangesToCollection();
+  state.savedFingerprint = draftFingerprint();
+  updateDiff();
+  refreshPublicationState();
+}
+
+function hydrateCollection (json, { draftName, liveSceneName, sceneName, customizations, selection } = {}) {
+  const scenes = json.sources.filter(source => source?.id === 'scene');
+  const pickScene = names => names.find(name => scenes.some(scene => scene.name === name)) || scenes[0].name;
   state.original = json;
-  state.sceneName = null;
-  state.items = [];
+  state.draftName = draftName;
+  state.liveSceneName = pickScene([liveSceneName, json.current_program_scene, json.current_scene]);
+  state.sceneName = pickScene([sceneName, json.current_scene, state.liveSceneName]);
+  state.sources = Object.fromEntries(json.sources.filter(source => source && source.name).map(source => [source.name, source]));
+  state.items = structuredClone(state.sources[state.sceneName].settings.items);
   state.selectedIndex = -1;
-  closeInspector();
-  // Honor the scene-collection's declared canvas resolution. Some users have
-  // 2560×1440 or 4K canvases. Default 1920×1080 when missing.
-  CANVAS_W = (json.resolution && json.resolution.x) || 1920;
-  CANVAS_H = (json.resolution && json.resolution.y) || 1080;
+  if (selection) {
+    let remaining = selection.occurrence;
+    state.selectedIndex = state.items.findIndex(item => item.name === selection.name
+      && (selection.id == null ? remaining-- === 0 : item.id === selection.id));
+  }
+  if (state.selectedIndex < 0) closeInspector();
+  CANVAS_W = json.resolution?.x || 1920;
+  CANVAS_H = json.resolution?.y || 1080;
   updateCanvasInfoBtn();
-  // Build sources lookup
-  state.sources = {};
-  (json.sources || []).forEach(s => { if (s && s.name) state.sources[s.name] = s; });
-  // Reset customizations and re-parse them from each widget source's existing
-  // URL params. This way: previously-saved customizations / bindings show up
-  // in the inspector when the scene loads, and round-trip cleanly through
-  // Save/Download even if the user only edits a different field.
-  state.customizations = {};
-  (json.sources || []).forEach(src => {
-    if (!isWidgetSrc(src)) return;
+  state.customizations = customizations || customizationsFrom(json);
+  els.draftName().value = state.draftName;
+  populateScenePicker(scenes);
+  fitZoom();
+  render();
+  if (state.selectedIndex >= 0) openInspector();
+  updateUndoButtons();
+}
+
+function customizationsFrom (json) {
+  const customizations = Object.create(null);
+  for (const src of json.sources) {
+    if (!isWidgetSrc(src)) continue;
     const key = customizationKeyOf(src);
     const url = (src.settings && src.settings.url) || '';
-    const qIdx = url.indexOf('?');
-    if (qIdx < 0) return;
-    const params = new URLSearchParams(url.slice(qIdx + 1));
-    const cust = state.customizations[key] = state.customizations[key] || {};
+    if (!url.includes('?')) continue;
+    const params = new URLSearchParams(queryOf(url));
+    const cust = customizations[key] = customizations[key] || {};
     params.forEach((val, key) => {
       if (CUST_KEYS.includes(key)) {
         cust[key] = val;
@@ -477,31 +590,22 @@ function loadCollection (json, identity = {}) {
         }
       }
     });
-  });
-  // Pick scene
-  populateScenePicker(scenes);
-  selectScene(scenes.some(s => s.name === json.current_scene) ? json.current_scene : scenes[0].name);
-  fitZoom(); // recompute scale-to-fit after canvas dimensions change
-  state.savedCollection = applyChangesToCollection();
-  state.savedFingerprint = collectionFingerprint(state.savedCollection);
-  state.publishedFingerprint = null;
-  document.getElementById('draft-name').value = state.savedName || sanitizeSceneName(state.suggestedName || state.sceneName);
-  updateDiff();
-  refreshPublicationState();
+  }
+  return customizations;
 }
 
 function populateScenePicker (scenes) {
-  const sel = els.scenes();
-  sel.innerHTML = scenes.map(s => `<option value="${escape(s.name)}">${escape(s.name)}</option>`).join('');
-  sel.disabled = scenes.length < 2;
-  sel.onchange = (e) => selectScene(e.target.value);
+  for (const [picker, value] of [[els.scenes(), state.sceneName], [els.liveScenes(), state.liveSceneName]]) {
+    picker.replaceChildren(...scenes.map(scene => new Option(scene.name, scene.name, false, scene.name === value)));
+  }
+  els.scenes().onchange = event => selectScene(event.target.value);
 }
 
 function selectScene (name) {
-  if (state.sceneName && state.sceneName !== name) {
-    const previous = state.sources[state.sceneName];
-    if (previous?.settings) previous.settings.items = structuredClone(state.items);
-  }
+  if (name === state.sceneName || state.sources[name]?.id !== 'scene') return;
+  finishEdit();
+  const previous = state.sources[state.sceneName];
+  if (previous?.settings) previous.settings.items = structuredClone(state.items);
   state.sceneName = name;
   state.selectedIndex = -1;
   closeInspector();
@@ -513,10 +617,6 @@ function selectScene (name) {
   // `bounds` objects shared with the original, which silently breaks the
   // modified-vs-original diff counter and the Reset button.
   state.items = structuredClone(scene.settings?.items || []);
-  // Reset undo history when switching scenes — the previous history applied
-  // to a different scene's items.
-  state.history.length = 0;
-  state.future.length = 0;
   updateUndoButtons();
   render();
 }
@@ -528,8 +628,8 @@ function fitZoom () {
   const c = els.canvas();
   if (!shell || !wrap || !c) return;
   const avail = shell.getBoundingClientRect();
-  const maxW = Math.max(40, avail.width - 26);
-  const maxH = Math.max(40, avail.height - 26);
+  const maxW = Math.max(40, avail.width - (compactEditor.matches ? 18 : 26));
+  const maxH = Math.max(40, compactEditor.matches ? Math.min(window.innerHeight * 0.28, 240) : avail.height - 26);
   state.zoom = Math.min(maxW / CANVAS_W, maxH / CANVAS_H, 1);
 
   // The inner canvas keeps its 1920×1080 coordinate box; transform: scale()
@@ -567,12 +667,20 @@ function naturalDimsFor (src) {
 // viewport, and *then* the scene transform scales/positions it. Reproducing that
 // is critical for visual fidelity — sizing the iframe directly to the rendered
 // dimensions makes the widget's CSS think it has less room than it was designed for.
+function hasSizeBounds(item) {
+  return !!item.bounds_type && item.bounds?.x > 0 && item.bounds?.y > 0;
+}
+
+function setLayerRenderSize(item, size, width, height) {
+  if (hasSizeBounds(item)) item.bounds = { ...item.bounds, x: width, y: height };
+  else item.scale = { ...item.scale, x: width / size.naturalW, y: height / size.naturalH };
+}
+
 function itemSize (item, src) {
   const nat = naturalDimsFor(src);
   const naturalW = nat.w, naturalH = nat.h;
-  const bt = item.bounds_type || 0;
 
-  if (bt !== 0 && item.bounds && item.bounds.x > 0 && item.bounds.y > 0) {
+  if (hasSizeBounds(item)) {
     // Bounds modes 1–6: bounds.x × bounds.y is the rendered size on-canvas.
     // (Variants differ in how they preserve aspect, but rendered box is the same.)
     const w = item.bounds.x, h = item.bounds.y;
@@ -713,7 +821,7 @@ function render () {
   renderLayersPanel();
 }
 
-function renderItem (item, idx) {
+function renderItem (item, idx, replacing) {
     const src = state.sources[item.name];
     if (!src) return;
     if (src.enabled === false) return; // OBS source disabled
@@ -776,14 +884,7 @@ function renderItem (item, idx) {
       // scale it to the rendered size. This matches OBS's browser-source pipeline
       // (browser paints at settings.{width,height}, scene transform scales output).
       const slug = widgetSlugOf(src);
-      const iframe = document.createElement('iframe');
-      iframe.src = widgetUrlForPreview(slug, src);
-      iframe.title = item.name;
-      iframe.loading = 'lazy';
-      iframe.style.width  = sz.naturalW + 'px';
-      iframe.style.height = sz.naturalH + 'px';
-      iframe.style.transformOrigin = 'top left';
-      iframe.style.transform = `scale(${sz.scaleX}, ${sz.scaleY})`;
+      const iframe = mkIframe(widgetUrlForPreview(slug, src), item.name, sz);
       injectObsCss(iframe, src.settings?.css);
       body.appendChild(iframe);
     } else if (src.id === 'browser_source' && src.settings?.url) {
@@ -911,21 +1012,34 @@ function renderItem (item, idx) {
 
     const handle = document.createElement('div');
     handle.className = 'resize-handle';
+    handle.title = 'Scale widget proportionally';
     attachDrag(handle, idx, /*resize*/ true);
 
     node.appendChild(body);
     node.appendChild(label);
     if (isWidgetSrc(src)) { node.appendChild(move); node.appendChild(handle); }
     node.addEventListener('click', (e) => { e.stopPropagation(); selectItem(idx); });
-    c.appendChild(node);
+    if (replacing) replacing.replaceWith(node);
+    else c.appendChild(node);
+}
+
+function redrawPreviewItem(idx) {
+  const node = els.canvas().querySelector(`.scene-item[data-idx="${idx}"]`);
+  if (node) renderItem(state.items[idx], idx, node);
 }
 
 const CUST_KEYS = ['theme', 'accent', 'fontSize', 'title', 'pad'];
 function customizationKeyOf(source) { return source?.uuid || source?.name || widgetSlugOf(source); }
 
+function queryOf(url) {
+  const beforeFragment = url.split('#', 1)[0];
+  const start = beforeFragment.indexOf('?');
+  return start < 0 ? '' : beforeFragment.slice(start + 1);
+}
+
 function widgetParams(slug, source) {
   const url = source?.settings?.url || '';
-  const params = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '');
+  const params = new URLSearchParams(queryOf(url));
   const cust = state.customizations[customizationKeyOf(source)];
   if (cust) {
     for (const key of CUST_KEYS) {
@@ -939,6 +1053,88 @@ function widgetParams(slug, source) {
 function widgetUrlForPreview(slug, source = state.sources[state.items[state.selectedIndex]?.name]) {
   const qs = widgetParams(slug, source).toString();
   return `/widgets/${slug}/` + (qs ? '?' + qs : '');
+}
+
+function widgetLayers(source) {
+  return state.original.sources.flatMap(scene => {
+    if (scene?.id !== 'scene' && scene?.id !== 'group') return [];
+    const items = scene.name === state.sceneName ? state.items : scene.settings?.items;
+    return (items || []).filter(layer => layer.name === source.name);
+  });
+}
+
+function resizeWidgetContent(source, layers, width, height) {
+  snapshot(layers.length === 1 ? state.sceneName : null);
+  for (const layer of layers) {
+    if (hasSizeBounds(layer)) {
+      const { scaleX, scaleY } = itemSize(layer, source);
+      layer.bounds = { ...layer.bounds, x: width * scaleX, y: height * scaleY };
+    }
+  }
+  source.settings.width = width;
+  source.settings.height = height;
+  state.items.forEach((layer, index) => {
+    if (layer.name === source.name) applyToDom(index);
+  });
+  finishEdit();
+  refreshInspector();
+  updateUndoButtons();
+  updateDiff();
+}
+
+function selectedWidgetFrame() {
+  return els.canvas().querySelector(`.scene-item[data-idx="${state.selectedIndex}"] iframe`);
+}
+
+async function measureWidgetFit(frame, size) {
+  const doc = frame.contentDocument;
+  let width = size.naturalW;
+  let height = size.naturalH;
+  const detectOverflow = () => ({
+    right: Math.max(doc.documentElement.scrollWidth, doc.body.scrollWidth) - width,
+    bottom: Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight) - height,
+  });
+  const originalWidth = frame.style.width;
+  const originalHeight = frame.style.height;
+  let probeWidth = originalWidth, probeHeight = originalHeight;
+  try {
+    let overflow = detectOverflow();
+    // Responsive widget rows can reflow after gaining room. Recheck the
+    // viewport a few times before accepting the size as a single undoable edit.
+    for (let pass = 0; pass < 4 && (overflow.right > 0 || overflow.bottom > 0); pass++) {
+      if (overflow.right > 0) width += Math.max(overflow.right, Math.ceil(width / 8));
+      if (overflow.bottom > 0) height += Math.max(overflow.bottom, Math.ceil(height / 8));
+      frame.style.width = probeWidth = `${width}px`;
+      frame.style.height = probeHeight = `${height}px`;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (!frame.isConnected || frame.contentDocument !== doc) return null;
+      if (frame.style.width !== probeWidth || frame.style.height !== probeHeight) return null;
+      overflow = detectOverflow();
+    }
+    return { width, height, stillClipped: overflow.right > 0 || overflow.bottom > 0 };
+  } finally {
+    if (frame.style.width === probeWidth) frame.style.width = originalWidth;
+    if (frame.style.height === probeHeight) frame.style.height = originalHeight;
+  }
+}
+
+function refreshAutoSizeButton(item, source, layers = widgetLayers(source)) {
+  const button = document.getElementById('autosize-btn');
+  const frame = selectedWidgetFrame();
+  button.disabled = item.locked || layers.some(layer => layer.locked) || !state.measuredFrames.has(frame) || state.fittingFrame === frame;
+}
+
+function refreshWidgetPreview(source) {
+  const url = widgetUrlForPreview(widgetSlugOf(source), source);
+  for (const item of els.canvas().querySelectorAll('.scene-item')) {
+    if (state.sources[state.items[Number(item.dataset.idx)]?.name] !== source) continue;
+    const frame = item.querySelector('iframe');
+    if (frame && frame.getAttribute('src') !== url) {
+      state.measuredFrames.delete(frame);
+      frame.src = url;
+    }
+  }
+  refreshAutoSizeButton(state.items[state.selectedIndex], source);
 }
 
 // Tiny JSONPath resolver — same logic as the one in _customizer.js, kept in
@@ -960,6 +1156,7 @@ function _resolvePath (root, path) {
   return node;
 }
 
+let shownBindingSource, shownBindings, bindingSamples, bindingFetch;
 function renderBindings (slug) {
   const block = document.getElementById('bindings-block');
   const list = document.getElementById('bindings-list');
@@ -971,41 +1168,37 @@ function renderBindings (slug) {
     return;
   }
   block.style.display = '';
-  list.innerHTML = '';
-
-  // Get current overrides for this widget; lazy-fetch latest /data.json so
-  // we can resolve and preview each path's live value next to the input.
-  const source = state.sources[state.items[state.selectedIndex]?.name];
-  const key = customizationKeyOf(source);
-  const cust = state.customizations[key] = state.customizations[key] || {};
-  const overrides = cust.bindings = cust.bindings || {};
-
-  // Fetch /data.json once per render so each binding can show its live value.
-  // Cached on state so rapid inspector refreshes don't spam the endpoint.
-  const now = Date.now();
-  if (!state._dataCache || (now - state._dataCacheAt > 1000)) {
-    fetch('/data.json', { cache: 'no-store' })
+  const item = state.items[state.selectedIndex];
+  const source = state.sources[item?.name];
+  if (shownBindingSource !== source || shownBindings !== bindings) {
+    shownBindingSource = source;
+    shownBindings = bindings;
+    bindingSamples = renderBindingsRows(bindings, source);
+  }
+  const overrides = state.customizations[customizationKeyOf(source)]?.bindings || {};
+  for (const { input, binding, updatePreview } of bindingSamples) {
+    input.disabled = item.locked === true;
+    if (document.activeElement !== input) input.value = overrides[binding.id] || binding.default || '';
+    updatePreview();
+  }
+  // Update just the sample values when telemetry returns. Replacing the form
+  // here would discard input and focus while the user is typing.
+  if (!bindingFetch && (!state._dataCacheAt || Date.now() - state._dataCacheAt > 1000)) {
+    bindingFetch = fetch('/data.json', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         state._dataCache = data;
-        state._dataCacheAt = Date.now();
-        // Re-render once data arrives so values populate.
-        if (state.selectedIndex >= 0) {
-          const cur = state.items[state.selectedIndex];
-          const curSrc = state.sources[cur.name];
-          if (curSrc === source) renderBindingsRows(slug, bindings, overrides);
-        }
+        for (const { updatePreview } of bindingSamples) updatePreview();
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { state._dataCacheAt = Date.now(); bindingFetch = null; });
   }
-  renderBindingsRows(slug, bindings, overrides);
 }
 
-function renderBindingsRows (slug, bindings, overrides) {
+function renderBindingsRows (bindings, source) {
   const list = document.getElementById('bindings-list');
-  if (!list) return;
-  list.innerHTML = '';
-  for (const b of bindings) {
+  list.replaceChildren();
+  return bindings.map(b => {
     const row = document.createElement('div');
     row.className = 'bindings-row';
     row.style.cssText = 'display: grid; grid-template-columns: 1fr; gap: 2px; margin-bottom: 8px';
@@ -1025,7 +1218,6 @@ function renderBindingsRows (slug, bindings, overrides) {
     input.setAttribute('aria-label', b.label || b.id);
     input.className = 'input';
     input.style.cssText = 'font-family: var(--font-mono); font-size: 11px; padding: 4px 6px; width: 100%; box-sizing: border-box';
-    input.value = overrides[b.id] || b.default || '';
     input.placeholder = b.default || '';
     if (b.hint) input.title = b.hint;
 
@@ -1041,32 +1233,31 @@ function renderBindingsRows (slug, bindings, overrides) {
       valueSpan.textContent = preview;
     };
 
-    input.addEventListener('input', () => {
+    input.addEventListener('input', updatePreview);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+    input.addEventListener('change', () => {
+      const selected = state.items[state.selectedIndex];
+      if (!selected || selected.locked || state.sources[selected.name] !== source) return;
+      const key = customizationKeyOf(source);
+      const value = input.value.trim();
+      const override = value === b.default ? '' : value;
+      if ((state.customizations[key]?.bindings?.[b.id] || '') === override) return;
       snapshot();
-      const v = input.value.trim();
-      // Only mark as override if the value differs from the default — keeps
-      // the URL clean when the user resets a binding to its default.
-      if (v && v !== b.default) {
-        overrides[b.id] = v;
-      } else {
-        delete overrides[b.id];
-      }
-      updatePreview();
+      const cust = state.customizations[key] ||= {};
+      const overrides = cust.bindings ||= {};
+      if (override) overrides[b.id] = override;
+      else delete overrides[b.id];
+      input.value = override || b.default || '';
+      refreshWidgetPreview(source);
       updateDiff();
-      // Re-render the iframe so the binding takes effect live in the canvas.
-      const idx = state.selectedIndex;
-      if (idx >= 0) {
-        const it = state.items[idx];
-        const node = document.querySelector(`.scene-item[data-idx="${idx}"] iframe`);
-        if (node) node.src = widgetUrlForPreview(slug);
-      }
+      updatePreview();
     });
 
     row.appendChild(label);
     row.appendChild(input);
     list.appendChild(row);
-    updatePreview();
-  }
+    return { input, binding: b, updatePreview };
+  });
 }
 
 // ---- drag / resize ----
@@ -1091,20 +1282,14 @@ function attachDrag (handle, idx, resize) {
       // the delta, so the snap point is consistent regardless of where the
       // drag started.
       if (resize) {
-        let newW = Math.max(40, baseSize.w + dx);
-        let newH = Math.max(20, baseSize.h + dy);
-        if (ev.shiftKey) {
-          newW = Math.round(newW / SNAP_GRID) * SNAP_GRID;
-          newH = Math.round(newH / SNAP_GRID) * SNAP_GRID;
-        }
-        if (item.bounds_type && item.bounds_type !== 0) {
-          item.bounds = { x: newW, y: newH };
-        } else {
-          item.scale = {
-            x: baseSize.naturalW ? newW / baseSize.naturalW : 1,
-            y: baseSize.naturalH ? newH / baseSize.naturalH : 1,
-          };
-        }
+        // Project the drag onto the existing diagonal to scale both axes together.
+        if (baseSize.w <= 0 || baseSize.h <= 0) return;
+        const minimum = Math.max(40 / baseSize.w, 20 / baseSize.h);
+        const delta = (dx * baseSize.w + dy * baseSize.h) / (baseSize.w ** 2 + baseSize.h ** 2);
+        let factor = 1 + delta;
+        if (ev.shiftKey) factor = Math.round(baseSize.w * factor / SNAP_GRID) * SNAP_GRID / baseSize.w;
+        factor = Math.max(minimum, factor);
+        setLayerRenderSize(item, baseSize, baseSize.w * factor, baseSize.h * factor);
       } else {
         let nx = start.px + dx;
         let ny = start.py + dy;
@@ -1148,19 +1333,21 @@ function applyToDom (idx) {
     iframe.style.height = sz.naturalH + 'px';
     iframe.style.transform = `scale(${sz.scaleX}, ${sz.scaleY})`;
   }
+  const body = node.querySelector('.body');
+  const crop = [item.crop_top, item.crop_right, item.crop_bottom, item.crop_left];
+  if (body) body.style.clipPath = crop.some(Boolean)
+    ? `inset(${crop.map((value, i) => `${(value || 0) * (i % 2 === 0 ? sz.scaleY : sz.scaleX)}px`).join(' ')})`
+    : '';
   const lbl = node.querySelector('.label');
   if (lbl) lbl.textContent = `${item.name} · ${Math.round(sz.w)}×${Math.round(sz.h)} (natural ${Math.round(sz.naturalW)}×${Math.round(sz.naturalH)})`;
 }
 
 // ---- layers panel (OBS Sources-style dock) ----
-// Move a scene item from one array index to another. Mirrors moveLayer()
-// but works on arbitrary (from, to) — used by drag-reorder and per-row
-// up/down arrows where the moved item may not be the selected one.
+// Move a layer by dragging or using its Up and Down buttons.
 function moveItemFromTo (from, to) {
   const items = state.items;
-  if (from === to) return;
-  if (from < 0 || from >= items.length) return;
-  if (to   < 0 || to   >= items.length) return;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return;
+  if (!items[from] || !items[to] || items[from].locked) return;
   snapshot();
   const [item] = items.splice(from, 1);
   items.splice(to, 0, item);
@@ -1185,9 +1372,16 @@ function moveItemFromTo (from, to) {
 function renderLayersPanel () {
   const list = els.layersList();
   if (!list) return;
+  updateLayerStackActions();
+  const active = document.activeElement;
+  const oldRow = list.contains(active) ? active.closest('.layer-row') : null;
+  const oldItem = oldRow?._layerItem;
+  const oldIndex = Number(oldRow?.dataset.idx);
+  const action = oldRow && active.dataset.action;
   list.innerHTML = '';
   if (!state.items.length) {
     list.innerHTML = '<div class="empty-hint">No scene loaded.</div>';
+    if (oldRow) focusLayersButton();
     return;
   }
   const total = state.items.length;
@@ -1196,90 +1390,43 @@ function renderLayersPanel () {
     const row = document.createElement('div');
     row.className = 'layer-row';
     row.dataset.idx = i;
+    row._layerItem = item;
     row.setAttribute('role', 'group');
     row.setAttribute('aria-label', `${item.name || 'Unnamed'} layer`);
     if (i === state.selectedIndex) row.classList.add('selected');
     if (item.visible === false) row.classList.add('lr-hidden');
-    row.draggable = true;
-
-    // Drag handle (visual cue — the whole row is draggable, this glyph
-    // signals the reorder affordance).
-    const handle = document.createElement('span');
-    handle.className = 'lr-handle';
-    handle.textContent = '⋮';
-    row.appendChild(handle);
-
-    // Visibility toggle.
-    const eye = document.createElement('button');
-    eye.type = 'button';
-    eye.className = 'lr-toggle' + (item.visible === false ? ' off' : '');
-    eye.textContent = item.visible === false ? '◌' : '●';
-    eye.title = 'Toggle visibility';
-    eye.addEventListener('click', (e) => {
-      e.stopPropagation();
-      snapshot();
-      state.items[i].visible = (item.visible === false);
-      render();
-      if (state.selectedIndex === i) refreshInspector();
-    });
-    row.appendChild(eye);
-
-    // Lock toggle.
-    const lock = document.createElement('button');
-    lock.type = 'button';
-    lock.className = 'lr-toggle' + (item.locked === true ? '' : ' off');
-    lock.textContent = item.locked === true ? '◆' : '◇';
-    lock.title = 'Toggle lock';
-    lock.addEventListener('click', (e) => {
-      e.stopPropagation();
-      snapshot();
-      state.items[i].locked = !(item.locked === true);
-      render();
-      if (state.selectedIndex === i) refreshInspector();
-    });
-    row.appendChild(lock);
-
-    // Stacked up/down arrows (per-row, work on this row's item regardless
-    // of selection state).
-    const arrows = document.createElement('div');
-    arrows.className = 'lr-arrows';
-    const upBtn = document.createElement('button');
-    upBtn.type = 'button';
-    upBtn.textContent = '▲';
-    upBtn.title = 'Move forward (up in list)';
-    upBtn.disabled = (i === total - 1);
-    upBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      moveItemFromTo(i, i + 1);
-    });
-    const downBtn = document.createElement('button');
-    downBtn.type = 'button';
-    downBtn.textContent = '▼';
-    downBtn.title = 'Move backward (down in list)';
-    downBtn.disabled = (i === 0);
-    downBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      moveItemFromTo(i, i - 1);
-    });
-    arrows.appendChild(upBtn);
-    arrows.appendChild(downBtn);
-    row.appendChild(arrows);
-
-    // Name (clicking selects the item, like clicking on canvas).
-    const name = document.createElement('button');
-    name.type = 'button';
+    row.draggable = !item.locked;
+    const label = item.name || 'Unnamed layer';
+    const addButton = (action, text, description, handler, disabled = false) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.action = action;
+      button.textContent = text;
+      button.title = description;
+      button.setAttribute('aria-label', description);
+      button.disabled = disabled;
+      button.addEventListener('click', handler);
+      row.appendChild(button);
+      return button;
+    };
+    const name = addButton('select', label, `Select ${label}`, () => selectItem(i));
     name.className = 'lr-name';
-    name.setAttribute('aria-label', `Select ${item.name || 'layer'}`);
-    name.textContent = item.name || '(unnamed)';
-    name.title = item.name || '';
-    row.appendChild(name);
-
-    row.addEventListener('click', () => selectItem(i));
+    name.setAttribute('aria-pressed', String(i === state.selectedIndex));
+    const visible = item.visible !== false;
+    const eye = addButton('visibility', visible ? 'Hide' : 'Show', `${visible ? 'Hide' : 'Show'} ${label}`,
+      () => setLayerVisibility(i, !visible), item.locked === true);
+    eye.className = 'lr-toggle';
+    const lock = addButton('lock', item.locked ? 'Unlock' : 'Lock', `${item.locked ? 'Unlock' : 'Lock'} ${label}`,
+      () => setLayerLock(i, !item.locked));
+    lock.className = 'lr-toggle';
+    addButton('up', 'Up', `Move ${label} up`, () => moveItemFromTo(i, i + 1), item.locked === true || i === total - 1);
+    addButton('down', 'Down', `Move ${label} down`, () => moveItemFromTo(i, i - 1), item.locked === true || i === 0);
 
     // Drag-to-reorder using native HTML5 Drag API with a custom mime type
     // so the canvas's drop handler (which accepts widget tiles from the
     // drawer) doesn't accidentally consume our row drags.
     row.addEventListener('dragstart', (e) => {
+      if (item.locked || e.target !== row) { e.preventDefault(); return; }
       e.dataTransfer.setData('application/x-bambuboard-layer', String(i));
       e.dataTransfer.effectAllowed = 'move';
       row.classList.add('dragging');
@@ -1323,15 +1470,78 @@ function renderLayersPanel () {
 
     list.appendChild(row);
   }
+  if (action) {
+    const itemIndex = state.items.indexOf(oldItem);
+    const row = list.querySelector(`.layer-row[data-idx="${itemIndex < 0 ? oldIndex : itemIndex}"]`);
+    const exact = row?.querySelector(`button[data-action="${action}"]:not(:disabled)`);
+    (exact || row?.querySelector('.lr-name') || panelControl('layers')).focus({ preventScroll: true });
+    if (exact && itemIndex !== oldIndex) exact.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 // ---- selection / inspector ----
+function updateLayerStackActions () {
+  const index = state.selectedIndex;
+  const item = state.items[index];
+  const actions = document.getElementById('layer-stack-actions');
+  const front = document.getElementById('layer-front');
+  const back = document.getElementById('layer-back');
+  actions.hidden = !item;
+  front.disabled = !item || item.locked || index === state.items.length - 1;
+  back.disabled = !item || item.locked || index === 0;
+  if (actions.contains(document.activeElement) && document.activeElement.disabled) {
+    const alternative = document.activeElement === front ? back : front;
+    if (!alternative.disabled) alternative.focus({ preventScroll: true });
+    else els.layersList().querySelector(`.layer-row[data-idx="${index}"] .lr-name`)?.focus({ preventScroll: true });
+  }
+}
+
+function redrawLayerFlags(idx) {
+  const item = state.items[idx];
+  const node = els.canvas().querySelector(`.scene-item[data-idx="${idx}"]`);
+  node?.classList.toggle('item-hidden', item.visible === false);
+  node?.classList.toggle('locked', item.locked === true);
+  renderLayersPanel();
+  if (idx === state.selectedIndex) refreshInspector();
+  updateDiff();
+}
+function setLayerVisibility(idx, visible) {
+  const item = state.items[idx];
+  if (!item || item.locked || (item.visible !== false) === visible) return;
+  snapshot();
+  item.visible = visible;
+  redrawLayerFlags(idx);
+}
+function setLayerLock(idx, locked) {
+  const item = state.items[idx];
+  if (!item || Boolean(item.locked) === locked) return;
+  snapshot();
+  item.locked = locked;
+  redrawLayerFlags(idx);
+}
+function updateSelection () {
+  document.querySelectorAll('.scene-item, .layer-row').forEach(node => {
+    const selected = Number(node.dataset.idx) === state.selectedIndex;
+    node.classList.toggle('selected', selected);
+    node.querySelector('.lr-name')?.setAttribute('aria-pressed', String(selected));
+  });
+  updateLayerStackActions();
+}
+function deselectItem () {
+  state.selectedIndex = -1;
+  updateSelection();
+  closeInspector();
+  if (compactEditor.matches && els.shell().parentElement.dataset.panel === 'inspector') showPanel('layers');
+}
 function selectItem (idx) {
   state.selectedIndex = idx;
-  document.querySelectorAll('.scene-item').forEach(n => n.classList.toggle('selected', Number(n.dataset.idx) === idx));
-  // Mirror the highlight in the layers panel so canvas-clicks update both.
-  document.querySelectorAll('.layer-row').forEach(n => n.classList.toggle('selected', Number(n.dataset.idx) === idx));
+  updateSelection();
   openInspector();
+  if (compactEditor.matches) {
+    showPanel('inspector');
+    document.getElementById('inspector-heading').focus({ preventScroll: true });
+    els.inspector().scrollIntoView({ block: 'start' });
+  }
 }
 
 function openInspector () {
@@ -1350,57 +1560,67 @@ function refreshInspector () {
   if (!item) return closeInspector();
   const src = state.sources[item.name];
   const sz = itemSize(item, src);
+  const inspector = els.inspector();
+  const sameLayer = inspector._sceneItem === item;
+  inspector._sceneItem = item;
+  const setValue = (id, value) => {
+    const input = document.getElementById(id);
+    if (!sameLayer || document.activeElement !== input) input.value = value;
+  };
+  for (const input of inspector.querySelectorAll('#inspector-fields input, #inspector-fields select, #media-clear')) {
+    input.disabled = item.locked === true && input.id !== 'insp-locked';
+  }
+  document.getElementById('locked-help').hidden = !item.locked;
   document.getElementById('insp-name').textContent = item.name;
-  document.getElementById('insp-x').value = Math.round(item.pos?.x || 0);
-  document.getElementById('insp-y').value = Math.round(item.pos?.y || 0);
-  document.getElementById('insp-w').value = Math.round(sz.w);
-  document.getElementById('insp-h').value = Math.round(sz.h);
-  document.getElementById('insp-w').disabled = false;
-  document.getElementById('insp-h').disabled = false;
-
-  const cust = isWidgetSrc(src) ? (state.customizations[customizationKeyOf(src)] || {}) : null;
+  setValue('insp-x', Math.round(item.pos?.x || 0));
+  setValue('insp-y', Math.round(item.pos?.y || 0));
+  const widget = isWidgetSrc(src);
+  const layers = widget ? widgetLayers(src) : [];
+  const viewportLocked = layers.some(layer => layer.locked);
+  const sharedHelp = document.getElementById('shared-size-help');
+  document.getElementById('size-legend').textContent = widget ? 'Widget size' : 'Layer size';
+  document.getElementById('size-help').hidden = !widget;
+  document.getElementById('autosize-btn').hidden = !widget;
+  for (const axis of ['w', 'h']) {
+    const input = document.getElementById('insp-' + axis);
+    const natural = axis === 'w' ? sz.naturalW : sz.naturalH;
+    setValue(input.id, Math.round(widget ? natural : sz[axis]));
+    input.disabled = item.locked || viewportLocked;
+  }
+  sharedHelp.hidden = layers.length < 2;
+  if (!sharedHelp.hidden) sharedHelp.textContent = viewportLocked
+    ? 'Unlock all layers using this widget to change its content size.'
+    : 'Content size changes apply wherever this widget is used.';
+  document.getElementById('widget-scale-block').hidden = !widget;
+  const stretched = Math.abs(sz.scaleX - sz.scaleY) > 0.005;
+  setValue('widget-scale', stretched ? '' : Math.round(sz.scaleX * 1000) / 10);
+  document.getElementById('widget-scale').placeholder = stretched ? 'Stretched' : '';
+  const resetStretch = document.getElementById('reset-stretch');
+  resetStretch.hidden = !widget || !stretched;
+  resetStretch.disabled = item.locked;
+  const cust = widget ? (state.customizations[customizationKeyOf(src)] || {}) : null;
   document.getElementById('cust-block').style.display = cust ? '' : 'none';
   if (cust !== null) {
-    document.getElementById('cust-title').value = cust.title || '';
-    document.getElementById('cust-theme').value = cust.theme || '';
-    document.getElementById('cust-accent').value = cust.accent ? '#' + cust.accent : '#51a34f';
-    document.getElementById('cust-font').value = cust.fontSize || '';
-    document.getElementById('cust-pad').value = cust.pad || '';
-    // Auto-size button is enabled only once we've received a size measurement
-    // for this widget from the iframe.
+    setValue('cust-title', cust.title || '');
+    setValue('cust-theme', cust.theme || '');
+    setValue('cust-accent', cust.accent ? '#' + cust.accent : '#51a34f');
+    setValue('cust-font', cust.fontSize || '');
+    setValue('cust-pad', cust.pad || '');
     const slug = widgetSlugOf(src);
-    const measured = state.measuredSizes && state.measuredSizes[slug];
-    document.getElementById('autosize-btn').disabled = !measured;
-    if (measured) {
-      document.getElementById('autosize-btn').textContent = `Auto-size to content (${Math.round(measured.w)}×${Math.round(measured.h)})`;
-    } else {
-      document.getElementById('autosize-btn').textContent = 'Auto-size to content';
-    }
-
-    // Render the Advanced — telemetry bindings sub-section if this widget
-    // declares any in its widget.json. See `_customizer.js` for how widgets
-    // consume `?bind.<id>=<JSONPath>` URL params and expose values via
-    // window.__bindings.
+    refreshAutoSizeButton(item, src, layers);
     renderBindings(slug);
+  } else {
+    renderBindings(null);
   }
 
-  // Phase 14 fields — visible/locked toggles, scale_filter, bounds_align, crop.
   document.getElementById('insp-visible').checked = item.visible !== false;
   document.getElementById('insp-locked').checked  = item.locked === true;
-  document.getElementById('insp-scale-filter').value  = item.scale_filter || '';
-  document.getElementById('insp-bounds-align').value  = String(item.bounds_align != null ? item.bounds_align : 0);
-  document.getElementById('insp-crop-l').value = item.crop_left   || 0;
-  document.getElementById('insp-crop-t').value = item.crop_top    || 0;
-  document.getElementById('insp-crop-r').value = item.crop_right  || 0;
-  document.getElementById('insp-crop-b').value = item.crop_bottom || 0;
-
-  // Layer info — show position in stack
-  const total = state.items.length;
-  document.getElementById('layer-info').textContent = `${idx + 1} / ${total}`;
-  document.getElementById('layer-front').disabled = (idx === total - 1);
-  document.getElementById('layer-fwd').disabled   = (idx === total - 1);
-  document.getElementById('layer-bwd').disabled   = (idx === 0);
-  document.getElementById('layer-back').disabled   = (idx === 0);
+  setValue('insp-scale-filter', item.scale_filter || '');
+  setValue('insp-bounds-align', String(item.bounds_align ?? 0));
+  setValue('insp-crop-l', item.crop_left || 0);
+  setValue('insp-crop-t', item.crop_top || 0);
+  setValue('insp-crop-r', item.crop_right || 0);
+  setValue('insp-crop-b', item.crop_bottom || 0);
 
   // Media-source override block: only shown for ffmpeg / vlc / rtsp sources.
   // Stored in localStorage so the preview URL persists per source UUID.
@@ -1409,12 +1629,14 @@ function refreshInspector () {
   mediaBlock.style.display = isMedia ? '' : 'none';
   if (isMedia) {
     const overrideKey = `bb-media-override:${src.uuid || src.name}`;
-    document.getElementById('media-url').value = localStorage.getItem(overrideKey) || '';
+    setValue('media-url', localStorage.getItem(overrideKey) || '');
   }
 }
 
 function closeInspector () {
-  els.inspector().classList.remove('open');
+  const inspector = els.inspector();
+  inspector.classList.remove('open');
+  inspector._sceneItem = null;
   document.getElementById('inspector-empty').hidden = false;
   document.getElementById('inspector-fields').hidden = true;
 }
@@ -1423,224 +1645,275 @@ function closeInspector () {
 document.addEventListener('DOMContentLoaded', () => {
   ['x','y','w','h'].forEach(k => {
     document.getElementById('insp-' + k).addEventListener('change', (e) => {
-      const idx = state.selectedIndex; if (idx < 0) return;
-      snapshot();
+      const idx = state.selectedIndex;
       const item = state.items[idx];
+      if (!item || item.locked) return;
       const src = state.sources[item.name];
-      const v = Number(e.target.value);
-      if (k === 'x') item.pos = { ...(item.pos||{x:0,y:0}), x: v };
-      else if (k === 'y') item.pos = { ...(item.pos||{x:0,y:0}), y: v };
-      else if (k === 'w' || k === 'h') {
-        const cur = itemSize(item, src);
-        const nw = k === 'w' ? v : cur.w;
-        const nh = k === 'h' ? v : cur.h;
-        if (item.bounds_type && item.bounds_type !== 0) {
-          item.bounds = { x: nw, y: nh };
-        } else {
-          item.scale = {
-            x: cur.naturalW ? nw / cur.naturalW : 1,
-            y: cur.naturalH ? nh / cur.naturalH : 1,
-          };
-        }
+      const cur = itemSize(item, src);
+      const isDimension = k === 'w' || k === 'h';
+      const widgetDimension = isDimension && isWidgetSrc(src);
+      const width = widgetDimension ? cur.naturalW : cur.w;
+      const height = widgetDimension ? cur.naturalH : cur.h;
+      const current = Math.round({ x: item.pos?.x || 0, y: item.pos?.y || 0, w: width, h: height }[k]);
+      const v = e.target.valueAsNumber;
+      if (!Number.isFinite(v) || (isDimension && v < 1) || (widgetDimension && !Number.isSafeInteger(v))) {
+        e.target.value = current;
+        return;
       }
+      if (v === current) return;
+      if (widgetDimension) {
+        const layers = widgetLayers(src);
+        if (layers.some(layer => layer.locked)) return;
+        resizeWidgetContent(src, layers, k === 'w' ? v : width, k === 'h' ? v : height);
+        return;
+      }
+      snapshot();
+      if (isDimension) setLayerRenderSize(item, cur, k === 'w' ? v : width, k === 'h' ? v : height);
+      else item.pos = { ...item.pos, [k]: v };
       applyToDom(idx);
       updateDiff();
     });
   });
   ['title','theme','accent','font','pad'].forEach(k => {
-    document.getElementById('cust-' + k).addEventListener('input', (e) => {
-      const idx = state.selectedIndex; if (idx < 0) return;
-      const src = state.sources[state.items[idx].name];
+    const input = document.getElementById('cust-' + k);
+    if (input.type === 'number' || input.type === 'text') {
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+    }
+    input.addEventListener('change', (e) => {
+      const item = state.items[state.selectedIndex];
+      if (!item || item.locked) return;
+      const src = state.sources[item.name];
       if (!isWidgetSrc(src)) return;
-      snapshot();
-      const slug = widgetSlugOf(src);
       const keyOfSource = customizationKeyOf(src);
-      const cust = state.customizations[keyOfSource] = state.customizations[keyOfSource] || {};
-      const keyMap = { font: 'fontSize', pad: 'pad' };
-      const key = keyMap[k] || k;
+      const key = k === 'font' ? 'fontSize' : k;
       let val = e.target.value;
       if (k === 'accent') val = val.replace(/^#/, '');
+      if ((state.customizations[keyOfSource]?.[key] || '') === (val || '')) return;
+      snapshot();
+      const cust = state.customizations[keyOfSource] ||= {};
       if (val === '' || val == null) delete cust[key]; else cust[key] = val;
-      // Refresh that iframe's src
-      const node = els.canvas().querySelector(`.scene-item[data-idx="${idx}"] iframe`);
-      if (node) node.src = widgetUrlForPreview(slug);
+      refreshWidgetPreview(src);
       updateDiff();
     });
   });
 
   // Visible / locked toggles.
   document.getElementById('insp-visible').addEventListener('change', (e) => {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    snapshot();
-    state.items[idx].visible = e.target.checked;
-    render(); refreshInspector(); updateDiff();
+    setLayerVisibility(state.selectedIndex, e.target.checked);
   });
   document.getElementById('insp-locked').addEventListener('change', (e) => {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    snapshot();
-    state.items[idx].locked = e.target.checked;
-    render(); refreshInspector(); updateDiff();
+    setLayerLock(state.selectedIndex, e.target.checked);
   });
 
   // Scale filter.
   document.getElementById('insp-scale-filter').addEventListener('change', (e) => {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    snapshot();
+    const idx = state.selectedIndex;
+    const item = state.items[idx];
+    if (!item || item.locked) return;
     const v = e.target.value;
-    if (v) state.items[idx].scale_filter = v; else delete state.items[idx].scale_filter;
-    render(); updateDiff();
+    if ((item.scale_filter || '') === v) return;
+    snapshot();
+    if (v) item.scale_filter = v; else delete item.scale_filter;
+    const body = els.canvas().querySelector(`.scene-item[data-idx="${idx}"] .body`);
+    if (body) {
+      body.style.imageRendering = v === 'point' ? 'pixelated' : '';
+      body.querySelectorAll('img, video').forEach(node => { node.style.imageRendering = v === 'point' ? 'pixelated' : ''; });
+    }
+    updateDiff();
   });
 
   // Bounds align.
   document.getElementById('insp-bounds-align').addEventListener('change', (e) => {
-    const idx = state.selectedIndex; if (idx < 0) return;
+    const idx = state.selectedIndex;
+    const item = state.items[idx];
+    const value = Number(e.target.value);
+    if (!item || item.locked || (item.bounds_align ?? 0) === value) return;
     snapshot();
-    state.items[idx].bounds_align = parseInt(e.target.value, 10);
-    render(); updateDiff();
+    item.bounds_align = value;
+    applyToDom(idx);
+    updateDiff();
   });
 
   // Crop fields.
   [['l','crop_left'],['t','crop_top'],['r','crop_right'],['b','crop_bottom']].forEach(([k, field]) => {
     document.getElementById('insp-crop-' + k).addEventListener('change', (e) => {
-      const idx = state.selectedIndex; if (idx < 0) return;
-      snapshot();
+      const idx = state.selectedIndex;
+      const item = state.items[idx];
+      if (!item || item.locked) return;
       const v = Math.max(0, parseInt(e.target.value, 10) || 0);
-      if (v) state.items[idx][field] = v; else delete state.items[idx][field];
-      render(); updateDiff();
+      e.target.value = v;
+      if ((item[field] || 0) === v) return;
+      snapshot();
+      if (v) item[field] = v; else delete item[field];
+      applyToDom(idx);
+      updateDiff();
     });
   });
 
-  // Z-order / layer controls — reorder items in the array to change visual stacking.
-  // OBS convention: lower index = behind (background), higher index = in front.
-  function moveLayer(direction) {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    const items = state.items;
-    const total = items.length;
-    let newIdx = idx;
-
-    if (direction === 'front') newIdx = total - 1;
-    else if (direction === 'back') newIdx = 0;
-    else if (direction === 'fwd' && idx < total - 1) newIdx = idx + 1;
-    else if (direction === 'bwd' && idx > 0) newIdx = idx - 1;
-    else return; // no change
-
-    if (newIdx === idx) return;
-    snapshot();
-    const [item] = items.splice(idx, 1);
-    items.splice(newIdx, 0, item);
-    state.selectedIndex = newIdx;
-    render(); refreshInspector(); updateDiff();
-  }
-
-  document.getElementById('layer-front').addEventListener('click', () => moveLayer('front'));
-  document.getElementById('layer-fwd').addEventListener('click', () => moveLayer('fwd'));
-  document.getElementById('layer-bwd').addEventListener('click', () => moveLayer('bwd'));
-  document.getElementById('layer-back').addEventListener('click', () => moveLayer('back'));
-
-  // Auto-size button — uses the size last reported by the widget's iframe via
-  // postMessage (see _customizer.js:reportSize). One-shot: sets the OBS
-  // source's settings.{width,height} to those measured values, snaps to the
-  // grid, then re-renders. Disabled until a measurement comes in.
-  document.getElementById('autosize-btn').addEventListener('click', () => {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    const src = state.sources[state.items[idx].name];
-    if (!isWidgetSrc(src)) return;
-    const slug = widgetSlugOf(src);
-    const reported = state.measuredSizes && state.measuredSizes[slug];
-    if (!reported) { window.toast && window.toast('No size reported yet — wait a sec', 'warn'); return; }
-    snapshot();
-    const w = Math.max(40, Math.round(reported.w / 10) * 10);
-    const h = Math.max(20, Math.round(reported.h / 10) * 10);
-    src.settings = src.settings || {};
-    src.settings.width = w;
-    src.settings.height = h;
-    render();
-    window.toast && window.toast(`Sized ${src.name} to ${w}×${h}`);
+  document.getElementById('autosize-btn').addEventListener('click', async () => {
+    const item = state.items[state.selectedIndex];
+    const src = state.sources[item?.name];
+    const frame = selectedWidgetFrame();
+    if (!item || item.locked || !isWidgetSrc(src) || !state.measuredFrames.has(frame) || state.fittingFrame) return;
+    if (!frame.contentDocument?.body) return;
+    const layers = widgetLayers(src);
+    if (layers.some(layer => layer.locked)) return;
+    const size = itemSize(item, src);
+    state.fittingFrame = frame;
+    refreshAutoSizeButton(item, src, layers);
+    let fit;
+    try { fit = await measureWidgetFit(frame, size); }
+    finally {
+      state.fittingFrame = null;
+      if (selectedWidgetFrame() === frame) refreshAutoSizeButton(item, src);
+    }
+    if (!fit || selectedWidgetFrame() !== frame || widgetLayers(src).some(layer => layer.locked)) return;
+    const current = naturalDimsFor(src);
+    if (current.w !== size.naturalW || current.h !== size.naturalH) return;
+    const { width, height, stillClipped } = fit;
+    if (width === size.naturalW && height === size.naturalH) {
+      window.toast('The preview found no content outside the widget’s current size.');
+      return;
+    }
+    resizeWidgetContent(src, layers, width, height);
+    window.toast(stillClipped ? `Expanded ${src.name}. Check the preview for any remaining clipping.` : `Expanded ${src.name} to fit its content`);
   });
+
+  const scaleInput = document.getElementById('widget-scale');
+  function setWidgetScale(reset) {
+    const index = state.selectedIndex;
+    const item = state.items[index];
+    const src = state.sources[item?.name];
+    if (!item || item.locked || !isWidgetSrc(src)) return;
+    const size = itemSize(item, src);
+    const scale = reset ? Math.min(size.scaleX, size.scaleY) : scaleInput.valueAsNumber / 100;
+    if (!Number.isFinite(scale) || scale <= 0 || (scale === size.scaleX && scale === size.scaleY)) return;
+    snapshot();
+    setLayerRenderSize(item, size, size.naturalW * scale, size.naturalH * scale);
+    applyToDom(index);
+    finishEdit();
+    refreshInspector();
+    updateUndoButtons();
+    updateDiff();
+  }
+  scaleInput.addEventListener('change', () => setWidgetScale(false));
+  document.getElementById('reset-stretch').addEventListener('click', () => setWidgetScale(true));
 
   // Media source override input — saves to localStorage, re-renders the item.
   document.getElementById('media-url').addEventListener('change', (e) => {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    const src = state.sources[state.items[idx].name];
+    const idx = state.selectedIndex;
+    const item = state.items[idx];
+    if (!item || item.locked) return;
+    const src = state.sources[item.name];
     if (!src) return;
     const overrideKey = `bb-media-override:${src.uuid || src.name}`;
     if (e.target.value) localStorage.setItem(overrideKey, e.target.value);
     else localStorage.removeItem(overrideKey);
-    render();
+    state.items.forEach((layer, i) => { if (layer.name === item.name) redrawPreviewItem(i); });
   });
   document.getElementById('media-clear').addEventListener('click', () => {
-    const idx = state.selectedIndex; if (idx < 0) return;
-    const src = state.sources[state.items[idx].name];
+    const idx = state.selectedIndex;
+    const item = state.items[idx];
+    if (!item || item.locked) return;
+    const src = state.sources[item.name];
     if (!src) return;
     const overrideKey = `bb-media-override:${src.uuid || src.name}`;
     localStorage.removeItem(overrideKey);
     document.getElementById('media-url').value = '';
-    render();
+    state.items.forEach((layer, i) => { if (layer.name === item.name) redrawPreviewItem(i); });
   });
 });
 
-// ---- diff / save / download ----
-function collectionFingerprint(collection) {
-  const copy = structuredClone(collection);
-  (copy.sources || []).forEach(src => {
-    if (isWidgetSrc(src)) src.settings.url = src.settings.url.replace(/^https?:\/\/[^/]+/, '<HOST>');
-  });
-  return JSON.stringify(copy);
+// ---- draft and Live actions ----
+function draftFingerprint (collection = state.original && applyChangesToCollection(), name = state.draftName) {
+  return collection && JSON.stringify([name, collection]);
 }
-function hasUnsavedChanges() {
-  return !!state.original && state.savedFingerprint !== collectionFingerprint(applyChangesToCollection());
+
+function hasUnsavedChanges () {
+  return !!state.original && state.savedFingerprint !== draftFingerprint();
 }
-async function refreshPublicationState() {
-  if (!state.original) return;
-  const original = state.original;
+
+let liveRequest = 0;
+async function refreshPublicationState () {
+  const request = ++liveRequest;
   try {
-    const a = await fetch('/api/obs/active').then(r => r.json());
-    if (a.slug && a.slug === state.savedName) {
-      const published = await fetch('/api/obs/published').then(r => r.json());
-      if (state.original === original) state.publishedFingerprint = collectionFingerprint(published);
-    }
-  } catch (_) {}
-  updateDiff();
+    const active = await editorRequest('/api/obs/active');
+    if (request === liveRequest) state.live = active;
+    return active;
+  } catch (_) {
+    if (request === liveRequest) state.live = null;
+    return null;
+  } finally {
+    if (request === liveRequest) updateDiff();
+  }
 }
+
 function updateDiff () {
-  if (!state.original) return;
-  const fingerprint = collectionFingerprint(applyChangesToCollection());
-  const changed = state.savedFingerprint !== fingerprint;
-  els.diff().textContent = `${state.items.length} layers · ${CANVAS_W} × ${CANVAS_H}`;
+  const loaded = !!state.original;
+  const busy = state.saving || state.loading;
+  const changed = loaded && hasUnsavedChanges();
+  const nameValid = !!sanitizeSceneName(state.draftName);
+  const live = state.live;
+  const current = !!live?.revision && live.slug === state.savedSlug && live.revision === state.savedRevision;
+  const sceneCount = els.scenes().options.length;
   const badge = document.getElementById('draft-state');
-  const published = fingerprint === state.publishedFingerprint;
-  badge.textContent = changed ? 'Unsaved changes' : published ? 'Published to /live' : state.savedName ? 'Draft saved' : 'New draft';
-  badge.className = 'pill ' + (changed ? 'pill-warn' : published ? 'pill-ok' : '');
+  const summary = document.getElementById('live-state');
+  const hint = document.getElementById('apply-live-hint');
+  const restore = document.getElementById('restore-live-btn');
+
+  if (loaded) els.diff().textContent = `${state.items.length} ${state.items.length === 1 ? 'layer' : 'layers'}`;
+  const draftStatus = state.loading ? 'Loading draft…' : state.draftConflict ? 'Draft changed elsewhere' : !loaded ? 'No draft loaded' : changed ? 'Unsaved changes' : current ? 'Draft saved · Live' : state.savedSlug ? 'Draft saved' : 'New draft';
+  if (badge.textContent !== draftStatus) badge.textContent = draftStatus;
+  badge.className = 'pill ' + (changed || state.draftConflict ? 'pill-warn' : current ? 'pill-ok' : '');
+  const liveName = live?.name || live?.label || live?.slug || 'Default scene';
+  const liveScene = live?.sceneName ? ` / ${live.sceneName}` : '';
+  const liveRevision = live?.revision ? ` · revision ${String(live.revision).slice(0, 8)}` : '';
+  const outputStatus = live ? `Live now: ${liveName}${liveScene}${liveRevision}` : 'Live status unavailable';
+  if (summary.textContent !== outputStatus) summary.textContent = outputStatus;
+  summary.title = live?.revision ? `Live revision ${live.revision}` : '';
+  restore.hidden = !live?.canRollback;
+  restore.disabled = busy || !live?.canRollback;
+
+  const target = loaded ? `${state.savedName} / ${state.liveSceneName}` : '';
+  const hintText = !loaded ? 'Load a layout to get started.'
+    : state.draftConflict ? 'Refresh the editor to reload this draft, or save your edits as a copy.'
+      : changed || !state.savedRevision ? 'Save your draft to apply it to Live.'
+        : !live ? 'Reload the editor to check Live before applying this draft.'
+          : current ? 'This saved draft is already Live.'
+            : `Ready to apply: ${target} · revision ${String(state.savedRevision).slice(0, 8)}`;
+  hint.textContent = hintText;
+  hint.title = state.savedRevision ? `Saved draft revision ${state.savedRevision}` : '';
+
+  document.getElementById('save-btn').disabled = busy || !loaded || !nameValid || state.draftConflict;
+  document.getElementById('save-copy-btn').disabled = busy || !loaded;
+  document.getElementById('golive-btn').disabled = busy || !loaded || changed || !state.savedRevision || !live || current || state.draftConflict;
+  document.getElementById('reset-btn').disabled = busy || !loaded || !changed;
+  els.draftName().disabled = busy || !loaded;
+  els.scenes().disabled = busy || sceneCount < 2;
+  els.liveScenes().disabled = busy || sceneCount < 2;
+  els.loader().disabled = state.saving;
 }
-window.addEventListener('beforeunload', e => { if (hasUnsavedChanges()) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (hasUnsavedChanges()) { event.preventDefault(); event.returnValue = ''; } });
 
 function applyChangesToCollection () {
-  // Clone original, then mutate items + browser-source URLs.
   const clone = structuredClone(state.original);
-  clone.current_scene = state.sceneName;
-  clone.current_program_scene = state.sceneName;
-  const scene = (clone.sources || []).find(s => s.id === 'scene' && s.name === state.sceneName);
-  if (scene && scene.settings) scene.settings.items = structuredClone(state.items);
-  // Apply customizations to browser-source URLs
-  (clone.sources || []).forEach(src => {
-    if (!isWidgetSrc(src)) return;
-    const slug = widgetSlugOf(src);
-    const cust = state.customizations[customizationKeyOf(src)];
-    // An empty customization means the user cleared the last override.
-    // Still rebuild the URL so old parameters are actually removed.
+  // Editing scene selection is local to the workspace. Only the deliberate
+  // live-scene choice controls the OBS program scene in the saved draft.
+  clone.current_program_scene = state.liveSceneName;
+  const scene = clone.sources.find(source => source?.id === 'scene' && source.name === state.sceneName);
+  if (scene) scene.settings.items = structuredClone(state.items);
+  clone.sources.forEach(source => {
+    if (!isWidgetSrc(source)) return;
+    const cust = state.customizations[customizationKeyOf(source)];
     if (!cust) return;
-    const base = src.settings.url.split('?')[0];
-    const params = widgetParams(slug, src);
-    src.settings.url = params.toString() ? `${base}?${params.toString()}` : base;
+    const params = widgetParams(widgetSlugOf(source), source);
+    const [base] = source.settings.url.split(/[?#]/, 1);
+    const hashAt = source.settings.url.indexOf('#');
+    source.settings.url = base + (params.size ? `?${params}` : '') + (hashAt < 0 ? '' : source.settings.url.slice(hashAt));
   });
   return clone;
 }
 
-// Server's SAFE_NAME regex is /^[a-zA-Z0-9_\-. ]{1,64}$/. Any other char
-// (most commonly `<` and `>` left over from unsubstituted `<VERSION>`
-// placeholders, or `/` `:` from user free-text) makes the save fail with
-// "invalid name". Replace disallowed chars with `_`, collapse runs, and
-// clamp to 64 chars so save flows always succeed.
 function sanitizeSceneName (raw) {
   if (!raw) return '';
   return String(raw)
@@ -1650,96 +1923,100 @@ function sanitizeSceneName (raw) {
     .slice(0, 64);
 }
 
-// Persist the current edit to /api/obs/scenes under `name`. Returns the saved
-// slug (or null on failure). Shared by Save draft and Publish to /live.
-async function saveSceneAs (name) {
-  const out = applyChangesToCollection();
-  try {
-    const r = await fetch('/api/obs/scenes', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, json: out }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (j.ok) { state.savedCollection = out; state.savedFingerprint = collectionFingerprint(out); }
-    return j.ok ? (j.slug || name) : null;
-  } catch (_) { return null; }
+async function editorRequest (endpoint, payload) {
+  const options = payload === undefined ? { cache: 'no-store' } : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  };
+  const response = await fetch(endpoint, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || (payload !== undefined && data.ok !== true)) {
+    throw Object.assign(new Error(data.error || `Request returned ${response.status}`), { code: data.code });
+  }
+  return data;
 }
 
-async function onSave () {
-  if (state.saving) return;
-  if (!state.original) return window.toast('Nothing loaded', 'error');
-  const raw = document.getElementById('draft-name').value;
-  if (!raw.trim()) return window.toast('Give your draft a name first.', 'error');
-  const name = sanitizeSceneName(raw);
-  if (!name) return window.toast('Save failed: name had no usable characters', 'error');
-  setSaving(true);
+async function persistDraft (name, copy = false) {
+  if (!state.original || state.loading || state.saving || (!copy && state.draftConflict)) return;
+  if (!name) return window.toast('Give your draft a name first.', 'error');
+  finishEdit();
+  const json = applyChangesToCollection();
+  const prior = !copy && state.savedSlug ? { slug: state.savedSlug, revision: state.savedRevision } : {};
+  state.saving = true;
+  updateDiff();
   try {
-    const slug = await saveSceneAs(name);
-    if (slug) {
-      if (state.savedName !== name) state.publishedFingerprint = null;
-      state.savedName = name;
-      document.getElementById('draft-name').value = name;
-      updateDiff();
-      window.toast(`Draft saved as "${name}"`);
-      refreshSavedScenes(slug); // update loader dropdown without a reload
-    } else {
-      window.toast('Save failed', 'error');
-    }
-  } finally { setSaving(false); }
+    const saved = await editorRequest('/api/obs/scenes', { name, json, ...prior });
+    state.savedSlug = saved.slug;
+    state.savedRevision = saved.revision;
+    state.savedName = saved.name;
+    state.savedCollection = json;
+    state.savedFingerprint = draftFingerprint(json, saved.name);
+    state.draftConflict = false;
+    state.draftName = saved.name;
+    els.draftName().value = saved.name;
+    await refreshSavedScenes(saved.slug);
+    window.toast(copy ? `Saved a copy as “${saved.name}”` : `Draft “${saved.name}” saved`);
+  } catch (error) {
+    if (['DRAFT_CONFLICT', 'DRAFT_NOT_FOUND'].includes(error.code)) state.draftConflict = true;
+    window.toast(`Save failed: ${error.message}`, 'error');
+  } finally {
+    state.saving = false;
+    updateDiff();
+  }
 }
 
-// Open the live output (the currently-published scene) in a new tab.
+function onSave () {
+  return persistDraft(sanitizeSceneName(state.draftName));
+}
+
+function onSaveCopy () {
+  if (state.saving || state.loading || !state.original) return;
+  const value = prompt('Name the new draft copy', `${(sanitizeSceneName(state.draftName) || 'Draft').slice(0, 59)} copy`);
+  if (value !== null) return persistDraft(sanitizeSceneName(value), true);
+}
+
+function resetDraft () {
+  if (state.saving || state.loading || !state.savedCollection || !hasUnsavedChanges()) return;
+  const baseline = state.savedSlug ? 'its last saved state' : 'the starting layout';
+  if (!confirm(`Reset this draft to ${baseline}? You can undo the reset.`)) return;
+  snapshot(null);
+  hydrateCollection(structuredClone(state.savedCollection), { draftName: state.savedName, sceneName: state.sceneName });
+  finishEdit();
+  updateUndoButtons();
+  updateDiff();
+}
+
 function onPreview () {
   window.open('/live', '_blank', 'noopener');
 }
 
-// Headline action: save the current layout and publish it as the live output
-// (/api/obs/active). /live (and any OBS Browser Source pointed at it) picks the
-// change up on its next poll — no OBS re-import, no scene file to download.
-async function onGoLive () {
-  if (state.saving) return;
-  if (!state.original) return window.toast('Nothing to publish — load a layout first', 'error');
-  // Publishing snapshots a persisted scene, so save the draft first.
-  // Prefer the saved-scene name this layout
-  // came from; otherwise auto-name from the template/upload label (or "Live
-  // Scene"). No prompt — publishing a template should "just go live". The user
-  // can rename later via Save.
-  const name = sanitizeSceneName(document.getElementById('draft-name').value)
-    || state.savedName
-    || sanitizeSceneName(state.suggestedName || '')
-    || 'Live Scene';
-  setSaving(true);
+async function changeLive (endpoint, payload, success, failure) {
+  state.saving = true;
+  ++liveRequest;
+  updateDiff();
   try {
-    const slug = await saveSceneAs(name);
-    if (!slug) return window.toast('Could not save the draft for publishing', 'error');
-    if (state.savedName !== name) state.publishedFingerprint = null;
-    state.savedName = name;
-    document.getElementById('draft-name').value = name;
+    state.live = await editorRequest(endpoint, payload);
+    window.dispatchEvent(new Event('bambuboard:published'));
+    window.toast(success);
+  } catch (error) {
+    if (['DRAFT_CONFLICT', 'DRAFT_NOT_FOUND'].includes(error.code)) state.draftConflict = true;
+    if (['LIVE_CONFLICT', 'NO_PREVIOUS_LIVE'].includes(error.code)) await refreshPublicationState();
+    window.toast(`${failure}: ${error.message}`, 'error');
+  } finally {
+    state.saving = false;
     updateDiff();
-    refreshSavedScenes(slug);
-    try {
-      const r = await fetch('/api/obs/active', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (j.ok) {
-        state.publishedFingerprint = state.savedFingerprint;
-        document.getElementById('draft-name').value = name;
-        updateDiff();
-        window.dispatchEvent(new Event('bambuboard:published'));
-      }
-      window.toast(j.ok ? `Published "${name}" to /live` : 'Publish failed: ' + (j.error || ''), j.ok ? 'success' : 'error');
-    } catch (e) {
-      window.toast('Publish failed: ' + e.message, 'error');
-    }
-  } finally { setSaving(false); }
+  }
 }
 
-function setSaving(saving) {
-  state.saving = saving;
-  for (const id of ['save-btn', 'golive-btn', 'loader', 'reset-btn', 'draft-name']) document.getElementById(id).disabled = saving;
-  els.scenes().disabled = saving || (state.original?.sources || []).filter(s => s.id === 'scene').length < 2;
+function onGoLive () {
+  if (state.saving || state.loading || !state.savedSlug || !state.savedRevision || !state.live || state.draftConflict || hasUnsavedChanges()) return;
+  return changeLive('/api/obs/active', { slug: state.savedSlug, revision: state.savedRevision, expectedUpdatedAt: state.live.updatedAt ?? null },
+    `Applied “${state.liveSceneName}” to Live`, 'Apply to Live failed');
+}
+
+function restoreLive () {
+  if (state.saving || state.loading || !state.live?.canRollback) return;
+  if (!confirm('Restore the previous Live output? This will change what viewers see.')) return;
+  return changeLive('/api/obs/active/rollback', { expectedUpdatedAt: state.live.updatedAt ?? null }, 'Previous Live output restored', 'Restore failed');
 }
 
 // Re-fetch /api/obs/scenes and rebuild just the "Saved scenes" optgroup in
@@ -1807,31 +2084,15 @@ function showMediaPlaceholder (body, name, hint) {
   body.parentElement?.classList.add('placeholder');
 }
 
-// Surface the active canvas resolution in the toolbar. Clicking it lets the
-// user pick a preset (matching the common OBS Base Canvas Resolutions) or
-// type a custom value. The resolution is round-tripped on Download/Save —
-// applies to the JSON's top-level `resolution` field.
+// Canvas size belongs to the whole draft. The browser source reads the applied
+// size from Live.
 function updateCanvasInfoBtn () {
   const btn = document.getElementById('canvas-res-btn');
   if (btn) btn.textContent = `${CANVAS_W}×${CANVAS_H}`;
 }
 
 function pickCanvasResolution () {
-  // Warn once per tab session: OBS won't auto-pick up canvas resize. Users
-  // must match the resolution under OBS → Settings → Video → Base (Canvas)
-  // Resolution and re-import the scene, otherwise OBS will rescale/crop.
-  const ACK_KEY = 'bb_canvas_resize_obs_ack';
-  if (!sessionStorage.getItem(ACK_KEY)) {
-    const ok = confirm(
-      'Heads up: changing the canvas size here does NOT update OBS.\n\n' +
-      'Before importing this scene into OBS, you must match the resolution in:\n' +
-      '  OBS → Settings → Video → Base (Canvas) Resolution\n\n' +
-      'Tip: change OBS first, then import the scene so OBS doesn’t rescale your widgets.\n\n' +
-      'Continue and pick a new canvas size?'
-    );
-    if (!ok) return;
-    sessionStorage.setItem(ACK_KEY, '1');
-  }
+  if (!state.original) return;
 
   const presets = [
     '1920×1080 (Full HD)',
@@ -1843,7 +2104,7 @@ function pickCanvasResolution () {
   ];
   const labels = presets.map((p, i) => `${i + 1}. ${p}`).join('\n');
   const cur = `${CANVAS_W}×${CANVAS_H}`;
-  const choice = prompt(`Set canvas resolution\n⚠ Must match OBS → Settings → Video → Base (Canvas) Resolution\nCurrent: ${cur}\n\n${labels}`, '1');
+  const choice = prompt(`Draft canvas size\nCurrent: ${cur}\n\n${labels}\n\nAfter applying to Live, match your OBS Browser Source dimensions to this size.`, '1');
   if (!choice) return;
   const idx = parseInt(choice, 10) - 1;
   let w = CANVAS_W, h = CANVAS_H;
@@ -1865,7 +2126,7 @@ function pickCanvasResolution () {
     }
   }
   if (w === CANVAS_W && h === CANVAS_H) return;
-  snapshot();
+  snapshot(null);
 
   // Scale all widget positions and sizes proportionally to the new resolution.
   const scaleX = w / CANVAS_W;
@@ -1885,7 +2146,7 @@ function pickCanvasResolution () {
 
   CANVAS_W = w;
   CANVAS_H = h;
-  // Reflect the change in the loaded JSON so Save/Download round-trips it.
+  // Reflect the change in the saved OBS collection.
   state.original.resolution = { x: w, y: h };
   state.original.migration_resolution = { x: w, y: h };
   updateCanvasInfoBtn();
@@ -1943,19 +2204,20 @@ const LAYOUT_ROLES = {
 };
 
 function autoLayout () {
-  if (!state.items.length) return;
+  const movable = state.items.filter(item => !item.locked);
+  if (!movable.length) return;
   snapshot();
   const snap = (n) => Math.round(n / AUTO_LAYOUT_GRID) * AUTO_LAYOUT_GRID;
   const GAP = AUTO_LAYOUT_GAP;
 
-  // Measure all items.
-  const measured = state.items.map((item, idx) => {
+  // Leave locked layers in place.
+  const measured = movable.map(item => {
     const src = state.sources[item.name];
     const sz = itemSize(item, src);
     const slug = src && isWidgetSrc(src) ? widgetSlugOf(src) : null;
     const sourceId = src?.id || '';
     return {
-      item, idx, slug, sourceId,
+      item, slug, sourceId,
       x: item.pos?.x || 0, y: item.pos?.y || 0,
       w: sz.w, h: sz.h,
     };
@@ -2111,30 +2373,59 @@ function autoLayout () {
 // Lists all available widgets. Users drag tiles from the drawer onto the canvas
 // to add new browser sources to their scene.
 
-function toggleWidgetDrawer () {
-  const drawer = document.getElementById('widget-drawer');
-  drawer.classList.toggle('open');
-  if (drawer.classList.contains('open')) els.layersPanel().classList.remove('open');
-  else els.layersPanel().classList.add('open');
+function panelControl(panel) {
+  return document.getElementById({ layers: 'layers-panel-btn', widgets: 'widget-drawer-btn', inspector: 'inspector-panel-btn' }[panel]);
 }
-function closeWidgetDrawer (restoreLayers = true) {
-  document.getElementById('widget-drawer').classList.remove('open');
-  if (restoreLayers) els.layersPanel().classList.add('open');
+function focusLayersButton () {
+  panelControl('layers').focus({ preventScroll: true });
+}
+function showPanel(panel) {
+  els.shell().parentElement.dataset.panel = panel;
+  if (panel !== 'inspector') {
+    els.layersPanel().classList.toggle('open', panel === 'layers');
+    document.getElementById('widget-drawer').classList.toggle('open', panel === 'widgets');
+  }
+  updatePanelButtons();
+}
+function updatePanelButtons () {
+  const selected = els.shell().parentElement.dataset.panel;
+  const narrow = compactEditor.matches;
+  panelControl('layers').setAttribute('aria-expanded', String(narrow ? selected === 'layers' : els.layersPanel().classList.contains('open')));
+  panelControl('widgets').setAttribute('aria-expanded', String(narrow ? selected === 'widgets' : document.getElementById('widget-drawer').classList.contains('open')));
+  panelControl('inspector').setAttribute('aria-expanded', String(narrow && selected === 'inspector'));
 }
 
 async function populateWidgetDrawer () {
   const list = document.getElementById('widget-drawer-list');
   if (!list) return;
-  let widgets = [];
-  let caps = {};
+  const statusLine = document.createElement('p');
+  statusLine.className = 'empty-hint';
+  statusLine.setAttribute('role', 'status');
+  statusLine.textContent = 'Loading widgets…';
+  list.replaceChildren(statusLine);
+  let widgets, caps;
   try {
-    const [w, status] = await Promise.all([
-      fetch('/api/widgets').then(r => r.json()).catch(() => []),
+    const [response, status] = await Promise.all([
+      fetch('/api/widgets'),
       fetch('/api/status').then(r => r.json()).catch(() => null),
     ]);
-    widgets = w || [];
-    caps = (status && status.caps) || {};
-  } catch (_) {}
+    if (!response.ok) throw new Error('Widget catalog unavailable');
+    widgets = await response.json();
+    if (!Array.isArray(widgets) || !widgets.length) throw new Error('Widget catalog is empty');
+    caps = status?.caps || {};
+  } catch (_) {
+    statusLine.textContent = 'Could not load the widget catalog.';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn';
+    retry.textContent = 'Retry loading widgets';
+    retry.addEventListener('click', async () => {
+      await populateWidgetDrawer();
+      list.querySelector('button, [tabindex="0"]')?.focus();
+    });
+    list.appendChild(retry);
+    return;
+  }
   // Stash the full manifest list so the inspector can look up `bindings`
   // declarations without re-fetching. Keyed by slug.
   state.widgetManifests = state.widgetManifests || {};

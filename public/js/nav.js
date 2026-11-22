@@ -6,7 +6,7 @@
     if (text) node.textContent = text;
     return node;
   };
-  let stepper, refreshId = 0;
+  let stepper, stepperState, refreshId = 0;
   async function refreshStatus() {
     const revision = ++refreshId;
     try {
@@ -40,20 +40,32 @@
     const firstRun = new URLSearchParams(location.search).get('firstRun') === '1';
     stepper.hidden = location.pathname === '/login' || (status.setupComplete && !firstRun);
     if (stepper.hidden) return;
-    stepper.replaceChildren();
+    const current = location.pathname + location.hash;
     const steps = [
       ['Setup', '/setup', status.setupComplete],
       ['Connect', '/setup#connect', status.connected],
       ['Layout', '/scene-editor', Array.isArray(scenes) && scenes.length > 0],
-      ['Publish', '/', !!active?.slug],
+      ['Apply to Live', '/scene-editor#golive-btn', !!active?.slug],
     ];
+    const state = JSON.stringify([current, steps.map(step => step[2])]);
+    if (state === stepperState) return;
+    stepperState = state;
+    stepper.replaceChildren();
     steps.forEach(([label, href, done], i) => {
       const locked = i > 0 && !status.setupComplete;
       const item = make(locked ? 'span' : 'a', 'bb-step' + (done ? ' is-complete' : '') + (locked ? ' is-locked' : ''));
-      if (!locked) item.href = href;
-      const current = location.pathname + location.hash;
-      if (current === href || (!location.hash && location.pathname === href)) item.classList.add('is-active');
-      item.append(make('span', 'bb-step-circle', done ? '✓' : String(i + 1)), make('span', 'bb-step-label', label));
+      if (!locked) {
+        const url = new URL(href, location.origin);
+        url.searchParams.set('firstRun', '1');
+        item.href = url.pathname + url.search + url.hash;
+      }
+      if (current === href) {
+        item.classList.add('is-active');
+        item.setAttribute('aria-current', 'step');
+      }
+      const circle = make('span', 'bb-step-circle', done ? '✓' : String(i + 1));
+      circle.setAttribute('aria-hidden', 'true');
+      item.append(circle, make('span', 'bb-step-label', label));
       stepper.appendChild(item);
       if (i < 3) stepper.appendChild(make('span', 'bb-step-connector' + (done ? ' is-complete' : '')));
     });
@@ -75,7 +87,8 @@
     const meta = make('div', 'nav-meta'); meta.id = 'nav-meta';
     meta.append(make('span', 'pill', 'Checking printer…'));
     nav.append(brand, links, make('div', 'nav-spacer'), meta);
-    stepper = make('div', 'bb-stepper'); stepper.id = 'bb-stepper'; stepper.hidden = true;
+    stepper = make('nav', 'bb-stepper'); stepper.id = 'bb-stepper'; stepper.hidden = true;
+    stepper.setAttribute('aria-label', 'Printer setup progress');
     document.body.prepend(skip, nav, stepper);
     refreshStatus();
     setInterval(refreshStatus, 5000);
