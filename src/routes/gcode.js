@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { fetchPlateGcode, extractPlateGcode, GcodeError, LIMITS, describe } = require('../services/printerFiles');
+const { archiveMiB } = require('../../public/js/gcode-limits');
 
 function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log = message => console.warn(message), now = Date.now }) {
   const router = express.Router();
@@ -140,7 +141,7 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
     } catch (err) { fail(res, err); }
   });
   router.use((err, _req, res, next) => {
-    if (err.type === 'entity.too.large') return fail(res, new GcodeError('FILE_TOO_LARGE', 'Choose a sliced file smaller than 128 MiB.', { status: 413 }));
+    if (err.type === 'entity.too.large') return fail(res, new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB upload limit. Open this plate in Bambu Studio.`, { status: 413 }));
     next(err);
   });
   return { router, flushDiagnostics: () => diagnosticQueue, async stop() {

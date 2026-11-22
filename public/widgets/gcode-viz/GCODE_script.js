@@ -9,6 +9,7 @@
 
 import * as GCodePreview from '../../vendor/gcode-preview.esm.js';
 import * as THREE from '../../vendor/three.module.js';
+import '../../js/gcode-limits.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
@@ -941,11 +942,8 @@ function clearScene() {
   fastTick();                               // commit the empty state to the GPU
 }
 
-// Match the server's extracted-toolpath bound. Large sliced plates commonly
-// exceed 24 MiB and 500,000 lines; parse in batches instead of splitting the
-// entire file into a second, million-element array.
-const PREVIEW_MAX_BYTES = 64 * 1024 * 1024;
-const PREVIEW_MAX_LINES = 2000000;
+const { archiveMiB, toolpathMiB, toolpathLines } = window.BBGcodeLimits;
+const PREVIEW_MAX_BYTES = toolpathMiB * 1024 * 1024;
 const MAX_AUTO_ATTEMPTS = 5;
 function previewLimit(detail) {
   return Object.assign(new Error(`${detail} Open this plate in Bambu Studio. Retrying or loading the same file will not change this limit.`), {
@@ -981,7 +979,7 @@ async function readToolpath(res, progress) {
   const total = Number(res.headers.get('Content-Length')) || 0;
   if (total > PREVIEW_MAX_BYTES) {
     await res.body.cancel().catch(() => {});
-    throw previewLimit('This toolpath exceeds the 64 MiB preview limit.');
+    throw previewLimit(`This toolpath exceeds the ${toolpathMiB} MiB preview limit.`);
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -991,7 +989,7 @@ async function readToolpath(res, progress) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.length;
-      if (bytes > PREVIEW_MAX_BYTES) throw previewLimit('This toolpath exceeds the 64 MiB preview limit.');
+      if (bytes > PREVIEW_MAX_BYTES) throw previewLimit(`This toolpath exceeds the ${toolpathMiB} MiB preview limit.`);
       parts.push(decoder.decode(value, { stream: true }));
       progress(bytes, total);
     }
@@ -1018,7 +1016,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     if (forceNocache) query.set('nocache', '1');
     if (manual) query.set('retry', '1');
     forceNocache = false;
-    if (file && file.size > 128 * 1024 * 1024) throw Object.assign(new Error('This sliced file exceeds the 128 MiB upload limit. Choose a smaller sliced file or open it in Bambu Studio.'), { retryable: false, recovery: false });
+    if (file && file.size > archiveMiB * 1024 * 1024) throw previewLimit(`This sliced file exceeds the ${archiveMiB} MiB upload limit.`);
     const res = await fetch('/api/gcode/current?' + query, {
       cache: 'no-store', signal: controller.signal,
       ...(file ? { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file } : {}),
@@ -1066,7 +1064,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
         offset = end + 1;
       }
       parsedLines += lines.length;
-      if (parsedLines > PREVIEW_MAX_LINES) throw previewLimit('This plate exceeds the 2,000,000 line preview limit.');
+      if (parsedLines > toolpathLines) throw previewLimit(`This plate exceeds the ${toolpathLines.toLocaleString('en-US')}-line preview limit.`);
       preview.parser.parseGCode(lines);
       setOverlay(`Processing toolpath… ${Math.min(100, Math.floor(offset / text.length * 100))}%`, 'loading');
       await new Promise(resolve => setTimeout(resolve, 0));

@@ -9,6 +9,7 @@ const { archive, ftpsFixture } = require('./ftps-fixture');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
+const { toolpathMiB, toolpathLines } = require('../public/js/gcode-limits');
 const root = path.resolve(__dirname, '..');
 const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X10 Y70 E1\nG1 X10 Y10 E1\nG1 Z0.4\nG1 X70 Y10 E1\nG1 X70 Y70 E1\n';
 (async () => {
@@ -27,9 +28,9 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     fetchGcode: async options => {
       count++;
       if (options.job.name === 'Slow job') return new Promise(resolve => { releaseSlow = () => resolve(Buffer.from(sample)); });
-      if (mode === 'oversize') return Buffer.alloc(65 * 1024 * 1024, 'G');
-      if (mode === 'large') return Buffer.from(sample + '; preview fixture padding\n'.repeat(1250000));
-      if (mode === 'many-lines') return Buffer.from(sample + ';\n'.repeat(2000001));
+      if (mode === 'oversize') return Buffer.alloc(toolpathMiB * 1024 * 1024 + 1, 'G');
+      if (mode === 'large') return Buffer.from(sample + '; preview fixture padding\n'.repeat(2750000));
+      if (mode === 'many-lines') return Buffer.from(sample + ';\n'.repeat(toolpathLines + 1));
       if (mode === 'unprintable') return Buffer.from('G90\nG1 X10 Y10 Z0.2\n');
       return fetchPlateGcode({ ...options, port: ftp.port });
     } });
@@ -200,7 +201,7 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     await page.setViewportSize({ width: 400, height: 320 });
     await page.waitForFunction(before => window.__drawCount > before, beforeResize);
     await page.setViewportSize({ width: 640, height: 640 });
-    passed.push('A 31 MiB, 1.25 million line plate renders with visible download, processing and rendering progress');
+    passed.push('A plate over the old 64 MiB and 2 million line limits renders with visible progress');
 
     mode = 'normal'; await write('Suspended animation frames', 'FINISH');
     files['/Suspended animation frames.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
@@ -214,14 +215,14 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     passed.push('An obscured widget with suspended animation frames still finishes loading');
 
     mode = 'oversize'; await write('Oversized job'); await open();
-    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('64 MiB'));
+    await page.waitForFunction(limit => document.getElementById('gcodeOverlay').textContent.includes(`${limit} MiB`), toolpathMiB);
     assert.ok(!(await page.locator('#gcodeOverlay').innerText()).includes('Use Retry now'));
     assert.equal(await page.locator('#gcodeRetry').isVisible(), false);
     assert.equal(await page.locator('#gcodeFileButton').isVisible(), false);
     assert.equal(await page.locator('#gcodeDownloadLog').isVisible(), true);
     let before = count; await page.waitForTimeout(1000); assert.equal(count, before);
     mode = 'many-lines'; await write('Too many lines'); await open();
-    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('2,000,000 line'));
+    await page.waitForFunction(limit => document.getElementById('gcodeOverlay').textContent.includes(`${limit}-line`), toolpathLines.toLocaleString('en-US'));
     assert.equal(await page.locator('#gcodeRetry').isVisible(), false);
     assert.equal(await page.locator('#gcodeFileButton').isVisible(), false);
     assert.equal(await page.locator('.gcode-stage').getAttribute('aria-busy'), 'false');

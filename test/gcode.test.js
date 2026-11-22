@@ -101,7 +101,18 @@ test('archive validation catches corruption, unsliced projects, checksums and de
   await assert.rejects(extractPlateGcode(corrupt), { code: 'FILE_CORRUPT' });
   await assert.rejects(extractPlateGcode(Buffer.from('PKbroken')), { code: 'ARCHIVE_INVALID' });
   await assert.rejects(extractPlateGcode(archive({ '3D/model.model': '<model />' })), { code: 'PLATE_NOT_FOUND' });
-  await assert.rejects(extractPlateGcode(archive({ 'Metadata/plate_1.gcode': gcode }), { limits: { ...LIMITS, gcode: 10 } }), { code: 'ARCHIVE_LIMIT' });
+  const plate = archive({ 'Metadata/plate_1.gcode': gcode });
+  await assert.rejects(extractPlateGcode(plate, { limits: { ...LIMITS, gcode: 10 } }), { code: 'FILE_TOO_LARGE', stage: 'extract', status: 413, retryable: false });
+  await assert.rejects(extractPlateGcode(gcode, { limits: { ...LIMITS, gcode: 10 } }), { code: 'FILE_TOO_LARGE', stage: 'validate', status: 413 });
+  await assert.rejects(extractPlateGcode(archive({ 'Metadata/plate_1.gcode': gcode, 'Metadata/plate_1.gcode.md5': 'a'.repeat(129) })), { code: 'ARCHIVE_INVALID' });
+  // A stored ZIP entry with traditional encryption includes a 12-byte header.
+  const encrypted = archive({ 'Metadata/plate_1.gcode': Buffer.concat([Buffer.alloc(12), gcode]) });
+  const centralEntry = encrypted.indexOf(Buffer.from('504b0102', 'hex'));
+  encrypted.writeUInt16LE(1, 6);
+  encrypted.writeUInt32LE(gcode.length, 22);
+  encrypted.writeUInt16LE(1, centralEntry + 8);
+  encrypted.writeUInt32LE(gcode.length, centralEntry + 24);
+  await assert.rejects(extractPlateGcode(encrypted), { code: 'ARCHIVE_ENCRYPTED', stage: 'extract', retryable: false });
   await assert.rejects(extractPlateGcode(archive({ 'Metadata/plate_1.gcode': gcode }), { limits: { ...LIMITS, entries: 0 } }), { code: 'ARCHIVE_LIMIT' });
 });
 test('MQTT deltas preserve file/AMS metadata and assign a fresh lifecycle to reprints', () => {

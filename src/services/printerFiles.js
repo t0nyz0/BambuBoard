@@ -4,8 +4,10 @@ const yauzl = require('yauzl');
 const { Writable } = require('node:stream');
 const { createHash } = require('node:crypto');
 const { describe } = require('../../public/js/gcode-job');
+const { archiveMiB, toolpathMiB } = require('../../public/js/gcode-limits');
 
-const LIMITS = { archive: 128 * 1024 * 1024, gcode: 64 * 1024 * 1024, entries: 20000, listing: 1024 * 1024, timeout: 15000, deadline: 90000 };
+const MiB = 1024 * 1024;
+const LIMITS = { archive: archiveMiB * MiB, gcode: toolpathMiB * MiB, entries: 20000, listing: 1024 * 1024, timeout: 15000, deadline: 90000 };
 class GcodeError extends Error {
   constructor(code, message, { retryable = false, status = 502, stage = 'download' } = {}) {
     super(message); Object.assign(this, { code, retryable, status, stage });
@@ -63,9 +65,13 @@ function crc32(data) {
   return (crc ^ -1) >>> 0;
 }
 async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent = () => {}, limits = LIMITS } = {}) {
-  if (buffer.length > limits.archive) throw new GcodeError('FILE_TOO_LARGE', 'The sliced file exceeds the 128 MiB download limit.', { stage: 'validate', status: 413 });
+  if (buffer.length > limits.archive) throw new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB limit. Open this plate in Bambu Studio.`, { stage: 'validate', status: 413 });
+  const oversizedToolpath = (bytes, stage) => {
+    const size = (bytes / MiB).toFixed(2);
+    return new GcodeError('FILE_TOO_LARGE', `The unpacked G-code is ${size} MiB and exceeds the ${toolpathMiB} MiB preview limit. Open this plate in Bambu Studio.`, { stage, status: 413 });
+  };
   if (buffer.subarray(0, 2).toString() !== 'PK') {
-    if (buffer.length > limits.gcode) throw new GcodeError('FILE_TOO_LARGE', 'The G-code exceeds the 64 MiB extraction limit.', { stage: 'validate', status: 413 });
+    if (buffer.length > limits.gcode) throw oversizedToolpath(buffer.length, 'validate');
     return validateGcode(buffer);
   }
   const invalidArchive = () => new GcodeError('ARCHIVE_INVALID', 'The sliced archive is damaged or unsupported. Re-export the exact sliced plate.', { stage: 'extract' });
@@ -94,28 +100,31 @@ async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent
         : 'The 3MF has no sliced plate G-code. Export a sliced plate from Bambu Studio.', { stage: 'extract' });
     }
     if (toolpaths.filter(entry => entry.fileName.toLowerCase() === chosen.fileName.toLowerCase()).length > 1) throw new GcodeError('PLATE_AMBIGUOUS', 'The sliced archive contains duplicate toolpaths for the selected plate.', { stage: 'extract' });
-    const read = (entry, max) => new Promise((resolve, reject) => {
-      if (entry.uncompressedSize > max || entry.generalPurposeBitFlag & 1) return reject(new GcodeError('ARCHIVE_LIMIT', 'The selected archive entry is too large or encrypted.', { stage: 'extract' }));
+    const read = (entry, max, oversized) => new Promise((resolve, reject) => {
+      if (entry.generalPurposeBitFlag & 1) return reject(new GcodeError('ARCHIVE_ENCRYPTED', 'The sliced plate archive contains an encrypted entry.', { stage: 'extract' }));
+      if (entry.uncompressedSize > max) return reject(oversized(entry.uncompressedSize));
       zip.openReadStream(entry, (err, stream) => {
         if (err) return reject(err);
-        const parts = []; let count = 0;
+        // Hold only one uncompressed copy, even for the largest permitted plate.
+        const data = Buffer.allocUnsafe(entry.uncompressedSize);
+        const corruptEntry = () => new GcodeError('FILE_CORRUPT', 'The sliced archive failed its length/CRC integrity check.', { stage: 'validate', retryable: true });
+        let count = 0;
         stream.on('data', chunk => {
+          if (count + chunk.length > data.length) return stream.destroy(corruptEntry());
+          chunk.copy(data, count);
           count += chunk.length;
-          if (count > max) stream.destroy(new GcodeError('ARCHIVE_LIMIT', 'The extracted entry exceeds its limit.', { stage: 'extract' }));
-          else parts.push(chunk);
         });
         stream.once('error', reject);
         stream.once('end', () => {
-          const data = Buffer.concat(parts, count);
-          if (count !== entry.uncompressedSize || crc32(data) !== entry.crc32) return reject(new GcodeError('FILE_CORRUPT', 'The sliced archive failed its length/CRC integrity check.', { stage: 'validate', retryable: true }));
+          if (count !== data.length || crc32(data) !== entry.crc32) return reject(corruptEntry());
           resolve(data);
         });
       });
     });
-    const data = await read(chosen, limits.gcode);
+    const data = await read(chosen, limits.gcode, bytes => oversizedToolpath(bytes, 'extract'));
     const checksum = entries.find(e => e.fileName.toLowerCase() === chosen.fileName.toLowerCase() + '.md5');
     if (checksum) {
-      const expected = (await read(checksum, 128)).toString('ascii').trim();
+      const expected = (await read(checksum, 128, () => new GcodeError('ARCHIVE_INVALID', 'The sliced archive has an oversized plate checksum. Re-export the exact sliced plate.', { stage: 'extract' }))).toString('ascii').trim();
       if (!/^[a-f\d]{32}$/i.test(expected) || createHash('md5').update(data).digest('hex') !== expected.toLowerCase()) {
         throw new GcodeError('FILE_CORRUPT', 'The plate G-code does not match its slicer MD5 checksum.', { stage: 'validate', retryable: true });
       }
@@ -166,12 +175,12 @@ async function fetchPlateGcode(options) {
           let size;
           try { size = await client.size(remote); }
           catch (err) { if (![500, 502, 504].includes(Number(err.code))) throw err; }
-          if (size > limits.archive) throw new GcodeError('FILE_TOO_LARGE', 'The sliced file exceeds the 128 MiB download limit.', { stage, status: 413 });
+          if (size > limits.archive) throw new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB download limit. Open this plate in Bambu Studio.`, { stage, status: 413 });
           stage = 'download'; event({ result: 'start', path: remote, expectedBytes: size });
           const chunks = []; let count = 0;
           const sink = new Writable({ write(chunk, _enc, callback) {
             count += chunk.length;
-            if (count > limits.archive) callback(new GcodeError('FILE_TOO_LARGE', 'The sliced file exceeds the 128 MiB download limit.', { status: 413 }));
+            if (count > limits.archive) callback(new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB download limit. Open this plate in Bambu Studio.`, { status: 413 }));
             else { chunks.push(chunk); callback(); }
           } });
           await client.downloadTo(sink, remote); check();
