@@ -3,8 +3,9 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const { PRINTER_TYPES, PRINTER_CAPS, capsFor } = require('../lib/caps');
+const { printerConnection, samePrinterConnection, hasSavedAccessCode } = require('../lib/printerConnection');
 const { testConnection } = require('../mqtt');
-const { isFirstRun, publicSnapshot } = require('../config');
+const { isFirstRun, publicSnapshot, needsRecovery } = require('../config');
 
 function readTokenSync(paths) {
   try {
@@ -14,55 +15,121 @@ function readTokenSync(paths) {
   } catch (_) { return { signedIn: false, email: null }; }
 }
 
-function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }) {
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isString = value => typeof value === 'string';
+const isBoolean = value => typeof value === 'boolean';
+const isPort = value => (typeof value === 'number' || (isString(value) && /^\d+$/.test(value)))
+  && Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535;
+
+function isPrinterHost(value) {
+  if (!isString(value) || /[/?#@\\\s]/.test(value)) return false;
+  if (value === '') return true;
+  if (value.includes(':') && !(value.startsWith('[') && value.endsWith(']'))) return false;
+  try { return !!new URL(`http://${value}`).hostname; }
+  catch (_) { return false; }
+}
+
+function invalidSettings(message) {
+  return Object.assign(new Error(message), { code: 'INVALID_SETTINGS' });
+}
+
+function checkSettings(value, checks, label) {
+  if (!isRecord(value)) throw invalidSettings(`${label} must be an object.`);
+  for (const [key, field] of Object.entries(value)) {
+    if (!Object.hasOwn(checks, key) || !checks[key](field)) throw invalidSettings(`Invalid ${label} field: ${key}.`);
+  }
+}
+
+const printerChecks = {
+  name: isString,
+  url: isPrinterHost,
+  port: value => value === '' || isPort(value),
+  serialNumber: isString,
+  accessCode: isString,
+  type: value => PRINTER_TYPES.includes(value),
+  model: value => value === null || isString(value),
+  detectedFrom: value => ['config', 'mqtt'].includes(value),
+};
+
+function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths, checkPrinterConnection = testConnection }) {
   const router = express.Router();
 
   router.get('/settings', (req, res) => {
     const c = getConfig();
-    res.json({ ...publicSnapshot(c), _meta: { firstRun: !c.printer || c.printer.serialNumber === 'FILL_THIS_OUT' } });
+    res.json({ ...publicSnapshot(c), _meta: { firstRun: isFirstRun(c), configRecovery: needsRecovery() } });
   });
 
-  // Return the actual saved LAN access code so the setup page can pre-fill
-  // the editable field (lets the user inspect / replace it without re-typing).
-  // Same-origin local-server trust boundary — same as /auth/token.
-  router.get('/printer-credentials', (req, res) => {
-    const c = getConfig();
-    const ac = c.printer?.accessCode;
+  // Older clients can keep reading the response shape. The code stays on the server.
+  router.get('/printer-credentials', (_req, res) => {
     res.set('Cache-Control', 'no-store').json({
-      accessCode: (ac && ac !== 'FILL_THIS_OUT') ? ac : '',
+      accessCode: '',
+      accessCodeSet: hasSavedAccessCode(getConfig().printer),
     });
   });
 
   router.put('/settings', async (req, res) => {
     try {
-      const incoming = req.body || {};
-      const current = getConfig();
-      const merged = { ...current, ...incoming };
-      // Preserve the existing access code when the client sends a blank one (it never receives the real value).
-      if (incoming.printer) {
-        merged.printer = { ...current.printer, ...incoming.printer };
-        if (!incoming.printer.accessCode) merged.printer.accessCode = current.printer.accessCode;
-      }
-      merged.cloudAuth = { ...current.cloudAuth, ...(incoming.cloudAuth || {}) };
-      await saveConfig(merged);
-      reloadPrinter();
+      const incoming = req.body;
+      checkSettings(incoming, {
+        BambuBoard_httpPort: isPort,
+        BambuBoard_tempSetting: value => ['Both', 'Celsius', 'Fahrenheit', 'C', 'F'].includes(value),
+        BambuBoard_displayFanPercentages: isBoolean,
+        BambuBoard_displayFanIcons: isBoolean,
+        BambuBoard_logging: isBoolean,
+        printer: isRecord,
+        cloudAuth: isRecord,
+      }, 'Settings');
+      if (incoming.printer) checkSettings(incoming.printer, printerChecks, 'printer');
+      if (incoming.cloudAuth) checkSettings(incoming.cloudAuth, { enabled: isBoolean }, 'cloud');
+
+      let reconnect = false;
+      await saveConfig(current => {
+        const merged = { ...current, ...incoming };
+        if (Object.hasOwn(incoming, 'BambuBoard_httpPort')) merged.BambuBoard_httpPort = Number(incoming.BambuBoard_httpPort);
+        if (incoming.cloudAuth) merged.cloudAuth = { ...current.cloudAuth, ...incoming.cloudAuth };
+        if (incoming.printer) {
+          const previous = current.printer;
+          const replacement = Object.hasOwn(incoming.printer, 'serialNumber')
+            && incoming.printer.serialNumber !== previous.serialNumber;
+          const next = replacement
+            ? { ...previous, type: 'X1', model: null, detectedFrom: 'config', ...incoming.printer }
+            : { ...previous, ...incoming.printer };
+          const samePrinter = samePrinterConnection(previous, next);
+          if (hasSavedAccessCode(incoming.printer)) next.accessCode = incoming.printer.accessCode.trim();
+          else if (samePrinter) next.accessCode = previous.accessCode;
+          else if (hasSavedAccessCode(previous)) throw invalidSettings('Enter the LAN access code for the new printer connection.');
+          else next.accessCode = '';
+          merged.printer = next;
+          reconnect = !samePrinter || next.accessCode !== previous.accessCode || next.type !== previous.type
+            || getStatus().connection !== 'online';
+        }
+        return merged;
+      });
+      if (reconnect) reloadPrinter();
       res.json({ ok: true });
     } catch (e) {
-      console.error('PUT /api/settings failed:', e);
-      res.status(500).json({ ok: false, error: e.message });
+      if (e.code === 'INVALID_SETTINGS') return res.status(400).json({ ok: false, error: e.message });
+      console.error(`PUT /api/settings failed (${e.code || 'error'}).`);
+      res.status(500).json({ ok: false, error: 'Could not save settings. Check that the BambuBoard data directory is writable.' });
     }
   });
 
   router.post('/test-connection', async (req, res) => {
-    const { url, port, serialNumber, accessCode } = req.body || {};
-    let creds = { url, port, serialNumber, accessCode };
-    // Allow re-using the saved access code without sending it back from the client.
-    if (!accessCode) {
-      const c = getConfig();
-      if (c.printer && c.printer.accessCode) creds.accessCode = c.printer.accessCode;
+    const incoming = req.body || {};
+    const connection = printerConnection(incoming);
+    if (!connection) {
+      return res.status(400).json({ ok: false, code: 'INVALID_CONNECTION', error: 'Enter the printer address, serial number, and a valid MQTT port.' });
     }
-    const result = await testConnection(creds);
-    res.json(result);
+    if (hasSavedAccessCode(incoming)) {
+      return res.json(await checkPrinterConnection({ ...connection, accessCode: incoming.accessCode.trim() }));
+    }
+    const saved = getConfig().printer;
+    if ((incoming.accessCode != null && (typeof incoming.accessCode !== 'string' || incoming.accessCode.trim()))
+      || !hasSavedAccessCode(saved) || !samePrinterConnection(connection, saved)) {
+      return res.status(400).json({ ok: false, code: 'ACCESS_CODE_REQUIRED', error: 'Enter the LAN access code for this printer connection.' });
+    }
+    // Use the saved destination itself whenever the saved code is used.
+    return res.json(await checkPrinterConnection({ ...printerConnection(saved), accessCode: saved.accessCode }));
   });
 
   router.get('/status', (req, res) => {

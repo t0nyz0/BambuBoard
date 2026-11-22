@@ -1,10 +1,10 @@
 {
   "name": "AMS",
-  "description": "AMS temperature, humidity, reported drying status and four filament trays, with active-tray highlighting. Select a telemetry array entry with ?ams=N; the default is 1. Use ?ams=0 for a single AMS.",
+  "description": "Filament trays, active slot, temperature, humidity and drying status. Selects the integrated AMS 3H or the only reported unit automatically, and uses index 1 for classic multi-AMS layouts. Use ?ams=N to choose a telemetry array entry.",
   "recommendedSize": { "w": 400, "h": 460 },
   "tags": ["filament", "ams"],
   "params": {
-    "ams": { "type": "number", "default": 1, "description": "Index in print.ams.ams, starting at 0. Default 1; use 0 for a single AMS. Check telemetry when matching physical units." }
+    "ams": { "type": "number", "description": "Optional index in print.ams.ams, starting at 0. Without it the widget chooses the integrated AMS 3H, index 1 if present, or index 0." }
   },
   "bindings": [
     { "id": "amsUnit",  "label": "AMS unit object",     "default": "$.print.ams.ams[1]",          "type": "object",

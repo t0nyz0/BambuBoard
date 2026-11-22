@@ -12,6 +12,7 @@ const PRINTER_CAPS = {
   A1:  { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, bedSize: { x: 256, y: 256, z: 256 }, label: 'A1'      },
   A1M: { hasChamberTemp: false, hasCameraRtsp: false, hasDualNozzle: false, hasDualAMS: false, maxAms: 1, bedSize: { x: 180, y: 180, z: 180 }, label: 'A1 Mini' },
   H2D: { hasChamberTemp: true,  hasCameraRtsp: true,  hasDualNozzle: true,  hasDualAMS: true,  maxAms: 4, bedSize: { x: 350, y: 320, z: 325 }, label: 'H2D'     },
+  H3C: { hasChamberTemp: true,  hasCameraRtsp: true,  hasDualNozzle: false, hasDualAMS: false, maxAms: 4, bedSize: { x: 330, y: 320, z: 325 }, label: 'H3C'     },
 };
 
 const PRINTER_TYPES = Object.keys(PRINTER_CAPS);
@@ -36,6 +37,7 @@ const HA_BAMBULAB_TYPE_MAP = {
   H2DPRO: 'H2D',
   H2C: 'H2D',
   H2S: 'H2D',
+  H3C: 'H3C',
   X2D: 'H2D',     // dual-nozzle flagship; closest match
 };
 
@@ -52,7 +54,7 @@ function search(modules, predicate) {
 //   type    — BambuBoard PRINTER_CAPS key (e.g. "H2D")
 //   model   — friendly name from MQTT product_name (e.g. "Bambu Lab H2D Pro")
 //   rawType — ha-bambulab key before mapping (e.g. "H2DPRO") — useful for logs
-function printerTypeFromMqtt(modules) {
+function printerTypeFromMqtt(modules, knownType) {
   if (!Array.isArray(modules) || modules.length === 0) return null;
 
   // 1. Match by product_name (the modern, reliable path). Listed in order;
@@ -67,6 +69,7 @@ function printerTypeFromMqtt(modules) {
     ['Bambu Lab H2C',      'H2C'],
     ['Bambu Lab H2D',      'H2D'],
     ['Bambu Lab H2S',      'H2S'],
+    ['Bambu Lab H3C',      'H3C'],
     ['Bambu Lab X1E',      'X1E'],
     ['Bambu Lab X1C',      'X1C'],
     ['Bambu Lab X1',       'X1'],
@@ -76,6 +79,10 @@ function printerTypeFromMqtt(modules) {
     const hit = search(modules, m => (m.product_name || '') === name);
     if (hit) return { type: HA_BAMBULAB_TYPE_MAP[raw] || 'X1', model: name, rawType: raw };
   }
+
+  // The H3C shares the AP05 board with other models. A partial response must
+  // not replace a known H3C with a legacy board-based guess.
+  if (knownType === 'H3C') return null;
 
   // 2. Fallback: hardware-version + project_name table (older firmware that
   //    doesn't populate product_name).

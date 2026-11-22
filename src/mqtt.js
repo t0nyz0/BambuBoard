@@ -1,11 +1,13 @@
 const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
-const { capsFor, printerTypeFromMqtt } = require('./lib/caps');
-const { mergePrint } = require('./lib/printTelemetry');
+const { printerTypeFromMqtt } = require('./lib/caps');
+const { mergePrint, reconnectJob } = require('./lib/printTelemetry');
+const { publicTelemetry } = require('./lib/cameraTelemetry');
 const { describe: describeGcodeJob } = require('../public/js/gcode-job');
 
 const PUSHALL_INTERVAL_MS = 5 * 60 * 1000;
+const JOB_RECOVERY_GRACE_MS = 10_000;
 
 function nowLocal() { return new Date().toLocaleString(); }
 
@@ -29,11 +31,14 @@ function autoUpdateNote(printObj, dataPath) {
 function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
   let client = null;
   let reconnectTimer = null;
+  let refreshTimer = null;
   let sequenceID = 20000;
-  let lastPushallTime = 0;
   let status = 'offline';
+  let telemetryPublished = false;
   let lastUpdate = null;
   let printSnapshot = {};
+  let previousJobSnapshot = null;
+  let cameraTelemetry;
   let writeQueue = Promise.resolve();
   // Auto-detected from the MQTT `get_version` response. Stays null until the
   // printer publishes a module list. Exposed via state so /api/status can
@@ -41,26 +46,42 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
   let detectedType = null;
   let detectedModel = null;
 
+  function disconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+    if (client) {
+      try { client.removeAllListeners(); client.end(true); } catch (_) {}
+      client = null;
+    }
+    status = 'offline';
+    telemetryPublished = false;
+    if (!previousJobSnapshot && !['IDLE', 'FAILED'].includes(printSnapshot.gcode_state)
+        && describeGcodeJob(printSnapshot).available) {
+      previousJobSnapshot = printSnapshot;
+    }
+    printSnapshot = {};
+  }
+
   const state = {
     get status() { return status; },
+    get telemetryConnection() { return status === 'online' && !telemetryPublished ? 'waiting' : status; },
     get lastUpdate() { return lastUpdate; },
     get detectedType() { return detectedType; },
     get detectedModel() { return detectedModel; },
+    get cameraTelemetry() { return cameraTelemetry; },
     stop() {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-      if (client) {
-        try { client.removeAllListeners(); client.end(true); } catch (_) {}
-        client = null;
-      }
-      status = 'offline';
+      disconnect();
       detectedType = null;
       detectedModel = null;
+      cameraTelemetry = undefined;
+      previousJobSnapshot = null;
     },
   };
 
   function connect() {
-    state.stop();
+    disconnect();
     if (!printer.url || !printer.serialNumber || !printer.accessCode
         || printer.serialNumber === 'FILL_THIS_OUT'
         || printer.accessCode === 'FILL_THIS_OUT') {
@@ -75,7 +96,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
 
     log(`Connecting to ${printer.name || printer.type} at ${url}`);
 
-    client = mqtt.connect(url, {
+    const connection = mqtt.connect(url, {
       clientId,
       clean: true,
       connectTimeout: 5000,
@@ -84,28 +105,41 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
       reconnectPeriod: 0,
       rejectUnauthorized: false,
     });
+    client = connection;
+    let jobRecoveryUntil = 0;
 
-    client.on('connect', () => {
-      log(`Connected. Subscribing to ${topic}`);
-      status = 'online';
-      sequenceID++;
-      client.subscribe(topic, () => {});
-      // Pushall = full state snapshot (print/ams/temps/etc).
-      client.publish(topicRequest, JSON.stringify({
-        pushing: { sequence_id: sequenceID, command: 'pushall' },
+    function requestFullState() {
+      if (client !== connection || status !== 'online') return;
+      connection.publish(topicRequest, JSON.stringify({
+        pushing: { sequence_id: ++sequenceID, command: 'pushall' },
         user_id: '9586569',
       }));
+    }
+
+    connection.on('connect', () => {
+      if (client !== connection) return;
+      log(`Connected. Subscribing to ${topic}`);
+      status = 'online';
+      jobRecoveryUntil = Date.now() + JOB_RECOVERY_GRACE_MS;
+      connection.subscribe(topic, () => {});
+      requestFullState();
+      clearInterval(refreshTimer);
+      // A quiet printer may send no events, including no status deltas that
+      // could trigger a refresh. Keep polling while this connection is live.
+      refreshTimer = setInterval(requestFullState, PUSHALL_INTERVAL_MS);
+      refreshTimer.unref();
       // get_version = module list with hw/sw versions and product_name.
       // We use the response to auto-identify the printer model (matches
       // ha-bambulab's behavior). Sent right after pushall so both arrive
       // together; the printer responds with a separate `info` message.
       sequenceID++;
-      client.publish(topicRequest, JSON.stringify({
+      connection.publish(topicRequest, JSON.stringify({
         info: { sequence_id: String(sequenceID), command: 'get_version' },
       }));
     });
 
-    client.on('message', (_topic, message) => {
+    connection.on('message', (_topic, message) => {
+      if (client !== connection || status !== 'online') return;
       try {
         const json = JSON.parse(message.toString());
         lastUpdate = json.t_utc && !isNaN(json.t_utc)
@@ -117,15 +151,17 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
         // which `printerTypeFromMqtt` uses to identify the printer.
         if (json.info && json.info.command === 'get_version') {
           const modules = Array.isArray(json.info.module) ? json.info.module : [];
-          const detected = printerTypeFromMqtt(modules);
+          const detected = printerTypeFromMqtt(modules, detectedType || printer.type);
           if (detected) {
-            const changed = detected.type !== detectedType;
+            const changed = detected.type !== detectedType || detected.model !== detectedModel;
             detectedType = detected.type;
             detectedModel = detected.model;
             if (changed) {
               log(`Auto-detected printer: ${detected.model} (${detected.type})`);
               if (typeof onPrinterDetected === 'function') {
-                try { onPrinterDetected(detected); } catch (e) { log(`onPrinterDetected error: ${e.message}`); }
+                Promise.resolve().then(() => onPrinterDetected(detected)).catch(e => {
+                  console.warn(`[bambuboard] Could not save detected printer settings (${e?.code || 'error'}).`);
+                });
               }
             }
           }
@@ -134,50 +170,67 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected }) {
         if (json.print) {
           // MQTT reports are deltas. Preserve job metadata through temperature,
           // layer and AMS updates, and publish complete snapshots atomically.
-          const previousJob = printSnapshot._bb_job_id;
+          const { _bb_job_id: previousJob, gcode_state: previousState } = printSnapshot;
           printSnapshot = mergePrint(printSnapshot, json.print);
-          if (previousJob !== printSnapshot._bb_job_id && !describeGcodeJob(printSnapshot).available
-              && ['RUNNING', 'PREPARE', 'SLICING'].includes(printSnapshot.gcode_state)) {
+          if (Object.hasOwn(json.print, 'ipcam')) {
+            const reportedCamera = json.print.ipcam;
+            cameraTelemetry = reportedCamera && typeof reportedCamera === 'object'
+              ? { ...cameraTelemetry, ...reportedCamera } : reportedCamera;
+          }
+          // Collect reports from this connection only. Leave the last saved
+          // snapshot in place until this session has supplied a print state.
+          if (typeof printSnapshot.gcode_state !== 'string' || !printSnapshot.gcode_state.trim()) return;
+          let jobPending = false;
+          if (previousJobSnapshot) {
+            const recovery = reconnectJob(previousJobSnapshot, printSnapshot, Date.now() < jobRecoveryUntil);
+            jobPending = recovery === 'waiting';
+            if (recovery === 'same') printSnapshot._bb_job_id = previousJobSnapshot._bb_job_id;
+            if (!jobPending) previousJobSnapshot = null;
+          }
+          if ((!previousState || previousJob !== printSnapshot._bb_job_id)
+              && (jobPending || (!describeGcodeJob(printSnapshot).available
+                && ['RUNNING', 'PREPARE', 'SLICING'].includes(printSnapshot.gcode_state)))) {
             // A new job's first packet may contain only its state/ID. Request
             // a read-only full snapshot once, rather than waiting five minutes.
-            client.publish(topicRequest, JSON.stringify({ pushing: { sequence_id: ++sequenceID, command: 'pushall' }, user_id: '9586569' }));
+            requestFullState();
           }
-          const snapshot = JSON.stringify({ ...json, print: printSnapshot, _bb_received_at: Date.now() });
+          const print = jobPending ? { ...printSnapshot, _bb_job_pending: true } : printSnapshot;
+          const snapshot = JSON.stringify(publicTelemetry({ ...json, print, _bb_received_at: Date.now() }));
           writeQueue = writeQueue.then(async () => {
-            const temp = dataPath + '.tmp';
-            await fs.promises.writeFile(temp, snapshot);
-            await fs.promises.rename(temp, dataPath);
+            if (client !== connection || status !== 'online') return;
+            const temp = `${dataPath}.${clientId}.tmp`;
+            let committed = false;
+            try {
+              await fs.promises.writeFile(temp, snapshot);
+              if (client !== connection || status !== 'online') return;
+              await fs.promises.rename(temp, dataPath);
+              committed = true;
+              if (client === connection && status === 'online') telemetryPublished = true;
+            } finally {
+              if (!committed) await fs.promises.rm(temp, { force: true });
+            }
           }).catch(err => log(`Error writing data.json: ${err.code || 'unknown'}`));
-          autoUpdateNote(printSnapshot, dataPath);
-        } else {
-          // Type-aware pushall cadence
-          const caps = capsFor(printer.type);
-          const continuousPushall = ['X1', 'X1C'].includes(printer.type);
-          const now = Date.now();
-          if (continuousPushall || (now - lastPushallTime >= PUSHALL_INTERVAL_MS)) {
-            client.publish(topicRequest, JSON.stringify({
-              pushing: { sequence_id: sequenceID, command: 'pushall' },
-              user_id: '9586569',
-            }));
-            lastPushallTime = now;
-          }
-        }
+          if (!jobPending) autoUpdateNote(printSnapshot, dataPath);
+        } else if (['X1', 'X1C'].includes(detectedType || printer.type)) requestFullState();
       } catch (err) {
         log(`Parse error: ${err.message}`);
       }
     });
 
-    const connection = client;
     const onDrop = (label) => async (err) => {
+      if (connection !== client) return;
       log(`MQTT ${label}${err ? ': ' + err.message : ''}. Reconnecting in 3s...`);
       status = 'offline';
-      if (connection !== client || reconnectTimer) return;
+      telemetryPublished = false;
+      clearInterval(refreshTimer);
+      refreshTimer = null;
+      if (reconnectTimer) return;
       reconnectTimer = setTimeout(() => { reconnectTimer = null; if (connection === client) connect(); }, 3000);
     };
-    client.on('error', onDrop('error'));
-    client.on('close', onDrop('close'));
-    client.on('disconnect', onDrop('disconnect'));
-    client.on('offline', onDrop('offline'));
+    connection.on('error', onDrop('error'));
+    connection.on('close', onDrop('close'));
+    connection.on('disconnect', onDrop('disconnect'));
+    connection.on('offline', onDrop('offline'));
   }
 
   state.connect = connect;

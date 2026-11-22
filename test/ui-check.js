@@ -25,7 +25,12 @@ async function runEngine(name, artifactDir) {
   const data = await fs.mkdtemp(path.join(os.tmpdir(), 'bambuboard-ui-'));
   await fs.mkdir(path.join(data, 'scenes'));
   await fs.writeFile(path.join(data, 'config.json'), JSON.stringify({ printer: { name: 'QA H2D', type: 'H2D', url: '127.0.0.1', port: 9, serialNumber: 'QA', accessCode: 'fixture-only' }, cloudAuth: { enabled: false } }));
-  await fs.writeFile(path.join(data, 'data.json'), JSON.stringify({ print: { gcode_state: 'RUNNING', mc_percent: 47, bed_temper: 60, ams: { ams: [] } } }));
+  const amsUnits = Array.from({ length: 4 }, (_, index) => ({
+    id: String(index), humidity: '3', temp: '28',
+    tray: [{ id: '0', tray_type: 'PLA', tray_sub_brands: 'Fixture PLA', tray_color: '51A34FFF', remain: 41 }],
+  }));
+  const telemetry = { print: { gcode_state: 'RUNNING', mc_percent: 47, bed_temper: 60, ams: { ams: amsUnits } } };
+  await fs.writeFile(path.join(data, 'data.json'), JSON.stringify(telemetry));
   const original = fixture();
   await fs.writeFile(path.join(data, 'scenes', 'Upgrade.json'), JSON.stringify(original));
   await fs.writeFile(path.join(data, 'active-scene.json'), JSON.stringify({ slug: 'Upgrade' }));
@@ -44,6 +49,7 @@ async function runEngine(name, artifactDir) {
     }
     browser = await engines[name].launch({ headless: true, ...(name === 'chromium' && process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: 'dark', reducedMotion: 'reduce' });
+    await context.route(base + '/data.json', route => route.fulfill({ headers: { 'X-BambuBoard-Printer-Connection': 'online' }, json: telemetry }));
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     context.on('request', request => { if (!request.url().startsWith(base) && !request.url().startsWith('data:')) external.add(request.url()); });
     const page = await context.newPage();

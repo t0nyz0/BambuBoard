@@ -1,14 +1,7 @@
 // BambuBoard — Fan widget with SVG ring gauges
 // TZ | Redesigned 2025
 
-const protocol = window.location.protocol;
-const serverURL = window.location.hostname;
-const serverPort = window.location.port;
-const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
-
-const consoleLogging = false;
-
-// SVG circle circumference for r=32: 2 * PI * 32 = ~201.06
+// SVG circle circumference for r=32: 2 * PI * 32.
 const CIRCUMFERENCE = 2 * Math.PI * 32;
 
 // Fan data keys in telemetry, mapped to fan cell indices 0–3.
@@ -17,8 +10,8 @@ const FAN_KEYS = ['big_fan1_speed', 'big_fan2_speed', 'cooling_fan_speed', 'heat
 
 // Convert raw speed (0–15) to percentage (0–100).
 function pct(raw) {
-  const v = parseInt(raw, 10);
-  if (isNaN(v) || v < 0) return 0;
+  const v = BBTelemetry.number(raw);
+  if (v === null || v < 0) return null;
   return Math.min(Math.round((v / 15) * 100), 100);
 }
 
@@ -61,12 +54,12 @@ function updateFan(index, rawSpeed) {
   fan._lastPct = p;
 
   // Gauge ring.
-  const offset = CIRCUMFERENCE * (1 - p / 100);
+  const offset = CIRCUMFERENCE * (1 - (p ?? 0) / 100);
   fan.fill.style.strokeDashoffset = offset;
-  fan.fill.style.stroke = gaugeColor(p);
+  fan.fill.style.stroke = gaugeColor(p ?? 0);
 
   // Percentage text.
-  fan.pctEl.textContent = p > 0 ? p + '%' : 'OFF';
+  fan.pctEl.textContent = p === null ? '—' : p > 0 ? p + '%' : 'OFF';
   fan.pctEl.classList.toggle('active', p > 0);
 
   // Spinning icon.
@@ -80,35 +73,6 @@ function updateFan(index, rawSpeed) {
   }
 }
 
-async function retrieveData() {
-  const response = await fetch(fullServerURL + '/data.json');
-  const data = await response.text();
-  let obj = JSON.parse(data);
-
-  if (obj.print && 'gcode_state' in obj.print) {
-    return obj.print;
-  } else if (obj.print) {
-    return 'Incomplete';
-  }
-  return null;
-}
-
-function disableAll() {
-  for (let i = 0; i < 4; i++) updateFan(i, 0);
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-setInterval(async () => {
-  try {
-    const telem = await retrieveData();
-    if (telem && telem !== 'Incomplete') {
-      FAN_KEYS.forEach((key, i) => updateFan(i, telem[key]));
-    } else if (telem === null) {
-      disableAll();
-    }
-  } catch (err) {
-    if (consoleLogging) console.error(err);
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => FAN_KEYS.forEach((key, i) => updateFan(i, print[key])), {
+  ready: print => FAN_KEYS.some(key => pct(print[key]) !== null),
+});

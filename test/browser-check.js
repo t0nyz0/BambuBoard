@@ -7,8 +7,158 @@ const net = require('node:net');
 const { spawn, execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
 const { devDependencies } = require('../package.json');
+const { mergePrint } = require('../src/lib/printTelemetry');
+const { h3cAmsPrint } = require('./fixtures/h3c-ams');
 const root = path.resolve(__dirname, '..');
 const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 X80 Y80 E3\nG1 X10 Y80 E4\nG1 X10 Y10 E5\n;LAYER:1\nG1 Z0.4\nG1 X80 Y10 E6\nG1 X80 Y80 E7\nG1 X10 Y80 E8\n';
+
+async function checkTelemetryFreshness(context, base, telemetry) {
+  const progress = await context.newPage();
+  const bed = await context.newPage();
+  const legacyAms = await context.newPage();
+  const originalAms = { id: '0', temp: '28', humidity: '4', tray: [
+    { id: '0', tray_type: 'PLA', tray_sub_brands: 'Original PLA', tray_color: '51A34FFF', remain: 41 },
+  ] };
+  const fullPrint = { ...telemetry.print, ams: { ams: [originalAms] } };
+  const firstResponse = Promise.withResolvers();
+  let connection = 'online';
+  let snapshot = { print: fullPrint, _bb_received_at: Date.now() };
+  const respond = async route => {
+    await firstResponse.promise;
+    await route.fulfill({ headers: { 'X-BambuBoard-Printer-Connection': connection }, json: snapshot });
+  };
+  const progressStatus = progress.locator('#printStatus');
+  const bedStatus = bed.getByRole('status');
+  const amsStatus = legacyAms.getByRole('status');
+  const bar = progress.locator('#printProgressBar');
+  const temperature = bed.locator('#bedCurrentTempC');
+  const amsMaterial = legacyAms.locator('#tray1Material');
+  try {
+    await progress.route(base + '/data.json', respond);
+    await bed.route(base + '/data.json', respond);
+    await legacyAms.route(base + '/data.json', respond);
+    await progress.goto(base + '/widgets/progress-info/', { waitUntil: 'domcontentloaded' });
+    await progressStatus.filter({ hasText: 'Loading printer data' }).waitFor();
+    firstResponse.resolve();
+    await progressStatus.filter({ hasText: '47%' }).waitFor();
+    await bed.goto(base + '/widgets/bed-temp/');
+    await temperature.filter({ hasText: /^60$/ }).waitFor();
+    await legacyAms.goto(base + '/widgets/ams2/');
+    await amsMaterial.filter({ hasText: /^Original PLA$/ }).waitFor();
+
+    connection = 'offline';
+    await progressStatus.filter({ hasText: 'Printer offline' }).waitFor();
+    await bedStatus.filter({ hasText: 'Printer offline' }).waitFor();
+    await amsStatus.filter({ hasText: 'Printer offline' }).waitFor();
+    assert.equal(await temperature.isVisible(), false);
+    assert.equal(await amsMaterial.isVisible(), false);
+    assert.equal(await bar.evaluate(node => node.style.width), '0px');
+
+    connection = 'online';
+    snapshot = { print: { gcode_state: 'RUNNING' }, _bb_received_at: Date.now() };
+    await progressStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    await bedStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    await amsStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    assert.equal(await temperature.isVisible(), false);
+    assert.equal(await amsMaterial.isVisible(), false);
+    assert.equal(await bar.evaluate(node => node.style.width), '0px');
+
+    snapshot = { print: { ...snapshot.print, bed_temper: 62 }, _bb_received_at: Date.now() };
+    await temperature.filter({ hasText: /^62$/ }).waitFor();
+    assert.equal(await bed.locator('#bedTargetTempC').innerText(), '—');
+    assert.equal(await amsMaterial.isVisible(), false);
+    assert.match(await progressStatus.innerText(), /Waiting for printer data/);
+
+    const currentAms = { ...originalAms, tray: [{ ...originalAms.tray[0], tray_sub_brands: 'Current PLA' }] };
+    snapshot = { print: { ...fullPrint, mc_percent: 0, bed_temper: 62, ams: { ams: [currentAms] } }, _bb_received_at: Date.now() };
+    await progressStatus.filter({ hasText: '0%' }).waitFor();
+    await amsMaterial.filter({ hasText: /^Current PLA$/ }).waitFor();
+
+    connection = 'waiting';
+    await progressStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    await bedStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    await amsStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    assert.equal(await amsMaterial.isVisible(), false);
+
+    connection = 'online';
+    const otherAms = { ...originalAms, id: '1', tray: [{ ...originalAms.tray[0], tray_sub_brands: 'Different AMS' }] };
+    snapshot = { ...snapshot, print: { ...snapshot.print, mc_percent: 53, ams: { ams: [otherAms] } }, _bb_received_at: Date.now() };
+    await progressStatus.filter({ hasText: '53%' }).waitFor();
+    await temperature.filter({ hasText: /^62$/ }).waitFor();
+    assert.equal(await amsMaterial.isVisible(), false);
+
+    snapshot = { ...snapshot, _bb_received_at: Date.now() - 61_000 };
+    await progressStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    await bedStatus.filter({ hasText: 'Waiting for printer data' }).waitFor();
+    assert.equal(await temperature.isVisible(), false);
+  } finally {
+    firstResponse.resolve();
+    await progress.close();
+    await bed.close();
+    await legacyAms.close();
+  }
+}
+
+async function checkAms3h(context, base, artifactDir) {
+  const page = await context.newPage();
+  let print = mergePrint({}, h3cAmsPrint());
+  try {
+    await page.setViewportSize({ width: 400, height: 460 });
+    await page.route(base + '/data.json', route => route.fulfill({ json: { print } }));
+    await page.goto(base + '/widgets/ams/');
+    await page.getByRole('heading', { name: 'AMS 3H' }).waitFor();
+    const trays = page.locator('.ams-3h-tray');
+    const zones = page.locator('.ams-3h-zone');
+    assert.equal(await trays.count(), 9);
+    assert.equal(await trays.nth(8).locator('.ams-3h-tray-state').innerText(), 'Active');
+    assert.equal(await trays.nth(7).locator('.ams-3h-tray-state').innerText(), 'Next');
+    assert.equal(await trays.nth(7).locator('.ams-3h-material').innerText(), 'TPU 2.85 mm');
+    assert.match(await zones.first().innerText(), /28\.2°C[\s\S]*24% RH[\s\S]*Trays 6, 8[\s\S]*Drying · 1h 13m/);
+    assert.match(await zones.last().innerText(), /27\.7°C[\s\S]*33% RH[\s\S]*Trays 1, 2, 3, 4, 5, 7, 9/);
+    assert.equal(await zones.last().locator('.ams-3h-zone-time').count(), 0);
+    await page.evaluate(() => document.fonts.ready);
+    const bounds = await trays.last().boundingBox();
+    assert.ok(bounds && bounds.y + bounds.height <= 460 && bounds.x + bounds.width <= 400,
+      `all nine trays fit in the widget’s 400×460 viewport: ${JSON.stringify(bounds)}`);
+    await page.screenshot({ path: path.join(artifactDir, 'ams-3h-400.png') });
+
+    print = mergePrint(print, {
+      ams: { ams: [{ id: '32', zone_info: [{ zone_id: 0, dry_time: 0 }] }] },
+      device: { extruder: { info: [{ id: 0, snow: 248 << 8, star: 248 << 8 }] } },
+    });
+    await page.waitForFunction(() => document.querySelector('.ams-3h-tray.is-active .ams-3h-slot-number')?.textContent === '#8'
+      && document.querySelector('.ams-3h-zone-time').hidden);
+    assert.match(await zones.last().innerText(), /33% RH/);
+    print = mergePrint(print, { vir_slot: [{ id: '248', state: 1 }] });
+    await page.waitForFunction(() => document.querySelectorAll('.ams-3h-material')[7]?.textContent === 'Empty');
+    assert.equal(await page.locator('.ams-3h-tray.is-active').count(), 0);
+
+    await page.goto(base + '/widgets/ams/?ams=0');
+    await page.locator('#tray1Material').filter({ hasText: /^PETG$/ }).waitFor();
+    assert.equal(await page.locator('.ams-3h').isVisible(), false);
+    assert.equal(await page.locator('.ams-container .element:visible').count(), 4);
+
+    const first = print.ams.ams.find(unit => unit.id === '0');
+    const second = { ...first, id: '1', tray: [{ ...first.tray[0], tray_sub_brands: 'Second unit PLA' }] };
+    print = { gcode_state: 'RUNNING', ams: { ams: [first] } };
+    await page.goto(base + '/widgets/ams/');
+    await page.locator('#tray1Material').filter({ hasText: /^PETG$/ }).waitFor();
+    assert.equal(await page.locator('#ams-unavailable').isVisible(), false);
+
+    print = { ...print, ams: { ams: [first, second] } };
+    await page.locator('#tray1Material').filter({ hasText: /^Second unit PLA$/ }).waitFor();
+    await page.goto(base + '/widgets/ams/?ams=0');
+    await page.locator('#tray1Material').filter({ hasText: /^PETG$/ }).waitFor();
+
+    await page.goto(base + '/widgets/ams/?ams=7');
+    await page.getByRole('status').filter({ hasText: 'Selected AMS unit unavailable' }).waitFor();
+    assert.equal(await page.locator('#amsCurrentTempC').isVisible(), false);
+    assert.equal(await page.locator('#tray1Material').isVisible(), false);
+  } finally {
+    await page.close();
+  }
+}
+
 (async () => {
   const data = await fs.mkdtemp(path.join(os.tmpdir(), 'bambuboard-browser-'));
   const artifactDir = process.env.BB_SCREENSHOTS || path.join(data, 'screenshots');
@@ -31,11 +181,10 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
       try { if ((await fetch(base + '/api/status')).ok) break; } catch (_) {}
       await new Promise(r => setTimeout(r, 100));
     }
-    // Setup can read saved credentials locally, while other sites cannot send
-    // requests to the management API. The widget settings carry no access code.
+    // Credential status is visible locally without exposing the saved value.
     const localCredentials = await fetch(base + '/api/printer-credentials', { headers: { Origin: base } });
     assert.equal(localCredentials.headers.get('Cache-Control'), 'no-store');
-    assert.equal((await localCredentials.json()).accessCode, 'fixture-only');
+    assert.deepEqual(await localCredentials.json(), { accessCode: '', accessCodeSet: true });
     for (const pathname of ['/settings', '/api/settings']) {
       const settings = await fetch(base + pathname).then(res => res.json());
       assert.equal(settings.printer.accessCode, '');
@@ -53,9 +202,15 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, colorScheme: 'dark' });
     // Toolpath data is a sample, never a request to a physical printer.
     await context.route('**/api/gcode/current*', route => route.fulfill({ contentType: 'text/plain', body: fixtureGcode }));
+    // This suite seeds an isolated snapshot in lieu of an MQTT printer.
+    await context.route(base + '/data.json', route => route.fulfill({ json: telemetry }));
     const errors = [], external = new Set();
+    let credentialReads = 0;
     context.on('page', page => page.on('pageerror', e => errors.push(e.stack || e.message)));
-    context.on('request', request => { if (!request.url().startsWith(base) && !request.url().startsWith('data:')) external.add(request.url()); });
+    context.on('request', request => {
+      if (!request.url().startsWith(base) && !request.url().startsWith('data:')) external.add(request.url());
+      if (new URL(request.url()).pathname === '/api/printer-credentials') credentialReads++;
+    });
     const cameraSample = execFileSync(require('ffmpeg-static'), ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30', '-t', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1'], { timeout: 10000 });
     await context.route('**/assets/camera-fixture.ts*', route => route.fulfill({ contentType: 'video/mp2t', headers: { 'Content-Length': String(cameraSample.length) }, body: cameraSample }));
     const page = await context.newPage();
@@ -163,7 +318,34 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     assert.match(await page.locator('#yt-support').innerText(), /HTTPS or localhost/);
     assert.equal(await page.locator('#yt-start').isEnabled(), false);
     await page.goto(base + '/setup'); await page.waitForFunction(() => document.getElementById('p-name').value === 'Demo H2D');
-    await page.locator('#show-ac').click(); assert.equal(await page.locator('#p-ac').getAttribute('type'), 'text');
+    const access = page.locator('#p-ac'), reveal = page.locator('#show-ac');
+    assert.equal(await access.inputValue(), '');
+    assert.equal(await reveal.isDisabled(), true);
+    assert.match(await page.locator('#p-ac-status').innerText(), /Saved/);
+    await access.fill('typed-fixture');
+    await reveal.click();
+    assert.equal(await access.getAttribute('type'), 'text');
+    await access.fill('');
+    assert.equal(await access.getAttribute('type'), 'password');
+
+    const connectionChecks = [];
+    const testConnectionUrl = base + '/api/test-connection';
+    await page.route(testConnectionUrl, route => {
+      connectionChecks.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ok: true } });
+    });
+    const address = page.locator('#p-url'), savedAddress = await address.inputValue();
+    await address.fill('printer-replacement.test');
+    await page.locator('#test-btn').click();
+    assert.match(await page.locator('#test-result').innerText(), /Enter the LAN access code/);
+    assert.equal(connectionChecks.length, 0);
+    await address.fill(savedAddress);
+    await page.locator('#test-btn').click();
+    await page.waitForFunction(() => document.getElementById('test-result').textContent.includes('Connection test passed'));
+    assert.equal(connectionChecks[0].accessCode, '');
+    await page.unroute(testConnectionUrl);
+    assert.equal(credentialReads, 0, 'Setup should not call the legacy credentials endpoint');
+
     await page.locator('.display-preferences > summary').click();
     const checked = await page.locator('#fan-pct').getAttribute('aria-checked');
     await page.locator('#fan-pct').focus(); await page.keyboard.press('Space');
@@ -171,6 +353,7 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     await page.locator('#save-btn').click(); await page.waitForSelector('.toast');
     const saved = JSON.parse(await fs.readFile(path.join(data, 'config.json'), 'utf8'));
     assert.equal(saved.BambuBoard_displayFanPercentages, checked !== 'true');
+    assert.equal(saved.printer.accessCode, 'fixture-only');
     await page.locator('#cloud-email-form').waitFor({ state: 'visible' });
     const relayPage = await context.newPage();
     await relayPage.addInitScript(() => {
@@ -245,6 +428,8 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
       }
       if (widget.slug !== 'camera' && widget.slug !== 'gcode-viz') assert.equal(await page.evaluate(() => window.jQuery?.fn.jquery), devDependencies.jquery);
     }
+    await checkTelemetryFreshness(context, base, telemetry);
+    await checkAms3h(context, base, artifactDir);
     // Old hosts, AMS/nozzle selection, custom themes and bindings survive an editor round-trip.
     const parameters = structuredClone(published);
     const ams = parameters.sources.find(source => source.settings?.url?.includes('/widgets/ams/'));

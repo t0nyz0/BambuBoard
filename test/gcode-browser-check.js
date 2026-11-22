@@ -19,12 +19,19 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
   const files = {}, ftp = await ftpsFixture(t, { files });
   const app = express(), passed = [], errors = [], external = new Set();
   let clock = Date.now(), mode = 'normal', count = 0, releaseSlow = null, telemetryBroken = false, telemetryStale = false;
+  let printerConnection = 'online';
+  let printerType = 'H2D';
   let print;
-  const write = async (name, state = 'RUNNING', overrides = {}) => {
-    print = { _bb_job_id: name, task_id: '0', subtask_id: '0', subtask_name: name, gcode_file: '/data/Metadata/plate_1.gcode', gcode_state: state, layer_num: 1, mc_percent: 47, mc_remaining_time: 20, stg_cur: 0, ams: { ams: [] }, ...overrides };
-    const temp = path.join(data, 'data.json.tmp'); await fs.writeFile(temp, JSON.stringify({ print })); await fs.rename(temp, path.join(data, 'data.json'));
+  const writePacket = async packet => {
+    print = packet;
+    const temp = path.join(data, 'data.json.tmp');
+    await fs.writeFile(temp, JSON.stringify({ print }));
+    await fs.rename(temp, path.join(data, 'data.json'));
   };
-  const routes = buildGcodeRouter({ paths: { data }, getConfig: () => ({ printer: { url: '127.0.0.1', type: 'H2D', accessCode: 'fixture-only', serialNumber: 'FIXTURE' } }), log: () => {}, now: () => clock,
+  const write = async (name, state = 'RUNNING', overrides = {}) => {
+    await writePacket({ _bb_job_id: name, task_id: '0', subtask_id: '0', subtask_name: name, gcode_file: '/data/Metadata/plate_1.gcode', gcode_state: state, layer_num: 1, mc_percent: 47, mc_remaining_time: 20, stg_cur: 0, ams: { ams: [] }, ...overrides });
+  };
+  const routes = buildGcodeRouter({ paths: { data }, getConfig: () => ({ printer: { url: '127.0.0.1', type: printerType, accessCode: 'fixture-only', serialNumber: 'FIXTURE' } }), log: () => {}, now: () => clock,
     fetchGcode: async options => {
       count++;
       if (options.job.name === 'Slow job') return new Promise(resolve => { releaseSlow = () => resolve(Buffer.from(sample)); });
@@ -34,8 +41,12 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
       if (mode === 'unprintable') return Buffer.from('G90\nG1 X10 Y10 Z0.2\n');
       return fetchPlateGcode({ ...options, port: ftp.port });
     } });
-  app.get('/data.json', (_req, res) => telemetryBroken ? res.status(503).json({ error: 'fixture failure' }) : res.json({ print, _bb_received_at: Date.now() - (telemetryStale ? 65000 : 0) }));
-  app.get('/api/status', (_req, res) => res.json({ printer: { type: 'H2D' } }));
+  app.get('/data.json', (_req, res) => {
+    res.set('X-BambuBoard-Printer-Connection', printerConnection);
+    if (telemetryBroken) return res.status(503).json({ error: 'fixture failure' });
+    res.json({ print, _bb_received_at: Date.now() - (telemetryStale ? 65000 : 0) });
+  });
+  app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.use('/api/gcode', routes.router);
   app.use(express.static(path.join(root, 'public')));
@@ -106,6 +117,28 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     await rendered();
     assert.equal(await page.locator('#gcodeRecovery').isVisible(), false);
     assert.equal((await fetch(base + '/api/gcode/current')).status, 200);
+    const manualJob = print;
+    const manualReconnectRequests = [];
+    const trackReconnectRequest = request => {
+      if (new URL(request.url()).pathname === '/api/gcode/current') manualReconnectRequests.push(request.method());
+    };
+    page.on('request', trackReconnectRequest);
+    printerConnection = 'offline';
+    await page.getByText('Printer offline', { exact: true }).waitFor();
+    await writePacket({ _bb_job_pending: true, gcode_state: 'RUNNING', gcode_file: '/data/Metadata/plate_1.gcode' });
+    printerConnection = 'online';
+    await page.getByText('Waiting for print details', { exact: true }).waitFor();
+    await page.waitForFunction(() => window.__preview.layers.length > 0 && !window.__nozzle.visible);
+    await page.locator('#gcodeFile').setInputFiles({ name: 'picker-returned-during-reconnect.gcode', mimeType: 'application/octet-stream', buffer: Buffer.from(sample) });
+    await writePacket({ ...manualJob, mc_percent: undefined, layer_num: undefined });
+    await page.getByText('Waiting for print progress', { exact: true }).waitFor();
+    assert.ok(await page.evaluate(() => window.__preview.layers.length > 0 && !window.__nozzle.visible));
+    await writePacket(manualJob);
+    await page.locator('#gcodeOverlay').waitFor({ state: 'hidden' });
+    assert.deepEqual(manualReconnectRequests, [], 'Partial reconnect must not re-fetch the manual preview or send a file chosen during reconnect');
+    page.off('request', trackReconnectRequest);
+    passed.push('Partial identity and missing progress pause a manually loaded preview until the same job is confirmed');
+
     await write('Picker old');
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('cannot expose'));
     const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('#gcodeFileButton').click()]);
@@ -134,15 +167,42 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     assert.equal(await page.evaluate(() => window.__nozzle.visible), false);
     telemetryStale = false;
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').style.display === 'none');
-    passed.push('Unavailable/stale telemetry pauses and recovers; viewer clock skew does not discard a valid preview');
+    await write('Picker new', 'FINISH', { mc_percent: 100 });
+    telemetryStale = true;
+    await page.waitForFunction(() => window.__log().some(line => line.includes('finished (showing full model)')));
+    assert.equal(await page.locator('#gcodeOverlay').isVisible(), false, 'A quiet printer still shows its finished job within one refresh interval');
+    telemetryStale = false;
+    await write('Picker new', 'RUNNING');
+    await page.waitForFunction(() => window.__log().some(line => line.includes('lifecycle: NEW PRINT (justStarted)')));
+    await page.locator('#gcodeOverlay').waitFor({ state: 'hidden' });
+    passed.push('Unavailable/stale telemetry pauses and recovers; clock skew and a quiet finished job retain their previews');
+
+    const jobBeforeReconnect = print;
+    const loadsBeforeReconnect = await page.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length);
+    printerConnection = 'offline';
+    await page.getByText('Printer offline', { exact: true }).waitFor();
+    await page.waitForFunction(() => !window.__nozzle.visible && window.__preview.layers.length > 0);
+    assert.equal(await page.locator('#gcodeOverlay').evaluate(node => node.classList.contains('waiting')), false, 'The status does not cover a loaded preview');
+    printerConnection = 'waiting';
+    await page.getByText('Waiting for printer data', { exact: true }).waitFor();
+    await writePacket({ gcode_state: 'RUNNING' });
+    printerConnection = 'online';
+    await page.getByText('Waiting for print details', { exact: true }).waitFor();
+    assert.ok(await page.evaluate(() => window.__preview.layers.length > 0 && !window.__nozzle.visible));
+    await writePacket(jobBeforeReconnect);
+    await page.waitForFunction(() => document.getElementById('gcodeOverlay').style.display === 'none');
+    assert.equal(await page.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length), loadsBeforeReconnect);
+    passed.push('A disconnect and an older state-only report retain the preview until the next complete report for the same job');
 
     await write('Slow job'); await open(); await until(() => releaseSlow);
+    await writePacket({ _bb_job_pending: true, gcode_state: 'RUNNING', gcode_file: '/data/Metadata/plate_1.gcode' });
+    await page.getByText('Waiting for print details', { exact: true }).waitFor();
     await write('Next job'); files['/Next job.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
     await rendered(); const loaded = count; releaseSlow(); releaseSlow = null;
     await page.waitForTimeout(1000); assert.equal(count, loaded);
     assert.equal(await page.locator('#gcodeOverlay').isVisible(), false);
     assert.equal((await fs.readdir(path.join(data, 'gcode-cache'))).length, 4);
-    passed.push('A new print renders while its obsolete download is still pending');
+    passed.push('A confirmed new print renders after a provisional report while its obsolete download is still pending');
 
     const rectangle = (x1, y1, x2, y2, layers) => {
       const lines = ['G90', 'M83', 'G1 F6000'];
@@ -286,6 +346,50 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     await noWebGL.screenshot({ path: path.join(artifacts, 'gcode-no-webgl.png') });
     await disabled.close();
     passed.push('Renderer initialization failure has a usable diagnostic/export UI');
+
+    printerType = 'H3C';
+    // Bambu Studio's H3C tool-change template emits T[next_filament_id].
+    // Follow the observed full H3C report's packed unit/tray mapping: T5 uses
+    // AMS 3H slot 0. T8 selects a virtual 2.85 mm spool in slot 8.
+    const h3c = ['G90', 'M83', 'T5', 'G1 X300 Y290 Z0.2', 'G1 X320 Y290 E1', 'G1 X320 Y310 E1',
+      'T8', 'M83', 'G1 Z0.4', 'G1 X300 Y310 E1', 'G1 X300 Y290 E1', ''].join('\n');
+    const h3cArchive = archive({ 'Metadata/plate_1.gcode': sample, 'Metadata/plate_2.gcode': h3c });
+    const h3cJob = {
+      plate_idx: 2, plate_id: 2, layer_num: 2, total_layer_num: 2,
+      mapping: [65535, 65535, 65535, 65535, 65535, 8192, 65535, 65535, 63487],
+      ams: { ams: [
+        { id: '0', tray: [{ id: '0', tray_color: 'FFDD00FF' }] },
+        { id: '32', tray: [{ id: '0', state: 283, tray_color: '1234ABFF' }, { id: '8', state: 160 }] },
+      ] },
+      vir_slot: [{ id: '247', state: 283, tray_color: 'BC21D4FF' }],
+      device: { extruder: { info: [{ id: 0, snow: 63487 }] } },
+    };
+    files['/cache/H3C plate.gcode.3mf'] = h3cArchive;
+    await write('H3C plate', 'FINISH', { ...h3cJob, gcode_file: 'H3C plate.gcode.3mf' });
+    await open({ view: 'top', zoom: '125' }); await rendered();
+    assert.deepEqual(await page.evaluate(() => ({ ...window.__preview.buildVolume })), { x: 330, y: 320, z: 325 });
+    assert.deepEqual(await page.evaluate(() => [0, 5, 8].map(index => window.__preview.extrusionColor[index].getHexString())), ['888888', '1234ab', 'bc21d4']);
+    const h3cReport = await fetch(base + '/api/gcode/diagnostics').then(response => response.json());
+    assert.equal(h3cReport.printer.model, 'H3C');
+    assert.ok(h3cReport.events.some(event => event.entry === 'Metadata/plate_2.gcode'));
+    assert.ok(h3cReport.events.some(event => event.path === '/cache/H3C plate.gcode.3mf' && event.result === 'ok'));
+    assert.deepEqual(await page.evaluate(() => [window.__diag().orbit.view, window.__preview.camera.zoom]), ['top', 1.25]);
+    await page.screenshot({ path: path.join(artifacts, 'gcode-h3c-rendered.png') });
+    passed.push('H3C FTPS retrieves plate 2, renders actual WebGL on the H3C bed and applies packed filament mapping with a virtual 3H spool');
+
+    await write('H3C internal-storage job', 'FINISH', { plate_idx: 2, gcode_file: '/data/Metadata/plate_2.gcode' });
+    await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('cannot expose'));
+    assert.equal(await page.locator('#gcodeFileButton').isEnabled(), true);
+    assert.equal(await page.evaluate(() => window.__preview.extrusionColor.getHexString()), '888888');
+    await page.locator('#gcodeFile').setInputFiles({ name: 'h3c-plate.gcode.3mf', mimeType: 'application/octet-stream', buffer: h3cArchive });
+    await page.waitForFunction(() => window.__log().filter(line => line.includes('loadGcode OK')).length === 2);
+    await rendered();
+    assert.equal(await page.evaluate(() => window.__preview.extrusionColor.getHexString()), '888888');
+    const manualReport = await fetch(base + '/api/gcode/diagnostics').then(response => response.json());
+    assert.equal(manualReport.source, 'manual');
+    assert.ok(manualReport.events.some(event => event.entry === 'Metadata/plate_2.gcode'));
+    passed.push('H3C FTPS failure allows manual loading of the exact sliced plate, with neutral colors until mapping is available');
+
     assert.deepEqual(errors, []); assert.deepEqual([...external], []);
     await fs.writeFile(path.join(artifacts, 'gcode-browser-results.json'), JSON.stringify({ passed, errors, external: [...external], source: 'Loopback FTPS and sample toolpath; no physical printer', downloads: count }, null, 2));
     console.log(`Gcode browser passed: ${passed.length} end-to-end recovery groups; no JavaScript errors or external requests. Artifacts: ${artifacts}`);

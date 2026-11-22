@@ -4,14 +4,14 @@
   const types = await fetch('/api/printer-types').then(r => r.json()).catch(() => []);
   const cfg = await fetch('/api/settings').then(r => r.json()).catch(() => null);
   if (!cfg) { window.toast('Could not load settings. Reload to try again.', 'error'); return; }
+  const recoveryNotice = document.getElementById('config-recovery');
+  recoveryNotice.hidden = !cfg._meta?.configRecovery;
 
   // Printer type — used to be a visible dropdown but the type is auto-detected
   // from MQTT once the printer connects (see src/lib/caps.js#printerTypeFromMqtt
-  // and the onPrinterDetected hook in src/server.js). We keep the field as a
-  // hidden input so save/load logic still reads it; populate the option list
-  // only if the element is a `<select>` (kept for back-compat if someone
-  // restores the dropdown). Default 'X1' is a safe bootstrap that gets
-  // overwritten within a few seconds of MQTT connecting.
+  // and the onPrinterDetected hook in src/server.js). Send a manual type only
+  // if the optional selector is present, so changing printers can start
+  // with fresh model detection.
   const typeEl = document.getElementById('p-type');
   if (typeEl && typeEl.tagName === 'SELECT') {
     types.forEach(t => {
@@ -27,23 +27,10 @@
   document.getElementById('p-url').value = cfg.printer?.url || '';
   document.getElementById('p-port').value = cfg.printer?.port || '8883';
   document.getElementById('p-sn').value = cfg.printer?.serialNumber === 'FILL_THIS_OUT' ? '' : (cfg.printer?.serialNumber || '');
-  // Pre-fill the LAN access code from the dedicated credentials endpoint so
-  // the user can view (Show button) / edit it without re-typing. The /api/settings
-  // response strips this for safety; /api/printer-credentials returns it
-  // explicitly for the setup form.
+  const accessCodeInput = document.getElementById('p-ac');
+  const accessCodeStatus = document.getElementById('p-ac-status');
+  const showAccessCode = document.getElementById('show-ac');
   let accessCodeSet = !!cfg.printer?.accessCodeSet;
-  try {
-    const creds = await fetch('/api/printer-credentials').then(r => r.json());
-    if (creds && creds.accessCode) {
-      document.getElementById('p-ac').value = creds.accessCode;
-      document.getElementById('p-ac-status').textContent = 'Saved — click Show to reveal, or edit to replace.';
-      accessCodeSet = true;
-    } else {
-      document.getElementById('p-ac-status').textContent = accessCodeSet ? 'A code is saved.' : 'Required.';
-    }
-  } catch (_) {
-    document.getElementById('p-ac-status').textContent = accessCodeSet ? 'A code is saved (could not load).' : 'Required.';
-  }
   // Migration: older configs saved "C" / "F" but every temp widget checks for
   // the spelled-out strings. Map legacy values forward so the dropdown shows
   // the right thing — and so the next save normalizes the file.
@@ -71,8 +58,8 @@
   const connectTitle = document.getElementById('connect');
   const continueButton = document.getElementById('continue-btn');
   const nextHint = document.getElementById('connect-next');
-  let savedCredentials = connectionKey(readPrinterFields());
-  let configured = hasPrinterDetails(readPrinterFields());
+  let savedConnection = connectionKey(readPrinterFields());
+  let configured = !printerDetailsError(readPrinterFields());
   const isFirst = new URLSearchParams(location.search).get('firstRun') === '1' || !configured;
   let latestStatus = null, statusUnavailable = false, reconnectUntil = 0;
   let statusVersion = 0, statusTimer, checkingCamera = false;
@@ -85,25 +72,23 @@
     saveButton.textContent = 'Save and connect';
   }
 
-  document.getElementById('show-ac').addEventListener('click', event => {
-    const i = document.getElementById('p-ac');
-    i.type = i.type === 'password' ? 'text' : 'password';
-    event.currentTarget.textContent = i.type === 'password' ? 'Show' : 'Hide';
-    event.currentTarget.setAttribute('aria-pressed', String(i.type === 'text'));
-  });
+  showAccessCode.addEventListener('click', () => setAccessCodeVisible(accessCodeInput.type === 'password'));
+  updateAccessCodeStatus();
 
   for (const id of ['p-url', 'p-port', 'p-sn', 'p-ac']) {
     document.getElementById(id).addEventListener('input', () => {
       testVersion++;
       setTestResult('');
+      updateAccessCodeStatus();
       updateContinue();
     });
   }
 
   testButton.addEventListener('click', async () => {
     const body = readPrinterFields();
-    if (!hasPrinterDetails(body)) {
-      setTestResult('Enter the printer IP address, serial number, and LAN access code.', 'error');
+    const missingDetails = printerDetailsError(body);
+    if (missingDetails) {
+      setTestResult(missingDetails, 'error');
       return;
     }
     const attempt = ++testVersion;
@@ -144,11 +129,12 @@
       // it in the main settings save so we don't accidentally clobber.
       printer: readPrinterFields(),
     };
-    if (!hasPrinterDetails(body.printer)) {
-      setTestResult('Enter the printer IP address, serial number, and LAN access code.', 'error');
+    const missingDetails = printerDetailsError(body.printer);
+    if (missingDetails) {
+      setTestResult(missingDetails, 'error');
       return;
     }
-    const changedConnection = !configured || connectionKey(body.printer) !== savedCredentials;
+    const changedConnection = !configured || hasUnsavedCredentials();
     saving = true;
     setTestResult('');
     updateButtons();
@@ -162,9 +148,11 @@
         window.toast('Save failed: ' + (j.error || r.status), 'error');
         return;
       }
-      savedCredentials = connectionKey(body.printer);
+      savedConnection = connectionKey(body.printer);
       accessCodeSet = true;
-      document.getElementById('p-ac-status').textContent = 'A code is saved.';
+      if (accessCodeInput.value === body.printer.accessCode) accessCodeInput.value = '';
+      updateAccessCodeStatus();
+      recoveryNotice.hidden = true;
       configured = true;
       reconnectUntil = Date.now() + 5000;
       latestStatus = null;
@@ -193,16 +181,38 @@
     if (location.hash === '#connect') connectTitle.focus();
   }
 
-  function hasPrinterDetails(fields) {
-    return !!(fields.url && fields.serialNumber && (fields.accessCode || accessCodeSet));
+  function printerDetailsError(fields) {
+    if (!fields.url || !fields.serialNumber) return 'Enter the printer IP address and serial number.';
+    if (!/^\d+$/.test(fields.port) || Number(fields.port) < 1 || Number(fields.port) > 65535) {
+      return 'Enter a valid MQTT port in Advanced connection settings.';
+    }
+    if (!fields.accessCode.trim() && (!accessCodeSet || connectionKey(fields) !== savedConnection)) {
+      return 'Enter the LAN access code for this printer connection.';
+    }
+    return '';
   }
 
-  function connectionKey({ url, port, serialNumber, accessCode }) {
-    return JSON.stringify([url, port, serialNumber, accessCode]);
+  function connectionKey({ url, port, serialNumber }) {
+    return JSON.stringify([url.toLowerCase(), /^\d+$/.test(port) ? Number(port) : port, serialNumber]);
   }
 
   function hasUnsavedCredentials() {
-    return connectionKey(readPrinterFields()) !== savedCredentials;
+    const fields = readPrinterFields();
+    return connectionKey(fields) !== savedConnection || !!fields.accessCode.trim();
+  }
+
+  function setAccessCodeVisible(visible) {
+    accessCodeInput.type = visible ? 'text' : 'password';
+    showAccessCode.textContent = visible ? 'Hide' : 'Show';
+    showAccessCode.setAttribute('aria-pressed', String(visible));
+  }
+
+  function updateAccessCodeStatus() {
+    showAccessCode.disabled = !accessCodeInput.value.trim();
+    if (showAccessCode.disabled) setAccessCodeVisible(false);
+    const sameConnection = connectionKey(readPrinterFields()) === savedConnection;
+    accessCodeStatus.textContent = sameConnection && accessCodeSet
+      ? 'Saved. Leave blank to keep it.' : 'Enter the code from your printer.';
   }
 
   function setTestResult(message, tone = '') {
@@ -293,14 +303,13 @@
   }
 
   function readPrinterFields() {
-    const ac = document.getElementById('p-ac').value;
     return {
       name: document.getElementById('p-name').value.trim(),
       url: document.getElementById('p-url').value.trim(),
       port: document.getElementById('p-port').value.trim() || '8883',
       serialNumber: document.getElementById('p-sn').value.trim(),
-      accessCode: ac, // empty means "keep existing"
-      type: document.getElementById('p-type').value,
+      accessCode: accessCodeInput.value,
+      ...(typeEl?.tagName === 'SELECT' ? { type: typeEl.value } : {}),
     };
   }
   function toggle(id, on) { const node = document.getElementById(id); node.classList.toggle('on', !!on); node.setAttribute('aria-checked', String(!!on)); }

@@ -4,7 +4,7 @@ These are scrubbed, working scenes ready to drop into OBS Studio. They were expo
 
 ## Pick the right one
 
-- **`default-x1.json`** — for X1, X1C, P1, P1P, P1S, A1, A1 Mini. Standard widget set: bed, nozzle, AMS #1, fans, progress, print info.
+- **`default-x1.json`** — single-nozzle starter for X1, X1C, P1, P1P, P1S, A1, A1 Mini and H3C. Includes bed and nozzle temperatures, AMS, fans, progress and print details. On H3C the AMS widget shows AMS 3H.
 - **`default-h2d.json`** — for H2D. Adds AMS #2, AMS #2 humidity, and right-nozzle temp tiles for the dual hardware.
 
 ## How to use

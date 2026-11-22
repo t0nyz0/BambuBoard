@@ -11,7 +11,6 @@ let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let settings = "";
-let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function loadSettings() {
@@ -44,27 +43,14 @@ async function loadCaps() {
     if (!res.ok) return;
     const s = await res.json();
     chamberSupported = !s.caps || s.caps.hasChamberTemp !== false;
-    const root = document.querySelector('.container');
-    if (root) root.style.display = chamberSupported ? '' : 'none';
+    document.body.hidden = !chamberSupported;
   } catch (_) { /* keep visible on error */ }
 }
 loadCaps();
-async function retrieveData() {
-  const response = await fetch(fullServerURL + "/data.json");
 
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
+function chamberTemperature(print) {
+  const packed = print.device?.ctc?.info?.temp;
+  return Number.isFinite(packed) ? packed & 0xFFFF : BBTelemetry.number(print.chamber_temper);
 }
 
 async function updateUI(telemetryObject) {
@@ -87,14 +73,7 @@ async function updateUI(telemetryObject) {
     // Newer Bambu firmware (H2D) packs current+target into device.ctc.info.temp
     // (low 16 bits current, high 16 bits target). Legacy firmware uses the
     // top-level chamber_temper field. Read whichever one's present.
-    var chamberC = null;
-    var packed = telemetryObject.device && telemetryObject.device.ctc
-                 && telemetryObject.device.ctc.info && telemetryObject.device.ctc.info.temp;
-    if (typeof packed === 'number') {
-      chamberC = packed & 0xFFFF;
-    } else if (typeof telemetryObject.chamber_temper === 'number') {
-      chamberC = telemetryObject.chamber_temper;
-    }
+    const chamberC = chamberTemperature(telemetryObject);
 
     $("#chamberTargetTempF").text(chamberTargetTempF);
     $("#chamberTargetTempC").text(chamberTargetTempC);
@@ -174,35 +153,13 @@ async function updateUI(telemetryObject) {
   }
 }
 
-function disableUI() {
-  $("#chamberProgressBar").css("background-color", "grey");
-  $("#chamberTargetTempTempSymbols").hide();
-}
-
 function log(logText) {
   if (consoleLogging) {
     console.log(logText);
   }
 }
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-// Call the updateLog function to fetch and parse the data
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateUI(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
-      disableUI();
-    }
-  } catch (error) {
-    //console.error(error);
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state;
+  return updateUI(print);
+}, { ready: print => chamberTemperature(print) !== null });

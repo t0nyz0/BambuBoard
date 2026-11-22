@@ -1,11 +1,15 @@
 // BambuBoard — AMS Tray widget
-// Supports ?ams=N parameter: 0–3. Default is 1 because Bambu's MQTT
-// enumeration on H2D + AMS Hub setups is reversed from the printer's
-// physical labels — id=1 corresponds to the user's labeled "AMS #1" unit.
-// Single-AMS printers (X1/P1/A1) only populate ams.ams[0]; pass `?ams=0` to
-// view that explicitly.
+// Explicit ?ams=N selects an array position. Otherwise prefer the integrated
+// AMS 3H, or index 1 for compatibility with dual-AMS layouts, or the sole unit.
 
-const AMS_INDEX = parseInt(new URLSearchParams(location.search).get('ams') || '1', 10);
+const amsParams = new URLSearchParams(location.search);
+const AMS_INDEX = parseInt(amsParams.get('ams') || '1', 10);
+const ams3hView = document.querySelector('.ams-3h');
+const amsCard = ams3hView.parentElement;
+const amsUnavailable = document.getElementById('ams-unavailable');
+const amsTitle = document.querySelector('.partTitle');
+const originalTitle = amsTitle.textContent;
+const ams3hRows = [];
 
 const protocol = window.location.protocol;
 const serverURL = window.location.hostname;
@@ -13,7 +17,6 @@ const serverPort = window.location.port;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 let currentState = 'OFF';
-const consoleLogging = false;
 let settings = {};
 
 async function loadSettings() {
@@ -29,22 +32,6 @@ loadSettings();
 // Re-fetch every 5s so changes made on the /setup page (e.g. temperature
 // unit, fan-percent toggle) propagate without reloading the iframe.
 setInterval(loadSettings, 5000);
-async function retrieveData() {
-  const response = await fetch(fullServerURL + '/data.json');
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = 'Incomplete';
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
 
 // Update a single tray's UI elements.
 function updateTray(trayIdx, tray) {
@@ -126,10 +113,91 @@ function updateTray(trayIdx, tray) {
   }
 }
 
+function zoneTemperature(value) {
+  const celsius = BBAms.number(value);
+  if (celsius == null || celsius < 0 || celsius > 100) return '—';
+  const c = `${Math.round(celsius * 10) / 10}°C`;
+  const f = `${Math.round((celsius * 9 / 5 + 32) * 10) / 10}°F`;
+  if (settings.BambuBoard_tempSetting === 'Fahrenheit') return f;
+  if (settings.BambuBoard_tempSetting === 'Celsius') return c;
+  return `${c} / ${f}`;
+}
+
+function updateAms3h(print, unit) {
+  const trayList = ams3hView.querySelector('.ams-3h-trays');
+  const template = document.getElementById('ams-3h-tray-template');
+  if (!ams3hRows.length) {
+    for (let slot = 0; slot < 9; slot++) {
+      const row = template.content.firstElementChild.cloneNode(true);
+      row.querySelector('.ams-3h-slot-number').textContent = `#${slot + 1}`;
+      trayList.append(row);
+      ams3hRows.push(row);
+    }
+  }
+
+  const active = BBAms.activeTray(print);
+  const target = BBAms.targetTray(print);
+  ams3hRows.forEach((row, slot) => {
+    const tray = BBAms.trayAt(print, unit, slot);
+    const carriesFilament = active.amsIndex === BBAms.AMS_3H_ID && active.trayIndex === slot;
+    const isActive = Boolean(tray) && carriesFilament;
+    const isTarget = !carriesFilament && target.amsIndex === BBAms.AMS_3H_ID && target.trayIndex === slot;
+    row.classList.toggle('is-empty', !tray);
+    row.classList.toggle('is-active', isActive);
+    row.classList.toggle('is-target', isTarget);
+    row.querySelector('.ams-3h-tray-state').textContent = isActive ? 'Active' : (isTarget ? 'Next' : '');
+    const color = tray?.tray_color || '';
+    row.querySelector('.ams-3h-dot').style.backgroundColor = /^[a-f\d]{6}(?:[a-f\d]{2})?$/i.test(color) ? '#' + color : '';
+    const material = row.querySelector('.ams-3h-material');
+    material.textContent = tray ? (tray.tray_sub_brands || tray.tray_type || 'Unknown filament') : 'Empty';
+    material.title = material.textContent;
+    const remain = BBAms.number(tray?.remain);
+    row.querySelector('.ams-3h-remaining').textContent = remain != null && remain >= 0 && remain <= 100 ? `${remain}%` : '';
+  });
+
+  const zones = Array.isArray(unit?.zone_info) ? unit.zone_info : [];
+  ams3hView.querySelectorAll('.ams-3h-zone').forEach((card, id) => {
+    const zone = zones.find(zone => BBAms.number(zone?.zone_id) === id);
+    const humidity = BBAms.number(zone?.humidity_raw);
+    const humidityLabel = humidity != null && humidity >= 0 && humidity <= 100 ? `${humidity}% RH` : '— RH';
+    card.querySelector('.ams-3h-zone-reading').textContent = `${zoneTemperature(zone?.temp)} · ${humidityLabel}`;
+    const slots = Array.isArray(zone?.zone_slots) ? zone.zone_slots.map(BBAms.number)
+      .filter(slot => Number.isInteger(slot) && slot >= 0 && slot < 9).map(slot => slot + 1) : [];
+    card.querySelector('.ams-3h-zone-slots').textContent = slots.length ? `Trays ${slots.join(', ')}` : '';
+    // Zone 0 is the dryer. Zone 1 reports a duplicate timer that can lag.
+    const timer = card.querySelector('.ams-3h-zone-time');
+    if (timer) {
+      const drying = Number.isInteger(zone?.dry_time) && zone.dry_time > 0;
+      card.classList.toggle('is-drying', drying);
+      timer.hidden = !drying;
+      timer.textContent = drying ? `Drying · ${formatDryMinutes(zone.dry_time)}` : '';
+    }
+  });
+}
+
 async function updateAMS(telemetryObject) {
   try {
-    const amsUnit = telemetryObject.ams.ams[AMS_INDEX];
-    if (!amsUnit || !amsUnit.tray) return;
+    const units = telemetryObject.ams?.ams;
+    const integrated = BBAms.ams3hUnit(telemetryObject);
+    const explicit = amsParams.has('ams');
+    const selectedIndex = explicit || units?.[1] ? AMS_INDEX : 0;
+    const amsUnit = (!explicit && integrated) || units?.[selectedIndex];
+    const isAms3h = Boolean(amsUnit && amsUnit === integrated);
+    const missing = !isAms3h && !Array.isArray(amsUnit?.tray);
+    ams3hView.hidden = !isAms3h;
+    amsCard.classList.toggle('ams-card-3h', isAms3h);
+    amsCard.classList.toggle('ams-card-missing', missing);
+    amsUnavailable.hidden = !missing;
+    if (missing) {
+      const message = explicit ? 'Selected AMS unit unavailable' : 'No AMS unit reported';
+      if (amsUnavailable.textContent !== message) amsUnavailable.textContent = message;
+    }
+    if (!amsParams.has('title')) amsTitle.textContent = isAms3h ? 'AMS 3H' : (missing ? 'AMS' : originalTitle);
+    if (isAms3h) {
+      updateAms3h(telemetryObject, amsUnit);
+      return;
+    }
+    if (missing) return;
 
     // Update all 4 trays.
     for (let i = 0; i < 4; i++) {
@@ -145,9 +213,10 @@ async function updateAMS(telemetryObject) {
     $('#humidityPercent').text(!isNaN(humPct) ? `(${humPct}%)` : '');
 
     // AMS Humidity
-    const amsHumidity = amsUnit.humidity;
+    const amsHumidity = String(amsUnit.humidity ?? '');
 
     $('#humidity1, #humidity2, #humidity3, #humidity4, #humidity5').css('background', 'gray');
+    $('#humidityLevelText').text('—');
 
     if (amsHumidity === '5') {
       $('#humidity1').css('background', '#51a34f');
@@ -167,15 +236,15 @@ async function updateAMS(telemetryObject) {
     }
 
     // AMS Temperature
-    const amsTemp = amsUnit.temp || 0;
-    const amsTempPercentage = Math.min((amsTemp / 82) * 100, 100);
+    const amsTemp = BBTelemetry.number(amsUnit.temp);
+    const amsTempPercentage = amsTemp === null ? 0 : Math.min((amsTemp / 82) * 100, 100);
 
     $('#amsTargetTempC').text('82');
     $('#amsTargetTempF').text(180);
 
-    const amsCurrentTempF = parseFloat(((amsTemp * 9) / 5 + 32).toFixed(1));
+    const amsCurrentTempF = amsTemp === null ? '—' : parseFloat(((amsTemp * 9) / 5 + 32).toFixed(1));
     $('#amsCurrentTempF').text(amsCurrentTempF);
-    $('#amsCurrentTempC').text(amsTemp);
+    $('#amsCurrentTempC').text(amsTemp ?? '—');
 
     const progressWidth = $('#amsProgressBarParent').width();
     $('#amsProgressBar').width((amsTempPercentage * progressWidth) / 100);
@@ -222,7 +291,7 @@ async function updateAMS(telemetryObject) {
     }
 
     // AMS active tray — dual/quad-AMS aware.
-    const THIS_AMS_INDEX = AMS_INDEX;
+    const THIS_AMS_INDEX = BBAms.unitId(amsUnit) ?? selectedIndex;
     const active = window.getActiveAmsTray
       ? window.getActiveAmsTray({ print: telemetryObject })
       : { amsIndex: 255, trayIndex: 255 };
@@ -248,15 +317,22 @@ async function updateAMS(telemetryObject) {
 
     // Filament change target indicator.
     $('#tray1Target, #tray2Target, #tray3Target, #tray4Target').hide();
+    if (integrated) {
+      const target = BBAms.targetTray(telemetryObject);
+      if (target.amsIndex === THIS_AMS_INDEX && target.trayIndex < 4
+          && (target.amsIndex !== active.amsIndex || target.trayIndex !== active.trayIndex)) {
+        $(`#tray${target.trayIndex + 1}Target`).show();
+      }
+      return;
+    }
     try {
       const trayTar = parseInt(telemetryObject.ams.tray_tar, 10);
       const trayNow = parseInt(telemetryObject.ams.tray_now, 10);
-      const stgCur = telemetryObject.stg_cur;
       const isChanging = !isNaN(trayTar) && trayTar !== 255 && trayTar !== trayNow;
       if (isChanging) {
         const tarAmsUnit = trayTar >= 128 ? (trayTar - 128) : (trayTar >> 2);
         const tarTraySlot = trayTar >= 128 ? 0 : (trayTar & 0x3);
-        if (tarAmsUnit === THIS_AMS_INDEX) {
+        if (tarAmsUnit === selectedIndex) {
           $(`#tray${tarTraySlot + 1}Target`).show();
         }
       }
@@ -264,16 +340,6 @@ async function updateAMS(telemetryObject) {
   } catch (error) {
     console.error('Error:', error);
   }
-}
-
-function disableUI() {
-  for (let i = 1; i <= 4; i++) {
-    $(`#tray${i}ProgressBar`).css('background-color', 'grey');
-    $(`#tray${i}Active`).hide().css('background-color', 'grey');
-    $(`#tray${i}Target`).hide();
-  }
-  $('.ams-container .element').removeClass('tray-active');
-  $('#dryingStatusPill').hide();
 }
 
 // Drying pill state. ha-bambulab confirms only heating-capable AMSes
@@ -331,21 +397,7 @@ function formatDryMinutes(mins) {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-function log(logText) {
-  if (consoleLogging) console.log(logText);
-}
-
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-setInterval(async () => {
-  try {
-    const telemetryObject = await retrieveData();
-    if (telemetryObject != null && telemetryObject !== 'Incomplete') {
-      await updateAMS(telemetryObject);
-    } else if (telemetryObject == null) {
-      disableUI();
-    }
-  } catch (error) {
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state || 'OFF';
+  return updateAMS(print);
+}, { ready: print => Array.isArray(print.ams?.ams) });

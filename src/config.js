@@ -1,6 +1,8 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const { randomUUID } = require('node:crypto');
+const { printerConnection, hasSavedAccessCode } = require('./lib/printerConnection');
 
 const ROOT = path.resolve(__dirname, '..');
 const DATA_DIR = process.env.BAMBUBOARD_DATA_DIR ? path.resolve(process.env.BAMBUBOARD_DATA_DIR) : path.join(ROOT, 'data');
@@ -9,6 +11,9 @@ const DATA_DIR = process.env.BAMBUBOARD_DATA_DIR ? path.resolve(process.env.BAMB
 // automatically on first run (see migrateConfigToData below).
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const LEGACY_CONFIG_PATH = path.join(ROOT, 'config.json');
+const PRIVATE_WRITE = { mode: 0o600, flag: 'wx', flush: true };
+let recoveryPending = false;
+let recoveryBackup = null;
 
 const DEFAULTS = {
   BambuBoard_httpPort: 8080,
@@ -27,12 +32,19 @@ const DEFAULTS = {
   },
 };
 
-function backupConfig(reason) {
-  if (!fs.existsSync(CONFIG_PATH)) return null;
+function backupPath(reason) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const dest = path.join(DATA_DIR, `config.json.pre-merge-${reason}-${ts}.bak`);
-  fs.copyFileSync(CONFIG_PATH, dest);
-  return dest;
+  return path.join(DATA_DIR, `config.json.pre-merge-${reason}-${ts}-${randomUUID()}.bak`);
+}
+
+function writeConfigSync(contents) {
+  const temporary = `${CONFIG_PATH}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, contents, PRIVATE_WRITE);
+    fs.renameSync(temporary, CONFIG_PATH);
+  } finally {
+    try { fs.rmSync(temporary, { force: true }); } catch (_) {}
+  }
 }
 
 function migrateLegacyH2D(config) {
@@ -81,7 +93,7 @@ function migrateLegacyMultiPrinter(config) {
 
 function migrateConfigToData() {
   if (!process.env.BAMBUBOARD_DATA_DIR && fs.existsSync(LEGACY_CONFIG_PATH) && !fs.existsSync(CONFIG_PATH)) {
-    fs.copyFileSync(LEGACY_CONFIG_PATH, CONFIG_PATH);
+    writeConfigSync(fs.readFileSync(LEGACY_CONFIG_PATH));
     fs.unlinkSync(LEGACY_CONFIG_PATH);
     console.log('Migrated config.json → data/config.json');
   }
@@ -124,33 +136,44 @@ function applyEnvOverrides(config) {
 
 function load() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  migrateConfigToData();
+  recoveryPending = false;
+  recoveryBackup = null;
+  try { migrateConfigToData(); }
+  catch (e) { console.warn(`Could not migrate legacy config.json (${e.code || 'error'}). The original was retained.`); }
   migrateLegacyDataFiles();
 
   let raw = {};
-  if (fs.existsSync(CONFIG_PATH)) {
-    try {
-      raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    } catch (e) {
-      console.error(`Could not parse config.json: ${e.message}`);
-      raw = {};
+  let original;
+  try {
+    original = fs.readFileSync(CONFIG_PATH);
+    const decoded = JSON.parse(original.toString('utf8'));
+    const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (!record(decoded) || (Object.hasOwn(decoded, 'printer') && !record(decoded.printer)) ||
+        (Object.hasOwn(decoded, 'cloudAuth') && decoded.cloudAuth !== null && !record(decoded.cloudAuth))) {
+      throw new SyntaxError('Invalid config shape');
+    }
+    raw = decoded;
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      recoveryPending = true;
+      console.warn(`Could not load config.json (${e.code || 'invalid format'}). The original was retained. Open Setup to restore settings.`);
     }
   }
 
   const h2dMigrated = migrateLegacyH2D(raw);
-  if (h2dMigrated) {
-    const bak = backupConfig('h2d');
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(h2dMigrated, null, 2));
-    console.log(`Migrated legacy H2D config → v3 schema. Backup: ${bak ? path.basename(bak) : 'n/a'}`);
-    raw = h2dMigrated;
-  }
-
-  const multiMigrated = migrateLegacyMultiPrinter(raw);
-  if (multiMigrated) {
-    const bak = backupConfig('multi');
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(multiMigrated, null, 2));
-    console.warn(`Migrated legacy multi-printer config → v3 single-printer schema. Kept: ${multiMigrated.printer.name} (${multiMigrated.printer.type}). Other printers were dropped. Backup: ${bak ? path.basename(bak) : 'n/a'}`);
-    raw = multiMigrated;
+  const migrated = h2dMigrated || migrateLegacyMultiPrinter(raw);
+  if (migrated) {
+    const backup = backupPath(h2dMigrated ? 'h2d' : 'multi');
+    try {
+      fs.writeFileSync(backup, original, PRIVATE_WRITE);
+      recoveryBackup = backup;
+      writeConfigSync(JSON.stringify(migrated, null, 2));
+      console.log(`Migrated legacy printer settings. Backup: ${path.basename(backup)}`);
+    } catch (e) {
+      recoveryPending = true;
+      console.warn(`Could not save migrated settings (${e.code || 'error'}). The original was retained.`);
+    }
+    raw = migrated;
   }
 
   const merged = {
@@ -163,12 +186,33 @@ function load() {
 }
 
 async function save(newConfig) {
-  await fsp.writeFile(CONFIG_PATH, JSON.stringify(newConfig, null, 2));
+  const temporary = `${CONFIG_PATH}.${randomUUID()}.tmp`;
+  try {
+    await fsp.writeFile(temporary, JSON.stringify(newConfig, null, 2), PRIVATE_WRITE);
+    if (recoveryPending && !recoveryBackup) {
+      const original = await fsp.readFile(CONFIG_PATH).catch(error => {
+        if (error.code !== 'ENOENT') throw error;
+        return null;
+      });
+      if (original) {
+        const backup = backupPath('recovery');
+        await fsp.writeFile(backup, original, PRIVATE_WRITE);
+        recoveryBackup = backup;
+        console.log(`Preserved the previous config.json. Backup: ${path.basename(backup)}`);
+      }
+    }
+    await fsp.rename(temporary, CONFIG_PATH);
+    recoveryPending = false;
+    recoveryBackup = null;
+  } finally {
+    await fsp.rm(temporary, { force: true }).catch(() => {});
+  }
 }
 
+function needsRecovery() { return recoveryPending; }
+
 function isFirstRun(config) {
-  const p = config.printer || {};
-  return !p.serialNumber || p.serialNumber === 'FILL_THIS_OUT' || !p.url || !p.accessCode || p.accessCode === 'FILL_THIS_OUT';
+  return !printerConnection(config.printer) || !hasSavedAccessCode(config.printer);
 }
 
 function publicSnapshot(config) {
@@ -178,7 +222,7 @@ function publicSnapshot(config) {
   c.printer = {
     name: p.name, url: p.url, port: p.port, serialNumber: p.serialNumber, type: p.type,
     model: p.model, detectedFrom: p.detectedFrom, accessCode: '',
-    accessCodeSet: !!p.accessCode && p.accessCode !== 'FILL_THIS_OUT',
+    accessCodeSet: hasSavedAccessCode(p),
   };
   c.cloudAuth = { enabled: config.cloudAuth.enabled };
   const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
@@ -188,4 +232,4 @@ function publicSnapshot(config) {
   return c;
 }
 
-module.exports = { load, save, isFirstRun, publicSnapshot, CONFIG_PATH, DATA_DIR, ROOT };
+module.exports = { load, save, isFirstRun, publicSnapshot, needsRecovery, CONFIG_PATH, DATA_DIR, ROOT };

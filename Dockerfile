@@ -22,14 +22,9 @@ COPY . .
 
 RUN install -d -o node -g node -m 0750 /usr/src/app/data
 
-# Default config envs (override via docker-compose / docker run -e)
+# Keep the container port stable. Display settings come from the saved config.
 ENV BAMBUBOARD_CONTAINER=1 \
-    BAMBUBOARD_HTTP_PORT=8080 \
-    BAMBUBOARD_TEMP_SETTING=Both \
-    BAMBUBOARD_FAN_PERCENTAGES=false \
-    BAMBUBOARD_FAN_ICONS=true \
-    BAMBUBOARD_PRINTER_TYPE=X1 \
-    BAMBUBOARD_LOGGING=false
+    BAMBUBOARD_HTTP_PORT=8080
 
 EXPOSE 8080
 

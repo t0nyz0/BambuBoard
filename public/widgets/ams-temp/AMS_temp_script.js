@@ -11,7 +11,6 @@ let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let settings = ""; 
-let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 // Multi-AMS support: read ?ams=N URL parameter (0..3) so a single widget file
@@ -42,24 +41,6 @@ loadSettings();
 // Re-fetch every 5s so changes made on the /setup page (e.g. temperature
 // unit, fan-percent toggle) propagate without reloading the iframe.
 setInterval(loadSettings, 5000);
-async function retrieveData() {
-  const response2 = await fetch(fullServerURL + "/data.json");
-
-  let data = await response2.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
-
 // Update humidity-raw % and drying status. Logic shared between AMS #1 and #2
 // (both ams-temp/ and ams-temp-2/ widgets call this with their unit index).
 // Mirrors ha-bambulab's AMS humidity / dryer model.
@@ -101,7 +82,8 @@ async function updateAMS(telemetryObject) {
   updateHumidityExtras(telemetryObject.ams.ams[AMS_INDEX]);
 
   // AMS Humidity
-  let amsHumidity = telemetryObject.ams.ams[AMS_INDEX].humidity;
+  const amsHumidity = String(telemetryObject.ams.ams[AMS_INDEX].humidity ?? '');
+  $("#humidityLevelText").text("—");
 
   if (currentState !== "RUNNING")
   {
@@ -207,7 +189,7 @@ log("amsTempPercentage = " + amsTempPercentage);
 
 if (amsTempPercentage > 100) {
   log(
-    "ams percentage over 100, adjusting..." + nozzleTempPercentage
+    "ams percentage over 100, adjusting..." + amsTempPercentage
   );
   amsTempPercentage = 100;
 }
@@ -297,80 +279,13 @@ if (amsTargetTemp === "OFF") {
   }
 }
 
-function disableUI() {
-
-
-  $("#amsProgressBar").css("background-color", "grey");
-  $("#amsCurrentTempSymbolsF").hide();
-  $("#amsCurrentTempSymbolsC").hide();
-
-  let amsHumidity = telemetryObject.ams.ams[AMS_INDEX].humidity;
-  //let amsHumidity = "1";
-
-  $("#humidity1").css("background", "gray");
-  $("#humidity2").css("background", "gray");
-  $("#humidity3").css("background", "gray");
-  $("#humidity4").css("background", "gray");
-  $("#humidity5").css("background", "gray");
-
-  if (amsHumidity === "5"){
-    // One green bar
-    $("#humidity1").css("background", "white");
-    $("#humidityLevelText").text("Low");
-  } else if (amsHumidity === "4"){
-    // Two green bar
-    $("#humidity1").css("background", "white");
-    $("#humidity2").css("background", "white");
-    $("#humidityLevelText").text("Low");
-  } else if (amsHumidity === "3"){
-    // 3 green bar
-    $("#humidity1").css("background", "white");
-    $("#humidity2").css("background", "white");
-    $("#humidity3").css("background", "white");
-    $("#humidityLevelText").text("Ok");
-  } else if (amsHumidity === "2"){
-    // 4 green bar
-    $("#humidity1").css("background", "white");
-    $("#humidity2").css("background", "white");
-    $("#humidity3").css("background", "white");
-    $("#humidity4").css("background", "white");
-
-    $("#humidityLevelText").text("High");
-  } else if (amsHumidity === "1"){
-    // 5 green bar
-    $("#humidity1").css("background", "white");
-    $("#humidity2").css("background", "white");
-    $("#humidity3").css("background", "white");
-    $("#humidity4").css("background", "white");
-    $("#humidity5").css("background", "white");
-    $("#humidityLevelText").text("High");
-  }
-}
-
 function log(logText) {
   if (consoleLogging) {
     console.log(logText);
   }
 }
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-// Call the updateLog function to fetch and parse the data
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateAMS(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
-      disableUI();
-    }
-  } catch (error) {
-    //console.error(error);
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state;
+  return updateAMS(print);
+}, { ready: print => BBTelemetry.number(print.ams?.ams?.[AMS_INDEX]?.temp) !== null });

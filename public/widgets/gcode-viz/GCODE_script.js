@@ -14,6 +14,7 @@ import '../../js/gcode-view.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
+const H3C_MAX_SLICER_FILAMENTS = 32;
 // Nozzle simulation speed multiplier vs gcode feedrate. Self-calibrates
 // based on observed mc_percent advancement rate so it tracks the real
 // printer including filament-swap delays, accel/decel overhead, and any
@@ -80,25 +81,23 @@ function logPhase(name) {
 }
 window.__log = () => _logBuf.slice();
 
-// Resolve bed size from the connected printer's caps so the visualization
-// works for any Bambu model (X1/X1C/P1/A1/A1M/H2D/…), not just the H2D it was
-// developed against. Falls back to a sensible default if /api/status is
-// unreachable.
-async function resolveBedSize() {
+// Use the connected printer's geometry and filament addressing when available.
+async function resolvePrinter() {
   try {
     const res = await fetch('/api/status', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     const data = await res.json();
-    const t = data?.printer?.type;
-    const bed = (window.PRINTER_CAPS?.[t] || window.PRINTER_CAPS?.X1)?.bedSize;
-    if (bed && bed.x && bed.y && bed.z) return bed;
+    const type = data?.printer?.type;
+    const bed = (window.PRINTER_CAPS?.[type] || window.PRINTER_CAPS?.X1)?.bedSize;
+    if (bed && bed.x && bed.y && bed.z) return { bed, type };
   } catch (_) { /* fall through to default */ }
-  return { x: 256, y: 256, z: 256 }; // X1-class default
+  return { bed: { x: 256, y: 256, z: 256 }, type: 'X1' };
 }
-const bed = await resolveBedSize();
+const { bed, type: printerType } = await resolvePrinter();
+const neutralFilament = '#888888';
 
 const preview = GCodePreview.init({
   canvas,
-  extrusionColor: 'hotpink',
+  extrusionColor: printerType === 'H3C' ? neutralFilament : 'hotpink',
   backgroundColor: '#1a1c20', // overridden to transparent below; kept here so gcode-preview's fog still has a base color
   // Travels are visualized via the trail (short-lived gray streak) rather than
   // baked into the static toolpath — keeps the build plate uncluttered.
@@ -775,6 +774,7 @@ let currentTaskKey = null;
 let failure = null;
 let wantedTaskKey = null;
 let wantedJob = null;
+let canRequestToolpath = false;
 let loadController = null;
 let loadSerial = 0;
 let rendererUnavailable = false;
@@ -817,12 +817,23 @@ function isPausedForState() {
   return false;
 }
 
-// Build an array of hex colors for every AMS tray slot (slot N = global
-// index ai*4+ti). gcode-preview accepts this array form and colors each
-// extrusion segment by the active tool index from T0/T1/T2 commands in the
-// gcode, so multi-color prints render correctly without us tracking the
-// switches ourselves.
+function h3cTrayHex(print, { amsIndex, trayIndex }) {
+  const units = print?.ams?.ams;
+  if (!Array.isArray(units) || (amsIndex === 255 && trayIndex === 255)) return neutralFilament;
+  const unit = units.find(candidate => BBAms.unitId(candidate) === amsIndex);
+  const rgba = unit && BBAms.trayAt(print, unit, trayIndex)?.tray_color;
+  if (typeof rgba !== 'string' || !/^[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(rgba) || rgba === '00000000') return neutralFilament;
+  const hex = '#' + rgba.slice(0, 6).toUpperCase();
+  return hex === '#000000' ? '#404040' : hex;
+}
+
+// The slicer writes filament indices into T commands. H3C reports their
+// physical spool addresses in print.mapping; AMS array order is unrelated.
 function buildTrayPalette(print) {
+  if (printerType === 'H3C') {
+    if (!Array.isArray(print?.mapping) || !print.mapping.length) return null;
+    return Array.from({ length: H3C_MAX_SLICER_FILAMENTS }, (_, index) => h3cTrayHex(print, BBAms.decodeAddress(print, print.mapping[index])));
+  }
   const ams = print?.ams?.ams;
   if (!Array.isArray(ams) || !ams.length) return null;
   const slots = [];
@@ -845,6 +856,7 @@ function buildTrayPalette(print) {
 }
 
 function activeTrayHex(print, palette) {
+  if (printerType === 'H3C') return h3cTrayHex(print, BBAms.activeTray(print));
   const trayNow = parseInt(print?.ams?.tray_now ?? '255', 10);
   if (palette && trayNow >= 0 && trayNow < palette.length) return palette[trayNow];
   // Fallback: first loaded tray
@@ -864,10 +876,10 @@ let lastPaletteSig = null;
 let lastActiveHex = null;
 function syncFilamentColor(print) {
   const palette = buildTrayPalette(print);
-  if (!palette) return;
-  const sig = palette.join('|');
+  if (!palette && printerType !== 'H3C') return;
+  const sig = palette ? palette.join('|') : neutralFilament;
   if (sig !== lastPaletteSig) {
-    preview.extrusionColor = palette;
+    preview.extrusionColor = palette || neutralFilament;
     lastPaletteSig = sig;
     // Force a rebuild so per-tool colors apply to existing geometry.
     lastRenderedEndLayer = -1;
@@ -1300,12 +1312,35 @@ function safeOrbitTick() {
 }
 requestAnimationFrame(safeOrbitTick);
 
+function pauseLiveMotion() {
+  lastGcodeState = 'PAUSED';
+  mcPercentLastSeen = null;
+  mqttSyncedLayer = null;
+  lastMcPctChangeWall = null;
+  lastMcPctChangeValue = null;
+}
+
+function waitForTelemetry(message, kind = currentTaskKey ? 'hint' : 'waiting') {
+  pauseLiveMotion();
+  canRequestToolpath = false;
+  window.BBGcodeUI.allowFile(false);
+  if (inFlight) invalidateLoad();
+  setOverlay(message, kind);
+}
+
 async function tick() {
   if (rendererUnavailable) return;
   let data, telemetryNow;
   try {
     const res = await fetch('/data.json', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const connection = res.headers.get('X-BambuBoard-Printer-Connection');
+    if (connection === 'offline' || connection === 'waiting') {
+      telemetryFailures = 0;
+      const message = connection === 'offline' ? 'Printer offline' : 'Waiting for printer data';
+      waitForTelemetry(message, currentTaskKey ? 'hint' : wantedJob?.available ? 'error' : 'waiting');
+      return;
+    }
     // The NAS and viewer can have different clocks. Compare a server-side
     // receive timestamp with the HTTP server clock, rather than the viewer's.
     telemetryNow = Date.parse(res.headers.get('Date')) || Date.now();
@@ -1316,23 +1351,28 @@ async function tick() {
     telemetryFailures++;
     if (telemetryFailures === 1) dbg(`telemetry unavailable: ${error.message}`);
     if (telemetryFailures >= 3) {
-      lastGcodeState = 'PAUSED';
-      setOverlay('Printer telemetry is unavailable. Check the printer connection in Setup. The last preview is paused.', 'error');
+      waitForTelemetry('Printer telemetry is unavailable. Check the printer connection in Setup. The last preview is paused.', 'error');
     }
     return;
   }
-  if (data._bb_received_at && telemetryNow - data._bb_received_at > 60000) {
-    lastGcodeState = 'PAUSED';
-    setOverlay('Printer telemetry has stopped updating. Check the printer connection in Setup. The last preview is paused.', 'error');
+  if (window.BBTelemetry.isStale(data, telemetryNow)) {
+    waitForTelemetry('Printer telemetry has stopped updating. Check the printer connection in Setup. The last preview is paused.', 'error');
     return;
   }
   try {
     const print = data.print;
     const job = window.BBGcodeJob.describe(print);
+    const state = print.gcode_state === 'PAUSE' ? 'PAUSED' : print.gcode_state;
+    // An active/finished state can arrive before its job metadata. Keep the
+    // prior render and lifecycle counters until the printer confirms the job.
+    if (print._bb_job_pending === true || (!job.available && ['RUNNING', 'PREPARE', 'SLICING', 'PAUSED', 'FINISH'].includes(state))) {
+      waitForTelemetry('Waiting for print details');
+      return;
+    }
     const taskId = job.task;
     wantedJob = { ...job, layer: print.layer_num };
-    window.BBGcodeUI.allowFile(job.available && !['IDLE', 'FAILED'].includes(print.gcode_state));
-    const state = print.gcode_state;
+    canRequestToolpath = job.available && !['IDLE', 'FAILED'].includes(state);
+    window.BBGcodeUI.allowFile(canRequestToolpath);
     const layerNum = Number(print.layer_num) || 0;
     const printStage = Number(print.mc_print_stage) || 0;
     const subStage = Number(print.stg_cur) || 0;
@@ -1343,12 +1383,14 @@ async function tick() {
 
     lastGcodeState = state;
     lastSubStage = subStage;
-    const mcPctRaw = Number(print.mc_percent) || 0;
+    const reportedProgress = Number(print.mc_percent ?? NaN);
+    const hasProgress = Number.isFinite(reportedProgress);
+    const mcPctRaw = hasProgress ? reportedProgress : 0;
     const mcRemain = Number(print.mc_remaining_time) || 0;
 
     // Update previous-tick trackers for next iteration.
     prevTickState = state;
-    prevTickMcPct = mcPctRaw;
+    prevTickMcPct = hasProgress ? reportedProgress : -1;
 
     // Log raw state changes so the log shows the printer's own lifecycle.
     if (state !== _prevState) {
@@ -1396,7 +1438,7 @@ async function tick() {
       const fromDone = _prevState === 'FINISH' || _prevState === 'IDLE' || _prevState === 'FAILED';
       const toActive = state === 'RUNNING' || state === 'PREPARE';
       const justStarted = toActive && fromDone;
-      const progressReset = state === 'RUNNING' && mcPctRaw < 50 && _prevMcPct >= 90;
+      const progressReset = state === 'RUNNING' && hasProgress && mcPctRaw < 50 && _prevMcPct >= 90;
       if (justStarted || progressReset) {
         // Force a fresh gcode load on the next taskKey check. Also flag
         // the fetch to bypass the server-side cache so reprints with the
@@ -1463,6 +1505,9 @@ async function tick() {
 
     syncFilamentColor(print);
 
+    const awaitingProgress = state === 'RUNNING' && !hasProgress && layerNum <= 0;
+    if (awaitingProgress) pauseLiveMotion();
+
     // Keep telemetry polling while the potentially slow FTPS request runs.
     if (taskKey !== currentTaskKey) {
       if (inFlight) return;
@@ -1472,6 +1517,10 @@ async function tick() {
       }
       const prep = isPrepState || isPreviewState;
       void loadGcode(taskKey, prep ? 'Getting file for upcoming print…' : 'Getting print file…');
+      return;
+    }
+    if (awaitingProgress) {
+      setOverlay('Waiting for print progress');
       return;
     }
 
@@ -1718,7 +1767,7 @@ if (debug && debugBar) {
 
 window.BBGcodeUI.bindRetry(() => {
   if (rendererUnavailable) return location.reload();
-  if (!wantedTaskKey) return void tick();
+  if (!wantedTaskKey || !canRequestToolpath) return void tick();
   invalidateLoad();
   void loadGcode(wantedTaskKey, 'Retrying file transfer…', null, true);
 });
@@ -1730,7 +1779,7 @@ fileInput.addEventListener('change', event => {
   const selectedFor = filePickerTaskKey || wantedTaskKey;
   filePickerTaskKey = null;
   event.target.value = '';
-  if (!file || !wantedTaskKey || rendererUnavailable) return;
+  if (!file || !wantedTaskKey || !canRequestToolpath || rendererUnavailable) return;
   if (selectedFor !== wantedTaskKey) {
     dbg('manual file ignored: print changed while the file picker was open');
     setOverlay('The print changed while you chose the file. Choose the exact sliced file for the new print.', 'error');

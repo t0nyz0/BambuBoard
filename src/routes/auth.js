@@ -21,7 +21,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   let credentialWrites = Promise.resolve();
   let credentialRejected = false;
   const log = (msg) => {
-    if (process.env.BAMBUBOARD_LOGGING || getConfig().BambuBoard_logging) {
+    if (getConfig().BambuBoard_logging) {
       console.log(`[bambuboard:auth] ${msg}`);
     }
   };
@@ -129,8 +129,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
       const previous = await readToken();
       try {
         await writeToken(token);
-        const cfg = getConfig();
-        if (!cfg.cloudAuth?.enabled) await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: true } });
+        await saveConfig(cfg => cfg.cloudAuth?.enabled ? cfg : { ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: true } });
         connectionCheck = { ok: true, checkedAt: new Date().toISOString() };
       } catch (e) {
         if (previous) await writeToken(previous); else await clearToken();
@@ -149,14 +148,12 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     res.json({ enabled: cloudEnabled(), signedIn: cloudEnabled() && !!t?.accessToken && !credentialRejected, tokenSaved: !!t?.accessToken, needsSignIn: credentialRejected, email: t?.email || null, connection: connectionCheck });
   });
 
-  // Return the actual access token so the setup page can pre-fill the
-  // editable token field (lets the user manipulate / replace it without
-  // signing out first). Same-origin only — this is a self-hosted local
-  // server, the token is in data/accessToken.json on the same machine.
-  router.get('/auth/token', async (req, res) => {
+  // Compatibility route for older clients. Setup uses /auth/status to show sign-in state.
+  router.get('/auth/token', async (_req, res) => {
     const t = await readToken();
     res.json({
-      token: t?.accessToken || '',
+      token: '',
+      tokenSaved: !!t?.accessToken,
       email: t?.email || '',
     });
   });
@@ -175,7 +172,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     } catch (e) { report(res, e, 'send-code'); }
   });
 
-  // Verify (email + code) — returns token info
+  // Verify email + code and save the resulting token on the server.
   router.post('/verify', async (req, res) => {
     const username = emailValue(req.body?.username), code = codeValue(req.body?.code);
     if (!username || !code) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Enter your email and the six-digit code from Bambu.' });
@@ -264,8 +261,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
       // sign-in must not cancel it; a successful newer one writes after it.
       await changeCredentials(null, async () => {
         if (req.body?.disable === true) {
-          const cfg = getConfig();
-          await saveConfig({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: false } });
+          await saveConfig(cfg => ({ ...cfg, cloudAuth: { ...cfg.cloudAuth, enabled: false } }));
         }
         await clearToken();
       });

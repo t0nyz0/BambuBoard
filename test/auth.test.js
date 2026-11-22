@@ -15,7 +15,13 @@ async function fixture(t, upstream, options = {}) {
   app.use((req, _res, next) => { actions.push(req.path); next(); });
   app.use(buildAuthRouter({
     getConfig: () => config, paths: { data },
-    saveConfig: async next => { await options.beforeSave?.(next); if (options.failSave) throw new Error('fixture private details'); config = next; },
+    saveConfig: async update => {
+      const next = update(config);
+      if (next === config) return;
+      await options.beforeSave?.(next);
+      if (options.failSave) throw new Error('fixture private details');
+      config = next;
+    },
     fetchCloud: async (url, opts) => { requests.push({ url, opts }); return upstream(url, opts); },
     requestTimeoutMs: options.requestTimeoutMs || 15_000,
   }));
@@ -40,7 +46,9 @@ test('native fetch validates a token before enabling cloud and provides model im
   assert.equal((await f.call('/auth/status')).body.signedIn, true);
   assert.equal((await f.call('/login-and-fetch-image')).body.modelTitle, 'Fixture print');
   assert.ok(f.requests.every(request => request.opts.headers.Authorization === 'Bearer ' + TOKEN_A));
-  assert.equal((await f.call('/auth/token')).headers.get('cache-control'), 'no-store');
+  const compatibility = await f.call('/auth/token');
+  assert.equal(compatibility.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(compatibility.body, { token: '', tokenSaved: true, email: 'demo@example.test' });
 });
 
 test('email sign-in works from LAN-only mode through the API host and preserves leading zeroes', async t => {
@@ -174,7 +182,7 @@ test('connection checks distinguish service outages from rejected credentials an
   await f.call('/auth/signout', { disable: true });
   assert.equal(f.config().cloudAuth.enabled, false);
   assert.equal(f.config().printer.accessCode, 'fixture-lan-code');
-  assert.equal((await f.call('/auth/token')).body.token, '');
+  assert.deepEqual((await f.call('/auth/token')).body, { token: '', tokenSaved: false, email: '' });
   await assert.rejects(f.token(), { code: 'ENOENT' });
 });
 

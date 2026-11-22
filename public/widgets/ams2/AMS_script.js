@@ -28,23 +28,6 @@ loadSettings();
 // Re-fetch every 5s so changes made on the /setup page (e.g. temperature
 // unit, fan-percent toggle) propagate without reloading the iframe.
 setInterval(loadSettings, 5000);
-async function retrieveData() {
-  const response = await fetch(fullServerURL + '/data.json');
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = 'Incomplete';
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
-
 // Update a single tray's UI elements.
 function updateTray(trayIdx, tray) {
   const n = trayIdx + 1; // 1-based for element IDs
@@ -125,14 +108,22 @@ function updateTray(trayIdx, tray) {
   }
 }
 
+function selectedUnit(print) {
+  const units = print.ams?.ams;
+  if (!Array.isArray(units)) return undefined;
+  const legacy = units[AMS_INDEX];
+  return units.find(unit => BBAms.unitId(unit) === AMS_INDEX) ?? (legacy?.id == null ? legacy : undefined);
+}
+
 async function updateAMS(telemetryObject) {
   try {
-    const amsUnit = telemetryObject.ams.ams[AMS_INDEX];
-    if (!amsUnit || !amsUnit.tray) return;
+    const amsUnit = selectedUnit(telemetryObject);
 
     // Update all 4 trays.
     for (let i = 0; i < 4; i++) {
-      updateTray(i, amsUnit.tray[i] || {});
+      const legacy = amsUnit.tray[i];
+      const tray = BBAms.trayAt(telemetryObject, amsUnit, i) ?? (legacy?.id == null ? legacy : undefined);
+      updateTray(i, tray || {});
     }
 
     // Drying pill + humidity_raw % — see ams/AMS_script.js for details.
@@ -141,9 +132,10 @@ async function updateAMS(telemetryObject) {
     $('#humidityPercent').text(!isNaN(humPct) ? `(${humPct}%)` : '');
 
     // AMS Humidity
-    const amsHumidity = amsUnit.humidity;
+    const amsHumidity = String(amsUnit.humidity ?? '');
 
     $('#humidity1, #humidity2, #humidity3, #humidity4, #humidity5').css('background', 'gray');
+    $('#humidityLevelText').text('—');
 
     if (amsHumidity === '5') {
       $('#humidity1').css('background', '#51a34f');
@@ -163,15 +155,15 @@ async function updateAMS(telemetryObject) {
     }
 
     // AMS Temperature
-    const amsTemp = amsUnit.temp || 0;
-    const amsTempPercentage = Math.min((amsTemp / 82) * 100, 100);
+    const amsTemp = BBTelemetry.number(amsUnit.temp);
+    const amsTempPercentage = amsTemp === null ? 0 : Math.min((amsTemp / 82) * 100, 100);
 
     $('#amsTargetTempC').text('82');
     $('#amsTargetTempF').text(180);
 
-    const amsCurrentTempF = parseFloat(((amsTemp * 9) / 5 + 32).toFixed(1));
+    const amsCurrentTempF = amsTemp === null ? '—' : parseFloat(((amsTemp * 9) / 5 + 32).toFixed(1));
     $('#amsCurrentTempF').text(amsCurrentTempF);
-    $('#amsCurrentTempC').text(amsTemp);
+    $('#amsCurrentTempC').text(amsTemp ?? '—');
 
     const progressWidth = $('#amsProgressBarParent').width();
     $('#amsProgressBar').width((amsTempPercentage * progressWidth) / 100);
@@ -258,16 +250,6 @@ async function updateAMS(telemetryObject) {
   }
 }
 
-function disableUI() {
-  for (let i = 1; i <= 4; i++) {
-    $(`#tray${i}ProgressBar`).css('background-color', 'grey');
-    $(`#tray${i}Active`).hide().css('background-color', 'grey');
-    $(`#tray${i}Target`).hide();
-  }
-  $('.ams-container .element').removeClass('tray-active');
-  $('#dryingStatusPill').hide();
-}
-
 // See ams/AMS_script.js for explanation. Heating-capable models only.
 function updateDryingStatus(amsUnit) {
   const dryTime = parseInt(amsUnit.dry_time, 10) || 0;
@@ -320,17 +302,7 @@ function log(logText) {
   if (consoleLogging) console.log(logText);
 }
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-setInterval(async () => {
-  try {
-    const telemetryObject = await retrieveData();
-    if (telemetryObject != null && telemetryObject !== 'Incomplete') {
-      await updateAMS(telemetryObject);
-    } else if (telemetryObject == null) {
-      disableUI();
-    }
-  } catch (error) {
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state;
+  return updateAMS(print);
+}, { ready: print => Array.isArray(selectedUnit(print)?.tray) });

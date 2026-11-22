@@ -18,19 +18,17 @@
 
       <section class="card">
         <h2 class="card-title">Printer</h2>
+        <p id="config-recovery" class="test-result error" role="alert" hidden>BambuBoard could not load the saved settings. Re-enter your printer details and save. BambuBoard backs up the original file before replacing it.</p>
         <label class="field"><span>Name</span><input id="p-name" class="input" placeholder="My Printer"></label>
-        <!-- Printer type is auto-detected from MQTT after Connect (see Step 2).
-             We keep #p-type as a hidden input so existing setup.js logic still
-             reads it; default 'X1' acts as a safe bootstrap that gets
-             overwritten within ~3s of MQTT connecting. -->
+        <!-- Printer type is detected from MQTT after Connect (see Step 2). -->
         <input id="p-type" type="hidden" value="X1">
         <label class="field"><span>IP address or hostname</span><input id="p-url" class="input" placeholder="192.168.1.50"></label>
         <label class="field"><span>Serial number</span><input id="p-sn" class="input" placeholder="00M00A0B1234567"></label>
         <label class="field">
           <span>LAN access code <small id="p-ac-status" class="text-dim"></small></span>
           <div class="access-code-row">
-            <input id="p-ac" class="input" type="password" placeholder="••••••••" autocomplete="off">
-            <button id="show-ac" class="btn btn-ghost" type="button" aria-controls="p-ac" aria-pressed="false">Show</button>
+            <input id="p-ac" class="input" type="password" autocomplete="new-password" aria-describedby="p-ac-status">
+            <button id="show-ac" class="btn btn-ghost" type="button" aria-controls="p-ac" aria-pressed="false" disabled>Show</button>
           </div>
         </label>
         <details class="advanced-connection"><summary>Advanced connection settings</summary><label class="field"><span>MQTT port</span><input id="p-port" class="input" inputmode="numeric" placeholder="8883"></label></details>

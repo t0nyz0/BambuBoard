@@ -5,6 +5,7 @@
     <title>BambuBoard</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
     <script src="../_customizer.js"></script>
+    <script src="../_telemetry.js"></script>
     <script src="../../assets/js/jquery.min.js"></script>
     <meta http-equiv="refresh" content="28800" />
   </head>
@@ -16,8 +17,8 @@
   <body>
     <div class="container" style="margin-top:25px;">
       <div class="progressBarContainer">
-        <div class="printStatus" id="printStatus">
-          Printer offline <span id="printPercentage"></span>
+        <div class="printStatus" id="printStatus" role="status">
+          Loading printer data…
         </div>
 
         <div class="progress" id="printParentProgressBar">

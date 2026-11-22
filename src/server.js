@@ -12,7 +12,9 @@ const { buildVideoRouter } = require('./routes/video');
 const { buildStreamRouter } = require('./routes/stream');
 const { buildGcodeRouter } = require('./routes/gcode');
 const { sameOrigin } = require('./lib/requestOrigin');
+const { samePrinterConnection } = require('./lib/printerConnection');
 const { checkContainerData } = require('./lib/containerData');
+const { publicTelemetry } = require('./lib/cameraTelemetry');
 
 const ROOT = path.resolve(__dirname, '..');
 const paths = {
@@ -33,9 +35,17 @@ if (process.env.BAMBUBOARD_CONTAINER === '1') {
 
 let config = configMod.load();
 function getConfig() { return config; }
-async function saveConfig(next) {
-  config = next;
-  await configMod.save(next);
+let configWrites = Promise.resolve();
+function saveConfig(update) {
+  const operation = configWrites.then(async () => {
+    const next = update(config);
+    if (next !== config) {
+      await configMod.save(next);
+      config = next;
+    }
+  });
+  configWrites = operation.catch(() => {});
+  return operation;
 }
 
 function log(...args) { if (config.BambuBoard_logging) console.log('[bambuboard]', ...args); }
@@ -44,33 +54,34 @@ function log(...args) { if (config.BambuBoard_logging) console.log('[bambuboard]
 // persist the new value so /api/status surfaces it correctly and so widget
 // cap-gating (PRINTER_CAPS) reflects reality. We only update `printer.type`;
 // the user's name/url/serialNumber/accessCode are left alone.
-async function onPrinterDetected({ type, model }) {
-  if (!type) return;
-  const wasManual = !config.printer.detectedFrom || config.printer.detectedFrom === 'config';
-  if (config.printer.type === type && config.printer.model === model && !wasManual) return;
-  const next = {
-    ...config,
-    printer: { ...config.printer, type, model, detectedFrom: 'mqtt' },
-  };
-  await saveConfig(next);
-  console.log(`[bambuboard] saved auto-detected printer type: ${model} → ${type}`);
+async function onPrinterDetected(source, configured, { type, model }) {
+  let changed = false;
+  await saveConfig(current => {
+    if (!type || configMod.needsRecovery() || source !== printer ||
+        !samePrinterConnection(current.printer, configured) || current.printer.accessCode !== configured.accessCode) return current;
+    const previous = current.printer;
+    if (previous.type === type && previous.model === model && previous.detectedFrom === 'mqtt') return current;
+    changed = true;
+    return { ...current, printer: { ...previous, type, model, detectedFrom: 'mqtt' } };
+  });
+  if (changed) console.log(`[bambuboard] saved auto-detected printer type: ${model} → ${type}`);
 }
 
-let printer = createPrinterClient({
-  printer: config.printer,
-  dataPath: DATA_FILE,
-  log,
-  onPrinterDetected,
-});
+function configuredPrinter(settings) {
+  const source = createPrinterClient({
+    printer: settings,
+    dataPath: DATA_FILE,
+    log,
+    onPrinterDetected: detected => onPrinterDetected(source, settings, detected),
+  });
+  return source;
+}
+
+let printer = configuredPrinter(config.printer);
 
 function reloadPrinter() {
   try { printer.stop(); } catch (_) {}
-  printer = createPrinterClient({
-    printer: config.printer,
-    dataPath: DATA_FILE,
-    log,
-    onPrinterDetected,
-  });
+  printer = configuredPrinter(config.printer);
   printer.connect();
   console.log(`[bambuboard] reloaded printer client for ${config.printer.name} (${config.printer.type})`);
 }
@@ -102,14 +113,17 @@ app.use('/widgets', express.static(path.join(paths.public, 'widgets')));
 app.use('/vendor',  express.static(path.join(paths.public, 'vendor')));
 
 // /data.json — backed by data/data.json (kept at root path for OBS widget compatibility)
-app.get('/data.json', (req, res) => {
-  res.sendFile('data.json', { root: paths.data }, (err) => {
-    if (err) {
-      // No data yet — return an empty shape so widgets don't error.
-      res.setHeader('Content-Type', 'application/json');
-      res.send('{}');
-    }
-  });
+app.get('/data.json', async (_req, res) => {
+  // Keep the saved snapshot for legacy consumers. Current widgets also use
+  // this response header to distinguish a disconnect from a quiet printer.
+  res.set('X-BambuBoard-Printer-Connection', printer.telemetryConnection);
+  res.set('Cache-Control', 'no-cache');
+  let snapshot = {};
+  try {
+    // Older installations may still have raw camera endpoints on disk.
+    snapshot = publicTelemetry(JSON.parse(await fs.promises.readFile(DATA_FILE, 'utf8')));
+  } catch (_) { /* Keep an empty snapshot until telemetry is available. */ }
+  res.json(snapshot);
 });
 
 app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
@@ -187,7 +201,7 @@ app.get('/status', (req, res) => {
 
 // RTSP video relay — must be mounted before the page router catch-all.
 // Uses express-ws under the hood, so this augments the app with ws() support.
-buildVideoRouter({ app, getConfig, dataPath: DATA_FILE });
+buildVideoRouter({ app, getConfig, dataPath: DATA_FILE, getCameraTelemetry: () => printer.cameraTelemetry });
 
 // YouTube/RTMP stream relay — registered after the video relay so express-ws
 // is already applied to the app.
@@ -224,6 +238,6 @@ let shuttingDown = false;
   try { printer.stop(); } catch (_) {}
   const deadline = setTimeout(() => { streamRoutes.forceStop(); process.exit(0); }, 10000);
   deadline.unref();
-  await Promise.allSettled([gcodeRoutes.stop(), streamRoutes.stop()]);
+  await Promise.allSettled([configWrites, gcodeRoutes.stop(), streamRoutes.stop()]);
   process.exit(0);
 }));

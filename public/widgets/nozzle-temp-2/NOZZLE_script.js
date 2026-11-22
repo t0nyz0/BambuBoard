@@ -29,48 +29,18 @@ loadSettings();
 // Re-fetch every 5s so changes made on the /setup page (e.g. temperature
 // unit, fan-percent toggle) propagate without reloading the iframe.
 setInterval(loadSettings, 5000);
-async function retrieveData() {
-  const response = await fetch(fullServerURL + '/data.json');
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && 'gcode_state' in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = 'Incomplete';
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
-
 async function updateUI(telemetryObject) {
   try {
     const extruder = telemetryObject.device && telemetryObject.device.extruder
       ? telemetryObject.device.extruder
       : null;
-    const nozzleInfo = extruder && extruder.info && extruder.info[NOZZLE_INDEX]
-      ? extruder.info[NOZZLE_INDEX]
-      : null;
-
-    let nozzleCurrentTempC = 0;
-    let nozzleTargetTempC = 0;
-
-    if (nozzleInfo && typeof nozzleInfo.temp === 'number') {
-      nozzleCurrentTempC = nozzleInfo.temp & 0xFFFF;
-      nozzleTargetTempC = (nozzleInfo.temp >> 16) & 0xFFFF;
-    } else {
-      nozzleCurrentTempC = telemetryObject.nozzle_temper || 0;
-      nozzleTargetTempC = telemetryObject.nozzle_target_temper || 0;
-    }
+    const { current, target } = BBTelemetry.nozzleTemps(telemetryObject, NOZZLE_INDEX);
 
     // A1/P1/X1 report nozzle_temper as a float (e.g. 27.8125); the packed
     // H2D format yields integers. Round so the display matches the bed widget
     // and ha-bambulab rather than showing a long decimal like "27.8125".
-    nozzleCurrentTempC = Math.round(nozzleCurrentTempC);
-    nozzleTargetTempC = Math.round(nozzleTargetTempC);
+    const nozzleCurrentTempC = Math.round(current);
+    const nozzleTargetTempC = target === null ? null : Math.round(target);
 
     // Active-extruder badge — bright green when printing, grey/dim when idle
     const isPrinting = currentState === 'RUNNING' || currentState === 'PREPARE' || currentState === 'PAUSE';
@@ -119,6 +89,9 @@ async function updateUI(telemetryObject) {
       $('#nozzleTargetTempC').text(Math.round(nozzleTargetTempC));
       $('#nozzleTargetTempF').text(nozzleTargetTempF);
       nozzleTargetDisplay = nozzleTargetTempC;
+    } else if (nozzleTargetTempC === null) {
+      nozzleTargetDisplay = '—';
+      $('#nozzleTargetTempF, #nozzleTargetTempC').text('—');
     } else {
       nozzleTargetDisplay = 'OFF';
       $('#nozzleTargetTempF').text('OFF');
@@ -178,34 +151,11 @@ async function updateUI(telemetryObject) {
   }
 }
 
-function disableUI() {
-  $('#activeTag').hide();
-  $('#nozzleProgressBar').css('background-color', 'grey');
-  $('#nozzleProgressBar').width(0);
-  $('#nozzleTargetTempSymbolsF').hide();
-  $('#nozzleTargetTempSymbolsC').hide();
-  $('#nozzleTargetTempC').hide();
-  $('#nozzleCurrentTempC').hide();
-  $('#nozzleCurrentTempF').hide();
-  $('#nozzleCurrentTempSymbolsC').hide();
-  $('#nozzleCurrentTempSymbolsF').hide();
-}
-
 function log(logText) {
   if (consoleLogging) console.log(logText);
 }
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-setInterval(async () => {
-  try {
-    const telemetryObject = await retrieveData();
-    if (telemetryObject != null && telemetryObject !== 'Incomplete') {
-      await updateUI(telemetryObject);
-    } else if (telemetryObject == null) {
-      disableUI();
-    }
-  } catch (error) {
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state;
+  return updateUI(print);
+}, { ready: print => BBTelemetry.nozzleTemps(print, NOZZLE_INDEX) !== null });

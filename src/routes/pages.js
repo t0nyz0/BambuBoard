@@ -1,13 +1,9 @@
 const express = require('express');
+const { isFirstRun } = require('../config');
 
 function buildPagesRouter({ paths, getConfig }) {
   const router = express.Router();
   const VIEWS = paths.views;
-
-  function isFirstRun() {
-    const p = getConfig().printer || {};
-    return !p.serialNumber || p.serialNumber === 'FILL_THIS_OUT' || !p.url || !p.accessCode || p.accessCode === 'FILL_THIS_OUT';
-  }
 
   // Drop legacy *.html links → pretty paths
   router.get(/^(.+)\.html$/, (req, res) => {
@@ -17,7 +13,7 @@ function buildPagesRouter({ paths, getConfig }) {
 
   // First-run gate: anything that isn't /setup or /api/* gets redirected.
   router.use((req, res, next) => {
-    if (!isFirstRun()) return next();
+    if (!isFirstRun(getConfig())) return next();
     const p = req.path;
     if (p.startsWith('/api/') || p.startsWith('/assets/') || p.startsWith('/css/')
       || p.startsWith('/js/') || p.startsWith('/widgets/') || p === '/data.json'

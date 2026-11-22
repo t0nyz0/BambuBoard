@@ -1,23 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const net = require('node:net');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
-const { temporary } = require('./helpers');
+const { execFileSync, spawn } = require('node:child_process');
+const { temporary, until } = require('./helpers');
 async function installation(t) {
   const dir = await temporary(t);
-  await fs.mkdir(path.join(dir, 'src'));
+  await fs.mkdir(path.join(dir, 'src', 'lib'), { recursive: true });
   await fs.copyFile(path.join(__dirname, '../src/config.js'), path.join(dir, 'src/config.js'));
+  await fs.copyFile(path.join(__dirname, '../src/lib/printerConnection.js'), path.join(dir, 'src/lib/printerConnection.js'));
   return dir;
 }
-function load(dir, overrides = {}) {
+function cleanEnv(overrides = {}) {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('BAMBUBOARD_')) delete env[key];
+  return { ...env, ...overrides };
+}
+function load(dir, overrides = {}, transform = '') {
   return JSON.parse(execFileSync(process.execPath, ['-e', `
     const config = require('./src/config');
-    const loaded = config.load();
-    console.log(JSON.stringify({ loaded, firstRun: config.isFirstRun(loaded), public: config.publicSnapshot(loaded), data: config.DATA_DIR }));
-  `], { cwd: dir, env: { ...env, ...overrides }, encoding: 'utf8' }).trim().split('\n').at(-1));
+    (async () => {
+      const loaded = config.load();
+      ${transform}
+      console.log(JSON.stringify({ loaded, firstRun: config.isFirstRun(loaded), public: config.publicSnapshot(loaded), recovery: config.needsRecovery(), data: config.DATA_DIR }));
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+  `], { cwd: dir, env: cleanEnv(overrides), encoding: 'utf8' }).trim().split('\n').at(-1));
 }
 test('legacy root config and runtime files migrate with recoverable H2D credentials', async t => {
   const dir = await installation(t);
@@ -33,6 +41,8 @@ test('legacy root config and runtime files migrate with recoverable H2D credenti
   assert.equal(result.public.BambuBoard_tempSetting, 'Celsius');
   const backups = (await fs.readdir(path.join(dir, 'data'))).filter(file => file.endsWith('.bak'));
   assert.equal(backups.length, 1); assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'data', backups[0]))), legacy);
+  assert.equal((await fs.stat(path.join(dir, 'data', backups[0]))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.join(dir, 'data', 'config.json'))).mode & 0o777, 0o600);
   assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'data', 'note.json'))).content, 'Fixture note');
   assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'data', 'data.json'))).print.mc_percent, 47);
   await assert.rejects(fs.stat(path.join(dir, 'config.json')), { code: 'ENOENT' });
@@ -62,5 +72,77 @@ test('new and damaged installations return usable first-run defaults', async t =
   const result = load(dir);
   assert.equal(result.firstRun, true); assert.equal(result.loaded.printer.url, '');
   assert.equal(result.public.printer.accessCodeSet, false);
+  assert.equal(result.recovery, true);
   assert.equal(await fs.readFile(path.join(dir, 'data', 'config.json'), 'utf8'), '{damaged', 'Startup must not silently overwrite damaged config');
+});
+
+test('saving recovered settings keeps the original private file and replaces the live config atomically', async t => {
+  const dir = await installation(t), data = path.join(dir, 'data');
+  await fs.mkdir(data);
+  const original = '{"printer":null,"fixture":"private damaged config"}';
+  await fs.writeFile(path.join(data, 'config.json'), original);
+  const result = load(dir, {}, "if (!config.needsRecovery()) throw Error('recovery not reported'); await config.save({ ...loaded, BambuBoard_tempSetting: 'Fahrenheit' });");
+  assert.equal(result.recovery, false);
+  const files = await fs.readdir(data);
+  const backups = files.filter(file => file.endsWith('.bak'));
+  assert.equal(backups.length, 1);
+  assert.equal(await fs.readFile(path.join(data, backups[0]), 'utf8'), original);
+  assert.equal((await fs.stat(path.join(data, backups[0]))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.join(data, 'config.json'))).mode & 0o777, 0o600);
+  assert.ok(files.every(file => !file.endsWith('.tmp')));
+  assert.equal(load(dir).loaded.BambuBoard_tempSetting, 'Fahrenheit');
+});
+
+test('settings validation and failed writes leave the running and saved config stable', async t => {
+  const data = await temporary(t);
+  const configPath = path.join(data, 'config.json');
+  const original = { printer: { name: 'Current', type: 'H2D' }, cloudAuth: { enabled: false } };
+  await fs.writeFile(configPath, JSON.stringify(original));
+  const marker = path.join(data, 'fail-next-write');
+  const preload = path.join(data, 'fixture-failure.js');
+  await fs.writeFile(preload, `
+    const fs = require('node:fs');
+    const rename = fs.promises.rename;
+    fs.promises.rename = function (from, to) {
+      if (to === ${JSON.stringify(configPath)} && fs.existsSync(${JSON.stringify(marker)})) {
+        return Promise.reject(Object.assign(new Error('fixture private disk details'), { code: 'EIO' }));
+      }
+      return rename.call(this, from, to);
+    };`);
+  const reserved = net.createServer();
+  await new Promise(resolve => reserved.listen(0, '127.0.0.1', resolve));
+  const port = reserved.address().port;
+  await new Promise(resolve => reserved.close(resolve));
+  const child = spawn(process.execPath, ['--require', preload, path.resolve(__dirname, '../src/server.js')], {
+    env: cleanEnv({ PORT: String(port), BAMBUBOARD_DATA_DIR: data }), stdio: 'ignore',
+  });
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise(resolve => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await exited;
+  });
+  const url = `http://127.0.0.1:${port}/api/settings`;
+  await until(async () => { try { return (await fetch(url)).ok; } catch (_) { return false; } });
+  const write = body => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  for (const bad of [[], { printer: null }, { printer: { port: -1 } }, { printer: { type: 'unknown' } },
+    { BambuBoard_logging: 'true' }, { cloudAuth: { enabled: 1 } }]) assert.equal((await write(bad)).status, 400);
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), original);
+  await fs.writeFile(marker, 'fail');
+  const failedSave = await write({ printer: { name: 'Would fail' } });
+  assert.equal(failedSave.status, 500);
+  assert.doesNotMatch(await failedSave.text(), /fixture private disk details/);
+  assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), original);
+  assert.equal((await fetch(url).then(r => r.json())).printer.name, original.printer.name);
+  assert.ok((await fs.readdir(data)).every(file => !file.endsWith('.tmp')));
+  await fs.unlink(marker);
+
+  const writes = await Promise.all([write({ BambuBoard_tempSetting: 'Celsius' }), write({ BambuBoard_displayFanIcons: false })]);
+  assert.ok(writes.every(response => response.ok));
+  const saved = JSON.parse(await fs.readFile(configPath, 'utf8'));
+  assert.equal(saved.BambuBoard_tempSetting, 'Celsius');
+  assert.equal(saved.BambuBoard_displayFanIcons, false);
+  assert.equal(saved.printer.name, original.printer.name);
+  assert.equal(saved.printer.type, original.printer.type);
 });

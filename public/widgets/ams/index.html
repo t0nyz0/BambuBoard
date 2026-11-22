@@ -197,9 +197,64 @@
         justify-content: center;
       }
       .ams-container .element.tray-empty .progress-wrapper { visibility: hidden; }
+
+      :is(.ams-card-3h, .ams-card-missing) > :is(.ams-header, .trays-label, .ams-container, .ams-drying-row),
+      .ams-3h[hidden], .ams-3h-zone-time[hidden] { display: none; }
+      .ams-card-missing > .ams-drying-row { display: none !important; }
+      .ams-card-3h { background: rgba(18, 22, 27, .9); }
+      .ams-3h { display: flex; flex: 1; flex-direction: column; min-width: 0; color: #e6e8ee; }
+      html.bb-theme-light .ams-card-3h { background: rgba(248, 249, 251, .94); }
+      html.bb-theme-light .ams-card-3h .partTitle,
+      html.bb-theme-light .ams-3h { color: #222; text-shadow: none; }
+      .ams-3h .trays-label { border-color: currentColor; color: inherit; opacity: .72; }
+      .ams-3h-zones, .ams-3h-trays { display: grid; gap: .5em; }
+      .ams-3h-zones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ams-3h-trays {
+        flex: 1;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-auto-rows: minmax(min-content, 1fr);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .ams-3h-zone, .ams-3h-tray {
+        min-width: 0;
+        padding: .4em .55em;
+        border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+        border-radius: 5px;
+        line-height: 1.3;
+      }
+      .ams-3h-zone > *, .ams-3h-tray > * { display: block; }
+      .ams-3h-tray { display: flex; flex-direction: column; justify-content: center; }
+      .ams-3h-zone strong { font-size: .82em; }
+      .ams-3h-zone-reading, .ams-3h-zone-slots, .ams-3h-zone-time { font-size: .75em; }
+      .ams-3h-zone-slots { opacity: .8; }
+      .ams-3h-zone-time { font-weight: 700; }
+      .ams-3h-zone.is-drying, .ams-3h-tray.is-target { border-color: #e2a04a; }
+      .ams-3h-tray.is-active { border-color: var(--bb-accent); }
+      .ams-3h-tray .ams-3h-tray-label {
+        display: flex;
+        align-items: center;
+        gap: .3em;
+        font-size: .72em;
+        white-space: nowrap;
+      }
+      .ams-3h-dot {
+        display: inline-block;
+        width: .7em;
+        height: .7em;
+        flex: 0 0 .7em;
+        border: 1px solid #888;
+        border-radius: 50%;
+      }
+      .ams-3h-tray-state { margin-inline-start: auto; font-weight: 700; }
+      .ams-3h-material { font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ams-3h-remaining { font-size: .72em; min-height: 1.3em; }
+      .ams-3h-tray.is-empty { opacity: .68; }
     </style>
     <script src="../_customizer.js"></script>
     <script src="../_amsActive.js"></script>
+    <script src="../_telemetry.js"></script>
     <script src="../../assets/js/jquery.min.js"></script>
     <meta http-equiv="refresh" content="28800" />
   </head>
@@ -212,6 +267,7 @@
           <div class="column grid-gap-10">
             <div class="bed-title">
               <h2 class="partTitle">AMS #1</h2>
+              <p id="ams-unavailable" class="finePrint" role="status" hidden></p>
               <div class="ams-drying-row" style="display:none">
                 <span id="dryingStatusPill" class="ams-drying-status"></span>
               </div>
@@ -331,6 +387,34 @@
                     </div>
                   </div>
                 </div>
+              </div>
+              <div class="ams-3h" hidden>
+                <div class="ams-3h-zones" aria-label="AMS 3H compartments">
+                  <div class="ams-3h-zone">
+                    <strong>Dry box</strong>
+                    <span class="ams-3h-zone-reading"></span>
+                    <span class="ams-3h-zone-slots"></span>
+                    <span class="ams-3h-zone-time" hidden></span>
+                  </div>
+                  <div class="ams-3h-zone">
+                    <strong>Main compartment</strong>
+                    <span class="ams-3h-zone-reading"></span>
+                    <span class="ams-3h-zone-slots"></span>
+                  </div>
+                </div>
+                <div class="trays-label" id="ams-3h-trays-label">Trays</div>
+                <ul class="ams-3h-trays" aria-labelledby="ams-3h-trays-label"></ul>
+                <template id="ams-3h-tray-template">
+                  <li class="ams-3h-tray">
+                    <span class="ams-3h-tray-label">
+                      <span class="ams-3h-dot" aria-hidden="true"></span>
+                      <span class="ams-3h-slot-number"></span>
+                      <span class="ams-3h-tray-state"></span>
+                    </span>
+                    <span class="ams-3h-material"></span>
+                    <span class="ams-3h-remaining"></span>
+                  </li>
+                </template>
               </div>
             </div>
           </div>

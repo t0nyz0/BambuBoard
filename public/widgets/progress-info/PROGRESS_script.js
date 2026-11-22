@@ -2,43 +2,14 @@
 // TZ | 11/20/23
 
 //-------------------------------------------------------------------------------------------------------------
-const protocol = window.location.protocol; // 'http:' or 'https:'
-const serverURL = window.location.hostname; // IP of the computer running this dashboard
-const serverPort = window.location.port;
-//-------------------------------------------------------------------------------------------------------------
-
-let currentState = "OFF";
-let modelImage = "";
-const consoleLogging = false;
-let telemetryObjectMain;
-const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
-
-async function retrieveData() {
-  // Setting: Point this URL to your local server that is generating the telemetry data from Bambu
-  const response = await fetch(fullServerURL + "/data.json");
-
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
-
 async function updateUI(telemetryObject) {
   try {
     let printStatus = telemetryObject.gcode_state;
     let progressParentWidth = $("#printParentProgressBar").width();
+    const percent = BBTelemetry.number(telemetryObject.mc_percent);
 
     if (printStatus === "RUNNING") {
-      const pctText = "Printing... " + (telemetryObject.mc_percent || 0) + "%";
+      const pctText = "Printing... " + percent + "%";
       printStatus = pctText;
 
       // Newer firmware uses stage codes outside the original 0–35 range
@@ -50,7 +21,7 @@ async function updateUI(telemetryObject) {
         if (stageLabel) {
           // Pair the stage description with the percentage so users keep
           // visibility into progress while a sub-stage is active.
-          printStatus = stageLabel + " — " + (telemetryObject.mc_percent || 0) + "%";
+          printStatus = stageLabel + " — " + percent + "%";
         }
       }
       $("#printProgressBar").css("background-color", "#51a34f");
@@ -58,25 +29,25 @@ async function updateUI(telemetryObject) {
         printStatus
       );
       $("#printProgressBar").width(
-        (telemetryObject.mc_percent * progressParentWidth) / 100
+        (percent * progressParentWidth) / 100
       );
     } else if (printStatus === "FINISH") {
       printStatus = "Print Complete";
       $("#printStatus").text(printStatus + "... ");
       $("#printProgressBar").width(
-        (telemetryObject.mc_percent * progressParentWidth) / 100
+        ((percent ?? 100) * progressParentWidth) / 100
       );
       $("#printProgressBar").css("background-color", "grey");
     } else if (printStatus === "FAILED") {
       $("#printStatus").text("Print failed...");
       $("#printProgressBar").width(
-        (telemetryObject.mc_percent * progressParentWidth) / 100
+        ((percent ?? 0) * progressParentWidth) / 100
       );
       $("#printProgressBar").css("background-color", "red");
-    } else if (printStatus === "PAUSE") {
-      $("#printStatus").text("Paused... " + (telemetryObject.mc_percent || 0) + "%");
+    } else if (printStatus === "PAUSE" || printStatus === "PAUSED") {
+      $("#printStatus").text("Paused... " + percent + "%");
       $("#printProgressBar").width(
-        (telemetryObject.mc_percent * progressParentWidth) / 100
+        (percent * progressParentWidth) / 100
       );
       $("#printProgressBar").css("background-color", "#e2a04a");
     } else if (printStatus === "PREPARE") {
@@ -98,7 +69,7 @@ async function updateUI(telemetryObject) {
         : 'Processing';
       $("#printStatus").text(label + "...");
       $("#printProgressBar").width(
-        (telemetryObject.mc_percent * progressParentWidth) / 100 || 5
+        percent === null ? 5 : (percent * progressParentWidth) / 100
       );
       $("#printProgressBar").css("background-color", "grey");
     }
@@ -109,44 +80,15 @@ async function updateUI(telemetryObject) {
   }
 }
 
-function disableUI() {
-  $("#bedProgressBar").css("background-color", "grey");
-}
-
-function convertUtc(timestampUtcMs) {
-  var localTime = new Date(timestampUtcMs);
-
-  // Formatting the date to a readable string in local time
-  return localTime.toLocaleString();
-}
-
-function log(logText) {
-  if (consoleLogging) {
-    console.log(logText);
-  }
-}
-
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-// Call the updateLog function to fetch and parse the data
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateUI(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
-      disableUI();
-    }
-  } catch (error) {
-    //console.error(error);
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(updateUI, {
+  ready: print => BBTelemetry.hasPrintState(print) &&
+    (!['RUNNING', 'PAUSE', 'PAUSED'].includes(print.gcode_state) || BBTelemetry.number(print.mc_percent) !== null),
+  showStatus(message) {
+    if (!message) return;
+    $('#printStatus').text(message);
+    $('#printProgressBar').width(0).css('background-color', 'grey');
+  },
+});
 
 function convertMinutesToReadableTime(totalMinutes) {
   const hours = Math.floor(totalMinutes / 60);

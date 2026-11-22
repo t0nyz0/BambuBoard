@@ -4,8 +4,8 @@
 
 # BambuBoard
 
-**Live print overlays for Bambu Lab printers, built for streamers.**
-Design a dashboard, save the draft, and choose **Apply to Live**. Add a *single* Browser Source to OBS for the camera and widgets together.
+**Turn your Bambu Lab printer into a live stream overlay.**
+Show the printer camera, progress, temperatures, filament and toolpath in a single OBS Browser Source. BambuBoard runs on your own computer or NAS and connects to one printer per instance.
 
 <br>
 
@@ -13,12 +13,12 @@ Design a dashboard, save the draft, and choose **Apply to Live**. Add a *single*
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-60-51a34f?style=flat-square)](.github/workflows/validate.yml)
+[![Server tests](https://img.shields.io/badge/server_tests-77-51a34f?style=flat-square)](.github/workflows/validate.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
-**Setup → Connect → Layout → Apply to Live.** One printer per BambuBoard instance.
+[Quickstart](#quickstart) · [Install](#install-bambuboard) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
 
-[Quickstart](#quickstart) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
+<a href="screenshots/STUDIO-LIVE.png"><img src="screenshots/STUDIO-LIVE.png" alt="BambuBoard Live workspace showing an H2D print, its camera feed and dashboard widgets" width="100%"></a>
 
 </div>
 
@@ -26,7 +26,20 @@ Design a dashboard, save the draft, and choose **Apply to Live**. Add a *single*
 
 ## Quickstart
 
-Choose an install method below. The Docker host must be able to reach your printer on the LAN. Images are published for `linux/amd64` and `linux/arm64`. Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
+[Install BambuBoard](#install-bambuboard) on a computer or NAS that can reach your printer over the local network.
+
+### Setup, layout and OBS
+
+Have your printer's **IP address, serial number and LAN access code** ready. These are available through the printer's settings and Bambu Studio. Menu labels vary by model and firmware.
+
+1. **Setup** (`/setup`) — Enter the printer details, then select **Save and connect**. To check the address and LAN access code first, select **Test LAN connection**.
+2. **Connect** (`/setup#connect`) — Check MQTT, telemetry and camera status, then select **Continue to Layout →** once connected. Printer model detection runs over MQTT.
+3. **Layout** (`/scene-editor`) — Arrange widgets in a draft. Choose the **Scene to show live**, then select **Save draft** and **Apply to Live**.
+4. **Live workspace** (`/`) — Choose **Copy URL** and paste it into one OBS Browser Source, or choose **Download OBS scene** and import the collection in OBS.
+
+## Install BambuBoard
+
+Docker images are available for `linux/amd64` and `linux/arm64`. Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
 
 ### Synology NAS (Container Manager)
 
@@ -73,7 +86,7 @@ docker run -d --name bambuboard --restart unless-stopped -p 8080:8080 \
 
 Open `http://localhost:8080`, or use `http://<your-host-ip>:8080` if Docker runs on another machine. [Connect your printer](#setup-layout-and-obs).
 
-[`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Edit or remove its example `BAMBUBOARD_PRINTER_*` environment settings before running `docker compose up -d`. Populated overrides replace values saved through Setup when the app starts. Keep the included `OBS_settings` directory when using its template mount.
+[`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Run `docker compose up -d` and configure the printer in Setup. Explicit `BAMBUBOARD_*` environment overrides take precedence over saved values when the app starts. Keep the included `OBS_settings` directory when using its template mount.
 
 ### From source
 
@@ -88,14 +101,7 @@ npm start
 
 Open **http://localhost:8080**. Source installs use `ffmpeg-static`, or an explicit `FFMPEG_BIN` path; Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs; see [streaming setup](docs/youtube-streaming.md#requirements).
 
-## Setup, layout and OBS
-
-Have your printer's **IP address, serial number and LAN access code** ready. These are available through the printer's settings and Bambu Studio; menu labels vary by model and firmware.
-
-1. **Setup** (`/setup`) — Enter the printer details, then select **Save and connect**. To check the address and LAN access code first, select **Test LAN connection**.
-2. **Connect** (`/setup#connect`) — Check MQTT, telemetry and camera status, then select **Continue to Layout →** once connected. Printer model detection runs over MQTT.
-3. **Layout** (`/scene-editor`) — Arrange widgets in a draft. Choose the **Scene to show live**, then select **Save draft** and **Apply to Live**.
-4. **Live workspace** (`/`) — Choose **Copy URL** and paste it into one OBS Browser Source, or choose **Download OBS scene** and import the collection in OBS.
+## Layout and OBS tips
 
 If a widget's details are cut off, select it and choose **Fit to content**. **Width** and **Height** change how much room its content has. **Advanced → Scale on canvas** changes how large it appears.
 
@@ -110,10 +116,6 @@ Default templates are layout starters in [`OBS_settings/templates`](OBS_settings
 ---
 
 ## Screenshots
-
-> **Live workspace** — the published camera and widgets come first. OBS setup sits below the preview, and optional direct YouTube streaming stays collapsed at the bottom.
-
-<a href="screenshots/STUDIO-LIVE.png"><img src="screenshots/STUDIO-LIVE.png" alt="BambuBoard Live page with the Prism logo, dark theme and preview-first layout" width="100%"></a>
 
 <table>
   <tr>
@@ -192,6 +194,7 @@ The maintainer owns and tests **X1 Carbon and H2D**. Other entries are code mapp
 |---|---|---|
 | X1 Carbon | `X1C` | Maintainer-tested hardware |
 | H2D | `H2D` | Maintainer-tested hardware |
+| H3C | `H3C` | Dedicated profile; hardware verification pending |
 | X1 | `X1` | Dedicated capability entry; community feedback welcome |
 | P1P / P1S | `P1P` / `P1S` | Dedicated capability entries; community feedback welcome |
 | P2S | `P2S` | Dedicated capability entry; community feedback welcome |
@@ -201,7 +204,15 @@ The maintainer owns and tests **X1 Carbon and H2D**. Other entries are code mapp
 
 Fallback mappings reuse another model's widget gates and build dimensions. They can differ from the actual hardware, so check the selected widgets and layout rather than assuming all H2D features apply.
 
-**AMS selection:** available units depend on the printer, AMS hardware and firmware. The `ams` widget uses the array index in `print.ams.ams`, starting at 0; this may differ from physical labels. Its default is **1**, used by the H2D starter. For a single AMS, set **`?ams=0`**. Add copies with the appropriate indexes for additional reported units. Drying indicators appear when telemetry reports a positive `dry_time`; unsupported or absent readings do not imply a dry cycle.
+**AMS selection:** the widget automatically selects the integrated AMS 3H or the only reported AMS. On a classic multi-AMS setup it keeps the existing index **1** default used by the H2D starter. Use `?ams=N` to select a different array index in `print.ams.ams`, starting at 0. Telemetry indexes can differ from the labels on your units.
+
+### H3C compatibility
+
+The **H3C** has a dedicated model profile and a 330 × 320 × 325 mm Toolpath bed. Use normal LAN connection details in Setup. For the camera, enable **LAN Only Liveview** on the printer. BambuBoard uses the RTSP endpoint announced by the printer. [Bambu Lab's H3C specifications](https://blog.bambulab.com/tool-changer-game-changer-bambu-lab-presents-h3c-the-defining-new-generation-of-3d-printers/#h3c-technical-specification) · [ha-bambulab camera notes](https://github.com/greghesp/ha-bambulab/blob/7c740224c72401890ac9744643aa1b0c73e732f4/README.md#camera)
+
+The **AMS** widget displays the integrated AMS 3H’s nine trays and both zones' reported temperature and humidity. The drying countdown uses the heated zone. The **Gcode Toolpath** widget retrieves the active sliced file over FTPS when the printer makes it available. For jobs stored internally or otherwise unavailable over FTPS, use **Load sliced file** with the exact `.3mf` or `.gcode`.
+
+H3C hardware verification is pending. The first live check should confirm detection after a restart, the chamber feed with OBS, automatic retrieval for LAN and cloud jobs, and tray, color, and drying-zone changes on an actual AMS 3H during a multi-material print.
 
 ## Widget catalog
 
@@ -210,7 +221,7 @@ Each widget is a standalone page at `/widgets/<slug>/`. Add it in the Layout edi
 <!-- WIDGET-CATALOG-START -->
 | Widget | Description | Recommended size | Params | Cap-gated |
 |--------|-------------|------------------|--------|-----------|
-| **AMS** (`ams`) | AMS temperature, humidity, reported drying status and four filament trays, with active-tray highlighting. Select a telemetry array entry with ?ams=N; the default is 1. Use ?ams=0 for a single AMS. | 400×460 | `?ams=1` | — |
+| **AMS** (`ams`) | Filament trays, active slot, temperature, humidity and drying status. Selects the integrated AMS 3H or the only reported unit automatically, and uses index 1 for classic multi-AMS layouts. Use ?ams=N to choose a telemetry array entry. | 400×460 | `?ams` | — |
 | **AMS humidity / temp (legacy)** (`ams-temp`) | Legacy standalone AMS humidity, temperature and reported drying status. These readouts are also included in `ams`. | 400×120 | — | — |
 | **AMS #2 humidity (legacy)** (`ams-temp-2`) | Legacy companion AMS humidity, temperature and reported drying status. These readouts are also included in `ams2`. | 400×120 | — | `hasDualAMS` |
 | **AMS #2** (`ams2`) | Legacy companion AMS card for H2D-class layouts. Shows temperature, humidity, reported drying status and four trays from telemetry array entry 0. Use the configurable `ams` widget to select other entries. | 400×460 | — | `hasDualAMS` |
@@ -269,13 +280,13 @@ Allow the BambuBoard host to reach the printer on the ports used by your feature
 | Feature | Printer connection |
 |---|---|
 | Telemetry | TLS MQTT, **8883** by default; configurable in Setup |
-| RTSP camera | TLS RTSP, **322** for types mapped to X1/X1C/H2D/P2S |
+| RTSP camera | RTSPS, normally **322** for X1/X1C/H2D/P2S/H3C. H3C follows the port reported by the printer. |
 | Chamber-image camera | TLS image stream, **6000** for P1/A1-class types |
 | G-code download | Implicit TLS FTPS, **990**, plus the printer's negotiated passive data ports |
 
 The viewer/OBS connects to BambuBoard on **8080** by default. MQTT success alone does not verify camera or file access. The Docker Quickstart examples publish port 8080 through Docker's bridge network. The Synology terminal installs above use host networking. Cloud widgets need internet access; YouTube streaming uses outbound encrypted RTMPS on **443**. App assets have no CDN dependency, though custom remote sources and cloud content can still make external requests.
 
-Keep BambuBoard on a trusted network or behind an authenticated reverse proxy. BambuBoard accepts browser controls from its own address. If the proxy rewrites the request Host header, set `BAMBUBOARD_PUBLIC_URL` to the public browser address.
+The dashboard and Setup are usable without a BambuBoard account. Keep BambuBoard on a trusted network or behind an authenticated reverse proxy. Saved printer credentials and Bambu Cloud tokens stay on the server. Leave the access code blank to keep the saved code for the same printer connection, or enter a fresh code to change that connection. If the proxy rewrites the request Host header, set `BAMBUBOARD_PUBLIC_URL` to the public browser address.
 
 ## Troubleshooting
 
@@ -283,7 +294,7 @@ Keep BambuBoard on a trusted network or behind an authenticated reverse proxy. B
 - **Wrong printer type:** check the detected model on Setup and [current mappings](src/lib/caps.js). `BAMBUBOARD_PRINTER_TYPE` supplies the startup type; MQTT auto-detection can replace it. Report a mismatched model with its MQTT module information rather than relying on the environment variable to force a permanent override.
 - **Camera is black or unavailable:** check camera status separately from MQTT. On RTSP models, enable the printer's LAN liveview option where available and follow the widget's hint; menu names and firmware requirements vary. Verify port 322 and the server's FFmpeg relay. P1/A1-class types use port 6000 and the LAN access code instead.
 - **OBS shows nothing:** use `/live`, confirm the host address is reachable from the OBS machine, and publish a scene. Match the source dimensions to the canvas. Inspect `/live` in a browser on that machine to check the same output.
-- **AMS is empty or shows the wrong unit:** check `print.ams.ams` in `/data.json` and set the widget's `ams` parameter. A single unit needs `?ams=0`; the primary widget defaults to 1. This selects an array position, not a universal physical AMS number.
+- **AMS unit unavailable:** check `print.ams.ams` in `/data.json` and choose a reported array index. Clear an explicit `ams` parameter to use automatic selection.
 - **G-code cannot load:** open `/widgets/gcode-viz/?debug=1` to see the reason. Use **Retry now** and **Download diagnostics**; automatic retries are bounded to five attempts. Check port 990 and passive data access. Some firmware does not expose internal cloud-job files over FTPS. **Load sliced file** accepts the exact sliced `.gcode.3mf` / `.3mf` or `.gcode` for the current print; an unsliced model project has no toolpath. It also updates the cache for other viewers. Rendering requires WebGL 2 and is subject to file-size/line limits. See [G-code troubleshooting, recovery and protocol research](docs/gcode-resilience.md) for detailed error meanings and bounds.
 
 ## Migrating from older versions

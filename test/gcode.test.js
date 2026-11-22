@@ -46,6 +46,19 @@ test('FTP discovery matches the current filename, handles Unicode/case, and neve
   assert.ok(fixture.commands.some(c => c.verb === 'LIST'));
   assert.ok(!fixture.commands.some(c => c.arg.includes('Unrelated')));
 });
+test('H3C tries explicit archive paths first and prefers /cache for bare filenames', async t => {
+  const basename = 'H3C job.gcode.3mf';
+  const old = Buffer.from('G90\nG1 X99 Y99 Z0.2 E1\n');
+  const oldArchive = archive({ 'Metadata/plate_2.gcode': old });
+  const fixture = await ftpsFixture(t, { files: {
+    ['/cache/' + basename]: archive({ 'Metadata/plate_1.gcode': old, 'Metadata/plate_2.gcode': gcode }),
+    ['/' + basename]: oldArchive,
+  } });
+  const h3c = { ...options, model: 'Bambu Lab H3C', port: fixture.port };
+  assert.deepEqual(await fetchPlateGcode({ ...h3c, job: describe({ gcode_file: basename, plate_idx: 2 }) }), gcode);
+  assert.deepEqual(await fetchPlateGcode({ ...h3c, job: describe({ gcode_file: '/' + basename, plate_idx: 2 }) }), old);
+  assert.deepEqual(fixture.commands.filter(c => c.verb === 'RETR').map(c => c.arg), ['/cache/' + basename, '/' + basename]);
+});
 test('explicit raw paths work without cloud credentials or guessing an unidentified plate', async t => {
   const fixture = await ftpsFixture(t, { files: { '/Exact name.gcode': gcode, '/cache/Fixture_plate_1.gcode': gcode } });
   const job = describe({ gcode_file: 'file:///sdcard/Exact%20name.gcode', task_id: '0', url: 'https://cloud.invalid/job?token=do-not-forward' });
@@ -139,6 +152,15 @@ test('concurrent widget requests share one download and the API caches a safe ha
   assert.ok((await fs.readdir(path.join(fixture.data, 'gcode-cache'))).every(name => /^[a-f\d]{64}\.gcode$/.test(name)));
   await fixture.write(telemetry('../Second')); assert.equal((await fixture.get()).status, 200); assert.equal(count, 2);
 });
+test('H3C filament mapping survives sparse reports and clears for a new print', () => {
+  const mapping = [65535, 65535, 65535, 65535, 65535, 8192];
+  const original = mergePrint({}, telemetry('First', { mapping }));
+  const partial = mergePrint(original, { mc_percent: 80 });
+  assert.deepEqual(partial.mapping, mapping);
+  const finished = mergePrint(partial, { gcode_state: 'FINISH', mc_percent: 100 });
+  const next = mergePrint(finished, { gcode_state: 'PREPARE', subtask_name: 'Second' });
+  assert.equal(next.mapping, undefined);
+});
 test('API error cooldown, manual retry and redacted persistent diagnostics survive a refused connection', async t => {
   let count = 0, clock = Date.now();
   const fixture = await routeFixture(t, async opts => {
@@ -181,6 +203,41 @@ test('manual sliced-file recovery feeds all widget clients while preserving a va
   await fixture.write(telemetry('Different'));
   assert.equal((await fixture.post(gcode, '?job=' + encodeURIComponent(describe(telemetry()).key))).status, 409, 'An upload started for an older print is rejected');
   assert.equal((await fixture.get()).status, 502); assert.equal(count, 2);
+});
+test('unconfirmed reconnect telemetry pauses downloads and keeps manual recovery and diagnostics intact', async t => {
+  let count = 0, finishDownload;
+  const fixture = await routeFixture(t, async () => {
+    count++;
+    return new Promise(resolve => { finishDownload = resolve; });
+  });
+  assert.equal((await fixture.post(gcode)).status, 200);
+  const manual = await fixture.diagnostics();
+  const pendingDownload = fixture.get('?nocache=1');
+  await until(() => finishDownload);
+  const provisional = { gcode_state: 'RUNNING', gcode_file: '/data/Metadata/plate_1.gcode', _bb_job_pending: true };
+  assert.equal(describe(provisional).available, true, 'The partial locator alone looks loadable');
+  await fixture.write(provisional);
+  const assertWaiting = async response => {
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.code, 'JOB_PENDING');
+    assert.equal(body.retryable, true);
+    assert.match(body.detail, /confirm the current print/);
+  };
+  try {
+    await assertWaiting(await fixture.get());
+    await assertWaiting(await fixture.post(gcode));
+  } finally {
+    finishDownload(gcode);
+  }
+  await assertWaiting(await pendingDownload);
+  assert.equal(count, 1);
+  assert.deepEqual(await fixture.diagnostics(), manual);
+  await fixture.write(telemetry());
+  const resolved = await fixture.get();
+  assert.equal(resolved.status, 200);
+  assert.deepEqual(Buffer.from(await resolved.arrayBuffer()), gcode);
+  assert.equal(count, 1, 'The confirmed print reuses the cached manual file');
 });
 test('missing telemetry/configuration produce explicit errors, not generic waiting responses', async t => {
   const fixture = await routeFixture(t, async () => gcode);

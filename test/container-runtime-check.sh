@@ -42,7 +42,7 @@ docker exec "$prefix-fresh" node -e '
 mkdir "$scratch/legacy" "$scratch/custom"
 docker run --rm --user 0:0 --network none -v "$scratch/legacy:$data" "$image" sh -ec '
   cd /usr/src/app/data
-  printf "%s\n" "{\"BambuBoard_httpPort\":18082,\"printer\":{\"name\":\"Legacy Printer\"},\"cloudAuth\":{\"enabled\":true}}" > config.json
+  printf "%s\n" "{\"BambuBoard_httpPort\":18082,\"BambuBoard_tempSetting\":\"Fahrenheit\",\"BambuBoard_displayFanPercentages\":true,\"BambuBoard_displayFanIcons\":false,\"BambuBoard_logging\":true,\"printer\":{\"name\":\"Legacy Printer\"},\"cloudAuth\":{\"enabled\":true}}" > config.json
   printf "%s\n" "{\"accessToken\":\"fixture-only\"}" > accessToken.json
   printf "%s\n" "{\"text\":\"legacy note\"}" > note.json
   printf "%s\n" "{\"print\":{\"mc_percent\":65}}" > data.json
@@ -73,13 +73,19 @@ docker exec "$prefix-legacy" node -e '
   (async () => {
     const base = "http://127.0.0.1:18082";
     const token = await fetch(base + "/auth/token").then(r => r.json());
-    assert.equal(token.token, "fixture-only");
+    assert.equal(token.token, "");
+    assert.equal(token.tokenSaved, true);
+    assert.equal(JSON.parse(fs.readFileSync(data + "/accessToken.json", "utf8")).accessToken, "fixture-only");
     const note = await fetch(base + "/api/note").then(r => r.json());
     assert.equal(note.text, "legacy note");
     const telemetry = await fetch(base + "/data.json").then(r => r.json());
     assert.equal(telemetry.print.mc_percent, 65);
     const settings = await fetch(base + "/api/settings").then(r => r.json());
     assert.equal(settings.printer.name, "Legacy Printer");
+    assert.equal(settings.BambuBoard_tempSetting, "Fahrenheit");
+    assert.equal(settings.BambuBoard_displayFanPercentages, true);
+    assert.equal(settings.BambuBoard_displayFanIcons, false);
+    assert.equal(settings.BambuBoard_logging, true);
     assert.equal(fs.statSync(data + "/host-file").uid, 0);
     assert.equal(fs.readFileSync(data + "/scenes/fixture.json", "utf8").trim(), "{\"name\":\"Legacy scene\"}");
     assert.equal(fs.readFileSync(data + "/gcode-cache/fixture.gcode", "utf8").trim(), "G90");
@@ -88,7 +94,23 @@ docker exec "$prefix-legacy" node -e '
     });
     assert.equal(written.status, 200);
     fs.accessSync(data + "/config.json", fs.constants.W_OK);
+    const updated = await fetch(base + "/api/settings", {
+      method: "PUT", headers: {"content-type": "application/json"}, body: JSON.stringify({BambuBoard_tempSetting: "Celsius"})
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(fs.statSync(data + "/config.json").mode & 0o777, 0o600);
   })().catch(err => { console.error(err); process.exitCode = 1; });
+'
+docker restart "$prefix-legacy" >/dev/null
+wait_healthy "$prefix-legacy"
+docker exec "$prefix-legacy" node -e '
+  const assert = require("node:assert/strict");
+  fetch("http://127.0.0.1:18082/api/settings").then(r => r.json()).then(settings => {
+    assert.equal(settings.BambuBoard_tempSetting, "Celsius");
+    assert.equal(settings.BambuBoard_displayFanPercentages, true);
+    assert.equal(settings.BambuBoard_displayFanIcons, false);
+    assert.equal(settings.BambuBoard_logging, true);
+  });
 '
 
 docker run --rm --user 0:0 --network none -v "$scratch/custom:$data" "$image" chown 1234:2345 "$data"

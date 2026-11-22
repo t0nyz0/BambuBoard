@@ -18,7 +18,8 @@ test('management pages work inside a hidden installation directory without expos
   for (const file of Object.values(pages)) await fs.writeFile(path.join(views, file), `<main>${file}</main>`);
   await fs.writeFile(path.join(views, '.private'), 'private fixture');
   const app = express();
-  app.use(buildPagesRouter({ paths: { views }, getConfig: () => ({ printer }) }));
+  let config = { printer };
+  app.use(buildPagesRouter({ paths: { views }, getConfig: () => config }));
   app.use((error, _req, res, _next) => res.sendStatus(error.status || 500));
   const base = await listen(t, app);
   for (const [route, file] of Object.entries(pages)) {
@@ -32,6 +33,12 @@ test('management pages work inside a hidden installation directory without expos
   const privateFile = await fetch(base + '/.private');
   assert.equal(privateFile.status, 404);
   assert.ok(!(await privateFile.text()).includes('private fixture'));
+  for (const invalid of [{ accessCode: '   ' }, { port: 'invalid' }]) {
+    config = { printer: { ...printer, ...invalid } };
+    const response = await fetch(base + '/', { redirect: 'manual' });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), '/setup?firstRun=1');
+  }
 });
 
 test('server returns saved telemetry from a hidden data directory and handles a missing telemetry file', async t => {
@@ -39,7 +46,8 @@ test('server returns saved telemetry from a hidden data directory and handles a 
   const data = path.join(dir, '.runtime');
   await fs.mkdir(data);
   await fs.writeFile(path.join(data, 'config.json'), JSON.stringify({ printer, cloudAuth: { enabled: false } }));
-  const telemetry = { print: { mc_percent: 47, gcode_state: 'RUNNING' } };
+  const endpoint = 'rtsps://camera:fixture-only@192.0.2.20/streaming/live/1?token=fixture-query#fixture-fragment';
+  const telemetry = { print: { mc_percent: 47, gcode_state: 'RUNNING', ipcam: { rtsp_url: endpoint, resolution: '1080p' } } };
   await fs.writeFile(path.join(data, 'data.json'), JSON.stringify(telemetry));
   const reserved = net.createServer();
   await new Promise(resolve => reserved.listen(0, '127.0.0.1', resolve));
@@ -61,7 +69,15 @@ test('server returns saved telemetry from a hidden data directory and handles a 
   const response = await fetch(base + '/data.json');
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /application\/json/);
-  assert.deepEqual(await response.json(), telemetry);
+  assert.equal(response.headers.get('x-bambuboard-printer-connection'), 'offline');
+  assert.equal(response.headers.get('cache-control'), 'no-cache');
+  const publicText = await response.text();
+  assert.deepEqual(JSON.parse(publicText), { print: { mc_percent: 47, gcode_state: 'RUNNING', ipcam: { rtsp_url: 'enable', resolution: '1080p' } } });
+  assert.doesNotMatch(publicText, /fixture-only|fixture-query|fixture-fragment|192\.0\.2\.20/);
+  // Serving existing telemetry must not change the snapshot on disk.
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(data, 'data.json'), 'utf8')), telemetry);
+  await fs.writeFile(path.join(data, 'data.json'), JSON.stringify({ print: { ipcam: { rtsp_url: 'disable' } } }));
+  assert.deepEqual(await (await fetch(base + '/data.json')).json(), { print: { ipcam: { rtsp_url: 'disable' } } });
   await fs.unlink(path.join(data, 'data.json'));
   const missing = await fetch(base + '/data.json');
   assert.equal(missing.status, 200);

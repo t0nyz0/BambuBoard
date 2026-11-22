@@ -24,13 +24,13 @@ const fs = require('fs');
 const { capsFor } = require('../lib/caps');
 const { sameOrigin } = require('../lib/requestOrigin');
 
-function buildVideoRouter({ app, getConfig, dataPath }) {
+function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry }) {
   // Grace window: keep a stream (ffmpeg / chamber socket) alive this long after
   // the last viewer leaves, so brief client gaps (reloads, OBS restarts) reuse
   // it instead of churning the printer's limited camera connection.
   const GRACE_MS = 20000;
 
-  // Camera status, capability-aware. X1 / X1C / H2D / P2S expose RTSP (relayed
+  // Camera status, capability-aware. X1 / X1C / H2D / H3C / P2S expose RTSP (relayed
   // via ffmpeg + WebSocket/JSMpeg); P1 / A1-class expose the port-6000 JPEG
   // stream (served as MJPEG). `cameraType` tells the widget which to use.
   function buildCameraStatus(printer, rtspRelayOk) {
@@ -45,31 +45,61 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
         hint: hasCredentials ? null : 'Printer credentials not set — finish Setup first.',
       };
     }
-    const rtsp = getRtspStatus();
+    const rtsp = getRtspStatus(printer.type);
+    const isH3c = printer.type === 'H3C';
+    const enabled = isH3c ? !!h3cCameraEndpoint(printer.url, rtsp.rtspField) : rtsp.enabled;
     return {
-      available: hasCredentials && rtsp.enabled && rtspRelayOk,
+      available: hasCredentials && enabled && rtspRelayOk,
       cameraType: 'rtsp',
       relayReady: rtspRelayOk,
-      rtspEnabled: rtsp.enabled,
+      rtspEnabled: enabled,
       resolution: rtsp.resolution,
-      url: hasCredentials ? `rtsps://${printer.url}:322/streaming/live/1` : null,
+      url: hasCredentials && !isH3c ? `rtsps://${printer.url}:322/streaming/live/1` : null,
       hint: !rtspRelayOk
         ? 'The video relay (ffmpeg) failed to initialize on the server.'
-        : (!rtsp.enabled
-          ? 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.'
+        : (!enabled
+          ? (isH3c
+            ? 'On the H3C touchscreen, turn on Settings → Network → LAN Only Liveview.'
+            : 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.')
           : null),
     };
   }
 
-  // Read current MQTT data to check ipcam.rtsp_url status.
-  function getRtspStatus() {
+  // H3C publishes its Liveview endpoint in MQTT. Use the reported path/port
+  // over TLS, and send the LAN access code only to the configured printer.
+  function h3cCameraEndpoint(host, reportedUrl) {
+    if (!host || typeof reportedUrl !== 'string' || !reportedUrl || reportedUrl === 'disable') return null;
     try {
-      const raw = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
-      const ipcam = (raw.print || {}).ipcam || {};
-      const rtspField = ipcam.rtsp_url || '';
+      const reported = new URL(reportedUrl);
+      if (reported.protocol !== 'rtsps:' || !reported.hostname) return null;
+      const address = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+      const configured = new URL(`http://${address}`);
+      if (configured.username || configured.password || configured.port || configured.pathname !== '/' || configured.search || configured.hash) return null;
+      const endpoint = new URL(`rtsps://${configured.hostname}:${reported.port || '322'}`);
+      endpoint.pathname = reported.pathname;
+      endpoint.search = reported.search;
+      return endpoint;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Read current MQTT data to check ipcam.rtsp_url status.
+  function getRtspStatus(type) {
+    try {
+      // H3C needs the endpoint supplied by its own MQTT session. A saved
+      // data.json may still belong to a different printer after Setup.
+      let ipcam = getCameraTelemetry?.();
+      if (type !== 'H3C' && (ipcam === undefined || (ipcam && !Object.hasOwn(ipcam, 'rtsp_url')))) {
+        // Preserve startup behavior before the first live camera report. Once
+        // received, that report survives partial print snapshots on reconnect.
+        const savedCamera = JSON.parse(fs.readFileSync(dataPath, 'utf-8')).print?.ipcam;
+        ipcam = { ...savedCamera, ...ipcam };
+      }
+      const rtspField = ipcam?.rtsp_url || '';
       // rtsp_url is either "disable" or an actual URL like "rtsps://ip/streaming/live/1"
       const enabled = rtspField !== 'disable' && rtspField !== '';
-      return { enabled, rtspField, resolution: ipcam.resolution || null };
+      return { enabled, rtspField, resolution: ipcam?.resolution || null };
     } catch (_) {
       return { enabled: false, rtspField: null, resolution: null };
     }
@@ -160,6 +190,14 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     // picked up on the next connection (a new URL → a new cached proxy).
     function buildStreamUrl() {
       const p = getConfig().printer || {};
+      if (p.type === 'H3C') {
+        if (!p.accessCode) return null;
+        const endpoint = h3cCameraEndpoint(p.url, getRtspStatus(p.type).rtspField);
+        if (!endpoint) return null;
+        endpoint.username = 'bblp';
+        endpoint.password = encodeURIComponent(p.accessCode);
+        return endpoint.href;
+      }
       return `rtsps://bblp:${p.accessCode}@${p.url}:322/streaming/live/1`;
     }
 
@@ -211,6 +249,7 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     app.ws('/api/printer/video', (ws, req) => {
       if (!sameOrigin(req)) { ws.close(1008); return; }
       const url = buildStreamUrl();
+      if (!url) { ws.close(1013, 'Printer Liveview is unavailable'); return; }
       const proxy = getProxyFor(url);
       const ka = keepalive[url] || (keepalive[url] = { count: 0, timer: null, holder: null });
       if (ka.timer) { clearTimeout(ka.timer); ka.timer = null; } // cancel pending release

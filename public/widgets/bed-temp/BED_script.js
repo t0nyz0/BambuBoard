@@ -11,7 +11,6 @@ let currentState = "OFF";
 let modelImage = "";
 let settings = ""; 
 const consoleLogging = false;
-let telemetryObjectMain;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function loadSettings() {
@@ -31,24 +30,6 @@ loadSettings();
 // Re-fetch every 5s so changes made on the /setup page (e.g. temperature
 // unit, fan-percent toggle) propagate without reloading the iframe.
 setInterval(loadSettings, 5000);
-async function retrieveData() {
-  const response = await fetch(fullServerURL + "/data.json");
-
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
-
 async function updateUI(telemetryObject) {
   try {
     let printStatus = telemetryObject.gcode_state;
@@ -87,31 +68,22 @@ async function updateUI(telemetryObject) {
 
     /// Bed Temp
 
-    let bedTargetTemp = 0;
-    let bedTempPercentage = 1;
-    // Bed Target Temp
-    if (telemetryObject.bed_target_temper === 0) {
-      bedTargetTemp = "OFF";
-    } else {
-      
-      bedTargetTemp = (telemetryObject.bed_target_temper * 9) / 5 + 32;
-      
-      bedTempPercentage =
-        (telemetryObject.bed_temper / telemetryObject.bed_target_temper) * 100;
-    }
+    const targetC = BBTelemetry.number(telemetryObject.bed_target_temper);
+    const bedTargetTemp = targetC === 0 ? "OFF" : targetC === null ? "—" : (targetC * 9) / 5 + 32;
+    let bedTempPercentage = targetC > 0 ? (telemetryObject.bed_temper / targetC) * 100 : 0;
     log("bedTargetTemp = " + bedTargetTemp);
     log("bedTempPercentage = " + bedTempPercentage);
 
     if (bedTempPercentage > 100) {
       log(
-        "Bed percentage over 100, adjusting..." + nozzleTempPercentage
+        "Bed percentage over 100, adjusting..." + bedTempPercentage
       );
       bedTempPercentage = 100;
     }
 
     // Set target temp in UI
     $("#bedTargetTempF").text(bedTargetTemp);
-    $("#bedTargetTempC").text(telemetryObject.bed_target_temper);
+    $("#bedTargetTempC").text(targetC ?? "—");
 
     // Set current temp in UI
     var bedCurrentTempF = Math.round((telemetryObject.bed_temper * 9) / 5 + 32);
@@ -188,11 +160,6 @@ async function updateUI(telemetryObject) {
   }
 }
 
-function disableUI() {
-  $("#bedProgressBar").css("background-color", "grey");
-  $("#bedTargetTempTempSymbols").hide();
-}
-
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);
 
@@ -206,24 +173,7 @@ function log(logText) {
   }
 }
 
-const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
-
-// Call the updateLog function to fetch and parse the data
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateUI(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
-      disableUI();
-    }
-  } catch (error) {
-    //console.error(error);
-    await sleep(1000);
-  }
-}, 1000);
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state;
+  return updateUI(print);
+}, { ready: print => BBTelemetry.number(print.bed_temper) !== null });

@@ -17,24 +17,6 @@ const fetchInterval = 240000; // 4 minutes interval in milliseconds
 const noteInterval = 900000; // 10 minutes interval for note saving
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
-async function retrieveData() {
-  const response = await fetch(fullServerURL + "/data.json");
-
-  let data = await response.text();
-  let telemetryObject = JSON.parse(data);
-
-  if (telemetryObject.print && "gcode_state" in telemetryObject.print) {
-    currentState = telemetryObject.print.gcode_state;
-    telemetryObject = telemetryObject.print;
-  } else if (telemetryObject.print) {
-    telemetryObject = "Incomplete";
-  } else {
-    telemetryObject = null;
-  }
-
-  return telemetryObject;
-}
-
 async function updateUI(telemetryObject) {
   try {
     let printStatus = telemetryObject.gcode_state;
@@ -63,10 +45,7 @@ async function updateUI(telemetryObject) {
 
     log(formattedTime);
 
-    let modelName = telemetryObject.gcode_file;
-    modelName = modelName.replace("/data/Metadata/", "");
-
-    $("#printModelName").text(telemetryObject.subtask_name);
+    $("#printModelName").text(printName(telemetryObject));
     $("#printCurrentLayer").text(
       telemetryObject.layer_num + " of " + telemetryObject.total_layer_num
     );
@@ -108,6 +87,8 @@ async function updateUI(telemetryObject) {
       $("#printRemaining").text(telemetryObject.mc_remaining_time);
       $("#printETA").text("");
       $("#printRemaining").text("...");
+    } else {
+      $("#printRemaining, #printETA").text("—");
     }
 
     log(telemetryObject.t_utc);
@@ -116,8 +97,6 @@ async function updateUI(telemetryObject) {
     console.error("Error: ", error);
   }
 }
-
-function disableUI() {}
 
 function convertUtc(timestampUtcMs) {
   var localTime = new Date(timestampUtcMs);
@@ -146,23 +125,21 @@ async function saveNote(data) {
 
 const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
 
-setInterval(async () => {
-  try {
-    var telemetryObject = await retrieveData();
-    telemetryObjectMain = telemetryObject;
-    if (telemetryObject != null) {
-      if (telemetryObject != "Incomplete") {
-        await updateUI(telemetryObject);
-      }
-    } else if (telemetryObject != "Incomplete") {
-      // Data is incomplete, but we did get something, just skip for now
-    } else {
-      disableUI();
-    }
-  } catch (error) {
-    await sleep(1000);
-  }
-}, 1000);
+function printName(print) {
+  return (typeof print.subtask_name === 'string' && print.subtask_name.trim()) ||
+    (typeof print.gcode_file === 'string' && print.gcode_file.trim().split('/').pop()) || '';
+}
+
+BBTelemetry.poll(print => {
+  currentState = print.gcode_state;
+  telemetryObjectMain = print;
+  return updateUI(print);
+}, {
+  ready: print => BBTelemetry.hasPrintState(print) && !!printName(print) &&
+    BBTelemetry.number(print.layer_num) !== null && BBTelemetry.number(print.total_layer_num) !== null &&
+    (print.gcode_state !== 'RUNNING' || BBTelemetry.number(print.mc_remaining_time) !== null),
+  onUnavailable: () => { telemetryObjectMain = null; },
+});
 
 async function executeTask() {
   try {

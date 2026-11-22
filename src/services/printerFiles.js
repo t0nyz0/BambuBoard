@@ -22,11 +22,16 @@ function stem(name) { return name.replace(/(?:\.gcode\.3mf|\.3mf|\.gcode)$/i, ''
 function normalized(name) { return stem(name).normalize('NFKC').toLowerCase().replace(/[\s_-]+/g, ''); }
 function candidates(job, model) {
   const paths = [], names = new Set();
+  const h3c = /\bH3C\b/i.test(model || '');
   const add = p => { const safe = safePath(p); if (safe && !paths.includes(safe)) paths.push(safe); };
   for (const p of [job.url, job.file]) {
     if (!/\.(?:3mf|gcode)$/i.test(p) || /(?:^|\/)Metadata\//i.test(p)) continue;
-    add(p);
-    if (/^\/(?:sdcard|data)\//i.test(p)) add(p.replace(/^\/(?:sdcard|data)/i, ''));
+    // A bare H3C filename can be present in both /cache and the storage root.
+    // Keep an explicit path first, but use the cache-first search for bare names.
+    if (!h3c || p.includes('/')) {
+      add(p);
+      if (/^\/(?:sdcard|data)\//i.test(p)) add(p.replace(/^\/(?:sdcard|data)/i, ''));
+    }
     names.add(p.split('/').pop());
   }
   if (job.name && !/[\x00-\x1f\x7f/\\]/.test(job.name)) {
@@ -38,7 +43,7 @@ function candidates(job, model) {
     if (/\.gcode$/i.test(job.name)) names.add(job.name);
   }
   for (const name of [...names]) if (name.includes(' ')) names.add(name.replaceAll(' ', '_'));
-  const dirs = /H2|X2/i.test(model || '') ? ['/cache', '', '/model'] : ['', '/cache', '/model'];
+  const dirs = h3c || /H2|X2/i.test(model || '') ? ['/cache', '', '/model'] : ['', '/cache', '/model'];
   for (const dir of dirs) for (const name of names) add(`${dir}/${name}`);
   return { paths: paths.slice(0, 36), dirs, names };
 }
