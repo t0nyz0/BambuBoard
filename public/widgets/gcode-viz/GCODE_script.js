@@ -13,6 +13,8 @@ import { openToolpathFramer } from './toolpath-framing.js';
 import { createPreviewBudget, PREVIEW_WORKLOAD_LIMITS } from './preview-workload.js';
 import { createPackedToolpath } from './packed-toolpath.js';
 import { buildPackedRenderer } from './packed-renderer.js';
+import { createPackedNozzleRenderer } from './packed-nozzle-renderer.js';
+import { createPackedNozzlePlayback } from './packed-nozzle-playback.js';
 import '../../js/gcode-limits.js';
 import '../../js/gcode-view.js';
 
@@ -457,6 +459,10 @@ let lastRenderedEndLayer = -1;
 let lastStaticView = null;
 let lastDrawAt = -Infinity;
 let packedPreview = null;
+let packedPlayback = null;
+let packedCompositor = null;
+let packedViewDirty = true;
+let packedFrame = null;
 const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
@@ -494,6 +500,10 @@ function fullRebuild() {
 // preview.render() is overridden so callers (e.g. setExtrusionColor) trigger
 // a rebuild the first time they're called after a real geometry change.
 preview.render = function () {
+  if (packedPreview) {
+    drawPackedFrame();
+    return;
+  }
   lastStaticView = null;
   fullRebuild();
   updateNozzlePosition();
@@ -519,7 +529,7 @@ function fastTick() {
   updateTrail();
   // A finished plate has no moving nozzle. Keep the camera fit responsive,
   // but avoid flooding a software GPU with millions of identical vertices.
-  const still = packedPreview || (isPausedForState() && trailBuf.length === 0);
+  const still = isPausedForState() && trailBuf.length === 0;
   preview.camera.updateMatrixWorld();
   const view = [...preview.camera.matrixWorld.elements, ...preview.camera.projectionMatrix.elements];
   if (still && !rebuild && lastStaticView) {
@@ -950,14 +960,33 @@ function setLabel(layer, total) {
 // take 1-2 s for a fresh print, longer if the printer hasn't written the
 // file to /cache/ yet and we have to retry).
 function clearPackedPreview() {
+  packedPlayback?.dispose();
+  packedPlayback = null;
+  packedCompositor?.dispose();
+  packedCompositor = null;
+  packedFrame = null;
+  packedViewDirty = true;
+  pathEl.disabled = false;
+  playEl.disabled = false;
   packedPreview?.dispose();
   packedPreview = null;
   detailEl.hidden = true;
-  pathEl.disabled = false;
 }
 
 function clearScene() {
   clearPackedPreview();
+  scrubActive = false;
+  scrubLayer = 0;
+  playing = false;
+  if (playTimer) clearInterval(playTimer);
+  playTimer = null;
+  playEl.textContent = '▶';
+  pathHoldFraction = null;
+  pathEl.value = '0';
+  pathLabelEl.textContent = '0%';
+  verifyManualHold = false;
+  nozzleGroup.visible = false;
+  trailGeoRibbon.setDrawRange(0, 0);
   preview.clear();                         // reset parser + geometry — old layers are gone
   preview.endLayer = 0;
   layerPaths = [];
@@ -1124,13 +1153,13 @@ function adaptivePreview(parser, signal) {
           if (!error.canPack) throw error;
         }
       }
-      packed = createPackedToolpath(parser);
+      packed = createPackedToolpath(parser, { signal, yieldTask });
       parser.layers.length = 0;
       parser.preamble.commands.length = 0;
       let yieldAt = performance.now() + 8;
       for (const batch of prefix) {
         signal.throwIfAborted();
-        packed.parseBatch(batch);
+        await packed.parseBatch(batch);
         if (performance.now() >= yieldAt) {
           await yieldTask();
           yieldAt = performance.now() + 8;
@@ -1275,7 +1304,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     watchdog.stop();
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     stage = 'parse';
-    const packed = budget.packed();
+    const packed = await budget.packed();
     const layers = packed?.layers ?? [parser.preamble, ...parser.layers];
     if (packed) {
       if (!packed.segmentCount) throw Object.assign(new Error('The file has no printable extrusion toolpath.'), { retryable: false });
@@ -1295,8 +1324,10 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       if (preview.extrusionColor !== packingPalette) renderer.setPalette(preview.extrusionColor);
       parser.preamble = layers[0];
       parser.layers = layers.slice(1);
-      detailEl.hidden = false;
-      pathEl.disabled = true;
+      packedPlayback = createPackedNozzlePlayback(packed.motion, layers.length, yieldTask);
+      packedCompositor = createPackedNozzleRenderer(preview, nozzleGroup, {
+        lights: [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim],
+      });
       layerPaths = [];
     } else {
       setOverlay('Processing toolpath… Building layer paths', 'loading');
@@ -1320,11 +1351,17 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
     if (scrubEl) { scrubEl.max = String(renderCap); scrubEl.value = String(renderCap); scrubLayer = renderCap; }
     if (verifyLayers) {
-      scrubActive = true; advanceTo(renderCap); setNozzleLayer(1);
+      scrubActive = true;
+      if (packedPlayback) packedPlayback.play(renderCap > 1 ? 1 : 0);
+      advanceTo(renderCap); setNozzleLayer(1);
     } else {
       const reportedLayer = Number(wantedJob?.layer) || 0;
-      const showWhole = ['FINISH', 'PREPARE', 'SLICING'].includes(lastGcodeState) || (packed && !reportedLayer);
+      const showWhole = ['FINISH', 'PREPARE', 'SLICING'].includes(lastGcodeState) ||
+        (packed && (!reportedLayer || wantedJob?.effectivelyDone));
       const initial = modelToParsed(reportedLayer, Number(wantedJob?.totalLayers) || 0);
+      if (packedPlayback && !showWhole && lastGcodeState === 'RUNNING' && lastSubStage === 0 && initial > 0) {
+        packedPlayback.live(initial - 1);
+      }
       advanceTo(showWhole ? totalLayers : Math.max(1, initial));
     }
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
@@ -1358,6 +1395,10 @@ function advanceTo(layerNum) {
   if (layerNum === lastEndLayer) return;
   preview.endLayer = layerNum;
   setNozzleLayer(layerNum);
+  if (packedPlayback && !scrubActive) {
+    scrubLayer = layerNum;
+    scrubEl.value = String(layerNum);
+  }
   preview.render();
   lastEndLayer = layerNum;
   setLabel(layerNum, totalLayers);
@@ -1405,6 +1446,7 @@ function setCameraView(view, zoom) {
   const settings = BBGcodeView.normalize(view, zoom);
   if (settings.view !== cameraView) {
     cameraView = settings.view;
+    packedViewDirty = true;
     const preset = BBGcodeView.presets[cameraView];
     const azimuth = THREE.MathUtils.degToRad(preset.azimuth);
     const elevation = THREE.MathUtils.degToRad(preset.elevation);
@@ -1417,6 +1459,7 @@ function setCameraView(view, zoom) {
   }
   if (settings.zoom !== cameraZoom) {
     cameraZoom = settings.zoom;
+    packedViewDirty = true;
     preview.camera.zoom = cameraZoom / 100;
     preview.camera.updateProjectionMatrix();
   }
@@ -1483,12 +1526,83 @@ function autoFitCamera() {
   cameraDistance = fittedDistance(orbitTarget);
 }
 
+function packedStatus(frame) {
+  if (frame.state === 'buffering') return 'Buffering nozzle preview…';
+  if (frame.unavailable === 'complexity') return 'This layer is too complex for nozzle playback';
+  if (frame.unavailable === 'unsupported-arc') return 'Nozzle playback cannot follow an arc in this layer';
+  if (frame.unavailable === 'decode') return 'Could not decode nozzle movement for this layer';
+  if (frame.state === 'unavailable') return 'Nozzle path unavailable for this layer';
+  if (frame.state === 'untimed') return 'Nozzle timing unavailable for this layer';
+  if (frame.state !== 'ready') return '';
+  return frame.mode === 'live' ? 'Estimated nozzle position' : 'Toolpath replay';
+}
+
+function drawPackedFrame() {
+  const timing = performance.now();
+  const dirty = packedViewDirty;
+  if (dirty) {
+    if (!cameraDistance) autoFitCamera();
+    cameraDistance = (modelCorners.length ? fittedDistance(orbitTarget) : defaultDistance) || defaultDistance;
+    const far = Math.max(defaultFarPlane, Math.ceil((cameraDistance + bedDiagonal) / 1000) * 1000);
+    if (far !== preview.camera.far) {
+      preview.camera.far = far;
+      preview.camera.updateProjectionMatrix();
+    }
+    preview.camera.position.copy(orbitTarget).addScaledVector(cameraOut, cameraDistance);
+    preview.camera.lookAt(orbitTarget);
+    packedViewDirty = false;
+  }
+  const rebuild = preview.endLayer !== lastRenderedEndLayer;
+  if (rebuild) fullRebuild();
+  const frame = packedPlayback.frame();
+  const status = packedCompositor.available ? packedStatus(frame) : 'Nozzle playback unavailable on this graphics device';
+  if (detailEl.textContent !== status) detailEl.textContent = status;
+  detailEl.hidden = !status;
+  const point = packedCompositor.available ? frame.position : null;
+  const previous = packedFrame?.position;
+  const moved = Boolean(point) !== Boolean(previous) ||
+    (point && (point.x !== previous.x || point.y !== previous.y || point.z !== previous.z || point.extruding !== previous.extruding));
+  if (dirty || rebuild || !packedFrame || (moved && (Boolean(point) !== Boolean(previous) || timing - lastDrawAt >= 33))) {
+    if (point) {
+      nozzleGroup.position.set(point.x - buildCenter.x, point.z, buildCenter.y - point.y);
+      glowGroup.visible = point.extruding;
+    }
+    nozzleGroup.visible = Boolean(point);
+    packedCompositor.draw({ refreshStatic: dirty || rebuild, drawNozzle: nozzleGroup.visible });
+    if (!packedCompositor.available) {
+      packedPlayback.hide();
+      nozzleGroup.visible = false;
+      pathEl.disabled = true;
+      playEl.disabled = true;
+    }
+    packedFrame = { position: nozzleGroup.visible ? point : null };
+    lastDrawAt = timing;
+  }
+  if (packedCompositor.available && frame.mode === 'replay' && frame.ended && (playing || (verifyLayers && !verifyManualHold))) {
+    const cap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
+    const next = frame.layer + 1 < cap ? frame.layer + 1 : (cap > 1 ? 1 : 0);
+    if (next === frame.layer) return;
+    packedPlayback.play(next);
+    setNozzleLayer(next + 1);
+    scrubLayer = next + 1;
+    scrubEl.value = String(scrubLayer);
+    if (!verifyLayers) preview.endLayer = scrubLayer;
+    lastEndLayer = preview.endLayer;
+    setLabel(scrubLayer, cap);
+  }
+}
+
 function orbitTick() {
   // Skip all work when the tab/iframe isn't visible (OBS preview hidden,
   // user switched tabs, etc). RAF already throttles in this case but
   // returning early avoids the full pipeline (camera math, nozzle update,
   // trail rebuild, GPU draw) on the throttled ticks that do fire.
   if (document.hidden) {
+    requestAnimationFrame(safeOrbitTick);
+    return;
+  }
+  if (packedPreview) {
+    drawPackedFrame();
     requestAnimationFrame(safeOrbitTick);
     return;
   }
@@ -1571,6 +1685,7 @@ function safeOrbitTick() {
 requestAnimationFrame(safeOrbitTick);
 
 function pauseLiveMotion() {
+  packedPlayback?.pause();
   lastGcodeState = 'PAUSED';
   mcPercentLastSeen = null;
   mqttSyncedLayer = null;
@@ -1689,6 +1804,7 @@ async function tick() {
     // preview loaded" while the nozzle is already drawing layer 1.
     const printerStarted = layerNum > 0 || mcPctRaw > 1;
     const isEffectivelyDone = state === 'RUNNING' && mcPctRaw >= 99 && mcRemain <= 0;
+    wantedJob.effectivelyDone = isEffectivelyDone;
     // Active print = RUNNING with no blocking sub-stage, OR the print has
     // demonstrably begun (printer reports a layer / progress). The OR-clause
     // covers transient sub-stages mid-print (nozzle clean, first-layer
@@ -1772,6 +1888,7 @@ async function tick() {
     }
 
     if (state === 'FAILED') {
+      packedPlayback?.hide();
       invalidateLoad();
       logPhase('FAILED');
       setOverlay('Print failed', 'error');
@@ -1781,6 +1898,7 @@ async function tick() {
     // No recognized state but we have a taskId — wait it out without wiping.
     if (!isPrepState && !isActivePrint && !isPreviewState && !isHoldState) {
       logPhase(`unrecognized: ${state} (task present, holding)`);
+      packedPlayback?.hide();
       if (state === 'IDLE') invalidateLoad();
       setOverlay('Waiting for print…', 'waiting');
       return;
@@ -1813,6 +1931,7 @@ async function tick() {
     // them are seamless — the model never reloads, the overlay text never
     // flickers.
     if (isPrepState || isPreviewState) {
+      packedPlayback?.hide();
       logPhase(`prep/preview: ${state} sub=${subStage} (model loaded, ${totalLayers} layers)`);
       if (lastEndLayer !== totalLayers && totalLayers > 0) {
         advanceTo(totalLayers);
@@ -1827,6 +1946,21 @@ async function tick() {
     setOverlay('');
 
     if (scrubActive) return;
+    if (packedPlayback) {
+      if (state === 'FINISH' || isEffectivelyDone) {
+        packedPlayback.hide();
+        advanceTo(totalLayers);
+      } else if (state !== 'RUNNING' || subStage !== 0 || layerNum <= 0) {
+        packedPlayback.pause();
+      } else {
+        const target = modelToParsed(layerNum, Number(print.total_layer_num) || 0);
+        if (target > 0) {
+          if (packedCompositor.available) packedPlayback.live(target - 1);
+          advanceTo(target);
+        }
+      }
+      return;
+    }
     if (state === 'PAUSED') return;
     // Mid-print sub-stage (filament swap, bed scan, etc.): freeze the
     // simulation. Bambu's mc_percent is real-time-based and keeps ticking
@@ -1917,11 +2051,24 @@ if (debug && logEl) {
   dbg(`gcode-viz debug log ready — bed ${bed.x}×${bed.y}×${bed.z}, poll ${POLL_MS}ms`);
 }
 
+function packedMotionDiagnostics() {
+  if (!packedPlayback) return null;
+  const { state, layer } = packedPlayback.frame();
+  const point = packedFrame?.position;
+  const { staticDraws, nozzleDraws } = packedCompositor.stats();
+  return {
+    ...packedPlayback.stats(), state, layer, visible: nozzleGroup.visible,
+    position: point ? [point.x, point.y, point.z] : null,
+    staticDraws, animationDraws: nozzleDraws,
+  };
+}
+
 if (diagnostics) {
   window.__preview = preview;
   window.__nozzle = nozzleGroup;
   window.__diag = () => ({
-    compact: packedPreview?.stats() ?? null,
+    compact: packedPreview ? { ...packedPreview.stats(), ...packedCompositor.stats() } : null,
+    motion: packedMotionDiagnostics(),
     activeLayerIdx,
     pathHoldFraction,
     totalForActive: layerPaths[activeLayerIdx]?.total,
@@ -1937,6 +2084,7 @@ if (debug && debugBar) {
   scrubEl.addEventListener('input', () => {
     scrubActive = true;
     scrubLayer = Number(scrubEl.value) || 0;
+    if (packedCompositor?.available) packedPlayback.seek(Math.max(0, scrubLayer - 1));
     if (verifyLayers) {
       // Keep the full first-N rendered; just retarget the nozzle, and pin it
       // to the user's chosen layer (no auto-advance until they release).
@@ -1956,6 +2104,14 @@ if (debug && debugBar) {
     playing = on;
     playEl.textContent = on ? '❚❚' : '▶';
     if (playTimer) { clearInterval(playTimer); playTimer = null; }
+    if (packedPlayback) {
+      scrubActive = true;
+      const frame = packedPlayback.frame();
+      const index = frame.layer >= 0 ? frame.layer : Math.max(0, scrubLayer - 1);
+      if (on) packedPlayback.play(index, frame.fraction);
+      else packedPlayback.seek(index, frame.fraction);
+      return;
+    }
     if (on) {
       scrubActive = true;
       // Walk the nozzle through each layer's full path before advancing.
@@ -2000,6 +2156,7 @@ if (debug && debugBar) {
     if (nx > cap) nx = 1;
     scrubEl.value = String(nx);
     scrubLayer = nx;
+    if (packedCompositor?.available) packedPlayback.seek(nx - 1);
     if (verifyLayers) {
       verifyManualHold = true;
       setNozzleLayer(nx);
@@ -2016,6 +2173,14 @@ if (debug && debugBar) {
   if (pathEl) {
     pathEl.addEventListener('input', () => {
       const frac = (Number(pathEl.value) || 0) / 1000;
+      if (packedPlayback) {
+        setPlay(false);
+        verifyManualHold = true;
+        const layer = packedPlayback.frame().layer;
+        packedPlayback.seek(Math.max(0, layer), frac);
+        pathLabelEl.textContent = `${Math.round(frac * 100)}%`;
+        return;
+      }
       pathHoldFraction = frac;
       setPlay(false);                 // freeze layer-level autoplay too
       verifyManualHold = true;
@@ -2027,6 +2192,7 @@ if (debug && debugBar) {
     });
     // 'change' fires on release — resume animation from current position.
     pathEl.addEventListener('change', () => {
+      if (packedPlayback) return;
       const total = layerPaths[activeLayerIdx]?.total || 0;
       // Re-anchor wall-clock time so the animation continues from the held spot.
       layerStartTime = performance.now() - pathHoldFraction * total * 1000;
@@ -2087,4 +2253,8 @@ window.addEventListener('pagehide', event => {
   }
 });
 
-window.addEventListener('resize', () => { lastStaticView = null; preview.resize?.(); });
+window.addEventListener('resize', () => {
+  lastStaticView = null;
+  packedViewDirty = true;
+  preview.resize?.();
+});

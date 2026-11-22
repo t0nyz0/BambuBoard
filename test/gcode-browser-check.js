@@ -30,6 +30,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
 const compactPlate = { layers: 95, segments: 217125, commands: 248000, lines: 260031 };
 const stressPlate = { layers: 1475, segments: 3442468, commands: 3914598, lines: 4213137 };
 const rasterWidth = 128, layerThicknessCenti = 16;
+const travelLiftCenti = 2400;
 const layerShare = (count, layers, layer) => Math.floor(count / layers) + Number(layer <= count % layers);
 const axis = centi => (centi / 100).toFixed(2).padStart(6, '0');
 function rasterPoint(layer, step) {
@@ -39,11 +40,13 @@ function rasterPoint(layer, step) {
   return [startX + 30 * (row % 2 ? rasterWidth - column - 1 : column + 1), startY + row * 40, layer * layerThicknessCenti];
 }
 const compactHeader = 'G90\nM83\n', motionless = 'M400\n', compactComment = '; fixture layer metadata\n';
-const travelLine = ([x, y, z]) => `G0 X${axis(x)} Y${axis(y)} Z${axis(z)}\n`;
+const travelLine = ([x, y, z]) => `G0 X${axis(x)} Y${axis(y)} Z${axis(z)} F1200\n`;
+const liftLine = z => `G0 Z${axis(z)}\n`;
 const extrusionLine = ([x, y]) => `G1 X${axis(x)} Y${axis(y)} E0.05\n`;
-const nonMotionLines = plate => plate.commands - plate.segments - plate.layers - 2;
+const nonMotionLines = plate => plate.commands - plate.segments - plate.layers * 3 - 2;
 function compactByteLength(plate) {
   return compactHeader.length + plate.layers * travelLine([0, 0, 0]).length + plate.segments * extrusionLine([0, 0]).length
+    + 2 * plate.layers * liftLine(0).length
     + nonMotionLines(plate) * motionless.length + (plate.lines - plate.commands) * compactComment.length;
 }
 function* compactToolpath(plate) {
@@ -51,10 +54,56 @@ function* compactToolpath(plate) {
   for (let layer = 1; layer <= plate.layers; layer++) {
     const segments = layerShare(plate.segments, plate.layers, layer);
     const lines = [motionless.repeat(layerShare(nonMotionLines(plate), plate.layers, layer)), travelLine(rasterPoint(layer, 0))];
-    for (let step = 1; step <= segments; step++) lines.push(extrusionLine(rasterPoint(layer, step)));
+    // Travel out and back after the first real extrusion. This lift stays on
+    // the motion path but cannot change any finished model vertices or layers.
+    const first = rasterPoint(layer, 1);
+    lines.push(extrusionLine(first), liftLine(first[2] + travelLiftCenti), liftLine(first[2]));
+    for (let step = 2; step <= segments; step++) lines.push(extrusionLine(rasterPoint(layer, step)));
     lines.push(compactComment.repeat(layerShare(plate.lines - plate.commands, plate.layers, layer)));
     yield lines.join('');
   }
+}
+
+function compactTiming(plate) {
+  const layers = [];
+  let elapsed = 0, previous = [0, 0, 0];
+  const move = next => {
+    elapsed += Math.hypot(...next.map((value, axis) => value - previous[axis]));
+    previous = next;
+  };
+  for (let layer = 1; layer <= plate.layers; layer++) {
+    move(rasterPoint(layer, 0));
+    const start = elapsed;
+    const segments = layerShare(plate.segments, plate.layers, layer);
+    for (let step = 1; step <= segments; step++) {
+      move(rasterPoint(layer, step));
+      if (step === 1) elapsed += 2 * travelLiftCenti;
+    }
+    layers[layer] = { start, end: elapsed };
+  }
+  return {
+    // The fixture uses a single feed rate, so distance ratios are time ratios.
+    progress: layer => 100 * (layers[layer].start * 0.7 + layers[layer].end * 0.3) / elapsed,
+  };
+}
+
+function onRasterMotion(plate, layer, position) {
+  const [x, y, z] = position.map(value => value * 100);
+  const [liftX, liftY, surface] = rasterPoint(layer, 1);
+  const tolerance = 0.12; // Allow Float32 coordinate rounding.
+  if (Math.abs(x - liftX) < tolerance && Math.abs(y - liftY) < tolerance
+    && z >= surface - tolerance && z <= surface + travelLiftCenti + tolerance) return true;
+  if (Math.abs(z - surface) > tolerance) return false;
+  let [ax, ay] = rasterPoint(layer, 0);
+  const segments = layerShare(plate.segments, plate.layers, layer);
+  for (let step = 1; step <= segments; step++) {
+    const [bx, by] = rasterPoint(layer, step);
+    const dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx ** 2 + dy ** 2)));
+    if (Math.hypot(x - ax - t * dx, y - ay - t * dy) < tolerance) return true;
+    ax = bx; ay = by;
+  }
+  return false;
 }
 
 (async () => {
@@ -66,7 +115,7 @@ function* compactToolpath(plate) {
   let clock = Date.now(), mode = 'normal', count = 0, releaseSlow = null, telemetryBroken = false, telemetryStale = false;
   let printerConnection = 'online';
   let printerType = 'H2D';
-  let print, responseBody, pendingPrinter, packedFixture;
+  let print, responseBody, pendingPrinter, packedFixture, packedHold;
   const writePacket = async packet => {
     print = packet;
     const temp = path.join(data, 'data.json.tmp');
@@ -119,18 +168,28 @@ function* compactToolpath(plate) {
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&mode=preview&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (mode !== 'packed') return next();
+    if (!['packed', 'packed-held'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
     const controller = new AbortController();
     const { signal } = controller;
-    res.once('close', () => controller.abort());
+    const hold = mode === 'packed-held' ? (packedHold = { blocked: false, closed: false }) : null;
+    res.once('close', () => {
+      if (hold) hold.closed = true;
+      controller.abort();
+    });
     res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(compactByteLength(packedFixture)), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
+      let chunks = 0;
       for (const chunk of compactToolpath(packedFixture)) {
         signal.throwIfAborted();
         if (!res.write(chunk)) await once(res, 'drain', { signal });
+        if (hold && ++chunks === 88) {
+          hold.blocked = true;
+          if (!signal.aborted) await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+          return;
+        }
       }
       res.end();
     } catch (error) {
@@ -664,6 +723,31 @@ function* compactToolpath(plate) {
       const densePage = await context.newPage();
       await densePage.addInitScript(() => {
         window.__packedHeartbeat = { loading: 0, maximumGapMs: 0 };
+        const gate = window.__packedLayerGate = { armed: false, blocked: false, release: null };
+        const stream = Blob.prototype.stream;
+        Blob.prototype.stream = function () {
+          const original = stream.call(this);
+          if (!gate.armed) return original;
+          gate.armed = false;
+          gate.blocked = true;
+          const opened = new Promise(resolve => { gate.release = resolve; });
+          const reader = original.getReader();
+          let cancelled = false;
+          return new ReadableStream({
+            async pull(controller) {
+              await opened;
+              if (cancelled) return;
+              const chunk = await reader.read();
+              if (cancelled) return;
+              if (chunk.done) controller.close();
+              else controller.enqueue(chunk.value);
+            },
+            cancel(reason) {
+              cancelled = true;
+              return reader.cancel(reason);
+            },
+          });
+        };
         let last = performance.now();
         let wasBusy = false;
         setInterval(() => {
@@ -677,34 +761,145 @@ function* compactToolpath(plate) {
           last = now;
         }, 25);
       });
-      let requests = 0;
+      let requests = 0, lateJoinRequests = 0;
       densePage.on('request', request => { if (new URL(request.url()).pathname === '/api/gcode/current') requests++; });
       const before = count;
+      const timing = compactTiming(plate);
       const sumThrough = end => Math.floor(plate.segments / plate.layers) * end + Math.min(end, plate.segments % plate.layers);
       const waitForVisible = (visible, limit = timeout) => densePage.waitForFunction(expected => {
         const packed = window.__diag?.().compact;
         return packed?.visibleSegments === expected && window.__preview.renderer.info.render.calls > 0;
       }, visible, { timeout: limit });
+      const motionSample = target => target.evaluate(() => window.__diag?.().motion);
+      async function waitForMotion(target, layer, previous) {
+        const handle = await target.waitForFunction(({ layer, surface, previous }) => {
+          const motion = window.__diag?.().motion;
+          if (motion?.layer !== layer || motion.state !== 'ready' || !motion.visible || !motion.position) return false;
+          if (motion.position[2] < surface - 0.001 || motion.position[2] > surface + 24.001) return false;
+          if (previous && Math.hypot(...motion.position.map((value, axis) => value - previous[axis])) < 0.04) return false;
+          return motion;
+        }, { layer, surface: (layer * layerThicknessCenti) / 100, previous }, { timeout });
+        const motion = await handle.jsonValue();
+        await handle.dispose();
+        assert.ok(onRasterMotion(plate, layer, motion.position), `Layer ${layer} nozzle is off the ordered toolpath: ${motion.position}`);
+        assert.ok(motion.bytes > 0 && motion.bytes <= 32 * mebibyte, `Resident motion bytes: ${motion.bytes}`);
+        assert.ok(motion.sourceBytes > 0 && motion.sourceBytes < motion.rawSourceBytes,
+          `Expected the replay spool to compress source bytes: ${motion.sourceBytes} / ${motion.rawSourceBytes}`);
+        assert.ok(motion.layers.length <= 2 && motion.layers.includes(layer), `Unexpected decoded layers: ${motion.layers}`);
+        return motion;
+      }
+      const reportLayer = async layer => {
+        await writePacket({ ...print, gcode_state: 'RUNNING', layer_num: layer, mc_percent: timing.progress(layer) });
+        await waitForVisible(sumThrough(layer));
+      };
+      const startLayer = async layer => {
+        await reportLayer(layer);
+        return waitForMotion(densePage, layer);
+      };
       try {
         packedFixture = plate;
         mode = 'packed';
-        await write(name, 'PAUSED', { layer_num: 1, total_layer_num: plate.layers, mc_percent: 1 });
+        await write(name, 'PAUSED', { layer_num: 1, total_layer_num: plate.layers, mc_percent: timing.progress(1) });
         await densePage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
         await waitForVisible(sumThrough(1));
-        await densePage.getByText('Large-plate preview · Nozzle animation off', { exact: true }).waitFor();
-        const first = await densePage.evaluate(() => ({ ...window.__diag().compact, nozzle: window.__nozzle.visible }));
+        const first = await densePage.evaluate(() => ({ ...window.__diag().compact, nozzle: window.__diag().motion?.visible }));
         assert.equal(first.segments, plate.segments);
         assert.equal(first.layers, plate.layers + 1, 'The model layers and parser preamble are all counted');
-        assert.equal(first.nozzle, false, 'The exact compact geometry must not show an approximate nozzle');
+        assert.equal(first.nozzle, false, 'Opening on a paused print must not animate the nozzle');
         assert.ok(first.drawCalls > 0 && first.drawCalls < plate.layers, `Visible batches should not scale one per layer: ${first.drawCalls}`);
         assert.ok(first.bytes >= plate.segments * 24 && first.bytes <= plate.segments * 36 + mebibyte, JSON.stringify(first));
 
+        const firstMotion = await startLayer(1);
+        await densePage.getByText('Estimated nozzle position', { exact: false }).waitFor();
+        const afterFirst = await waitForMotion(densePage, 1, firstMotion.position);
+        assert.ok(afterFirst.animationDraws > firstMotion.animationDraws);
+        const staticBefore = await densePage.evaluate(() => {
+          const preview = window.__preview;
+          const renderer = preview.renderer;
+          const draw = renderer.render.bind(renderer);
+          const group = preview.scene.getObjectByName('packed-toolpath');
+          window.__packedBaseline = {
+            group, draws: 0,
+            attributes: group.children.map(object => {
+              const position = object.geometry.getAttribute('position');
+              return { object, geometry: object.geometry, position, version: position.version };
+            }),
+          };
+          renderer.render = (scene, ...args) => {
+            if (scene === preview.scene && renderer.getRenderTarget()) window.__packedBaseline.draws++;
+            return draw(scene, ...args);
+          };
+          return window.__diag().motion;
+        });
+        const animationOnly = await waitForMotion(densePage, 1, staticBefore.position);
+        assert.ok(animationOnly.animationDraws > staticBefore.animationDraws);
+        assert.equal(animationOnly.staticDraws, staticBefore.staticDraws, 'Animating the nozzle must not redraw the packed model');
+        assert.deepEqual(await densePage.evaluate(() => {
+          const saved = window.__packedBaseline;
+          const current = window.__preview.scene.getObjectByName('packed-toolpath');
+          return {
+            draws: saved.draws, sameGroup: current === saved.group,
+            sameBuffers: saved.attributes.every(({ object, geometry, position, version }, i) =>
+              current.children[i] === object && object.geometry === geometry &&
+              geometry.getAttribute('position') === position && position.version === version),
+          };
+        }), { draws: 0, sameGroup: true, sameBuffers: true });
+
         const middle = Math.ceil(plate.layers / 2);
-        await writePacket({ ...print, gcode_state: 'RUNNING', layer_num: middle, mc_percent: 50 });
-        await waitForVisible(sumThrough(middle));
-        assert.equal(await densePage.evaluate(() => window.__nozzle.visible), false);
+        if (plate === compactPlate) {
+          await densePage.evaluate(() => { window.__packedLayerGate.armed = true; });
+          await reportLayer(middle);
+          await densePage.waitForFunction(layer => {
+            const motion = window.__diag?.().motion;
+            return window.__packedLayerGate.blocked && motion?.layer === layer && motion.state === 'buffering';
+          }, middle, { timeout });
+          const buffering = await motionSample(densePage);
+          assert.equal(buffering.visible, false, 'A cold layer must not show a nozzle on an old layer');
+          await densePage.getByText('Buffering nozzle preview', { exact: false }).waitFor();
+          await densePage.waitForTimeout(350);
+          const stillBuffering = await motionSample(densePage);
+          assert.equal(stillBuffering.state, 'buffering');
+          assert.equal(stillBuffering.animationDraws, buffering.animationDraws);
+          await densePage.evaluate(() => window.__packedLayerGate.release());
+        } else {
+          await reportLayer(middle);
+        }
+        const middleMotion = await waitForMotion(densePage, middle);
+        const afterMiddle = await waitForMotion(densePage, middle, middleMotion.position);
+        await densePage.screenshot({ path: path.join(artifacts, `${name}-animated.png`), timeout });
+        let lateJoin;
+        if (plate === compactPlate) {
+          const latePage = await context.newPage();
+          latePage.on('request', request => { if (new URL(request.url()).pathname === '/api/gcode/current') lateJoinRequests++; });
+          try {
+            await latePage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
+            await latePage.waitForFunction(expected => window.__diag?.().compact?.visibleSegments === expected, sumThrough(middle), { timeout });
+            const joined = await waitForMotion(latePage, middle);
+            lateJoin = await waitForMotion(latePage, middle, joined.position);
+            assert.equal(lateJoinRequests, 1, 'A late viewer seeks the current layer in its single download');
+          } finally {
+            await latePage.close();
+            await densePage.bringToFront();
+          }
+        }
+        await writePacket({ ...print, gcode_state: 'PAUSED' });
+        await densePage.waitForFunction(layer => {
+          const motion = window.__diag?.().motion;
+          return motion?.layer === layer && ['paused', 'hidden'].includes(motion.state) && !motion.visible;
+        }, middle, { timeout });
+        const paused = await motionSample(densePage);
+        await densePage.waitForTimeout(400);
+        const stillPaused = await motionSample(densePage);
+        assert.deepEqual(stillPaused.position, paused.position, 'A paused print cannot advance the estimated nozzle');
+        assert.equal(stillPaused.animationDraws, paused.animationDraws, 'Pause stops animation frame draws');
+        const resumed = await startLayer(middle);
+        await waitForMotion(densePage, middle, resumed.position);
+
+        const finalMotion = await startLayer(plate.layers);
+        const afterFinal = await waitForMotion(densePage, plate.layers, finalMotion.position);
         await writePacket({ ...print, gcode_state: 'FINISH', layer_num: plate.layers, mc_percent: 100 });
         await waitForVisible(plate.segments);
+        await densePage.waitForFunction(() => !window.__diag?.().motion?.visible, null, { timeout });
 
         const probeLayers = [1, middle, plate.layers];
         const rendered = await densePage.evaluate(({ layers, probeLayers, layerThicknessCenti }) => {
@@ -736,9 +931,10 @@ function* compactToolpath(plate) {
               endpoints[layer].last = segment;
             }
           });
+          const compact = window.__diag().compact;
           return { counts: Array.from(counts), endpoints, positionBytes, drawnSegments, planar, objects,
-            gpuLines: preview.renderer.info.render.lines, compact: window.__diag().compact, heartbeat: window.__packedHeartbeat,
-            nozzle: window.__nozzle.visible, busy: document.querySelector('.gcode-stage').getAttribute('aria-busy') };
+            gpuLines: compact.staticLines, compact, heartbeat: window.__packedHeartbeat,
+            nozzle: window.__diag().motion?.visible, busy: document.querySelector('.gcode-stage').getAttribute('aria-busy') };
         }, { layers: plate.layers, probeLayers, layerThicknessCenti });
         assert.ok(rendered?.planar, 'The compact WebGL group contains only exact, planar extrusion moves');
         assert.equal(rendered.positionBytes, plate.segments * 24);
@@ -756,8 +952,59 @@ function* compactToolpath(plate) {
         assert.ok(rendered.heartbeat.loading > 2, 'The browser can run UI tasks while the packed preview is loading');
         assert.ok(rendered.heartbeat.maximumGapMs < (plate === stressPlate ? 5000 : 2000), JSON.stringify(rendered.heartbeat));
         assert.equal(requests, 1, 'Layer progression and packed conversion must not repeat the HTTP request');
-        assert.equal(count, before + 1, 'Only one preview download is served');
+        assert.equal(count, before + 1 + lateJoinRequests, 'Exactly one preview download is served per viewer');
         await densePage.screenshot({ path: path.join(artifacts, `${name}.png`), timeout });
+
+        let scrub;
+        if (plate === compactPlate) {
+          await densePage.evaluate(layer => {
+            const control = document.getElementById('gcodeScrub');
+            control.value = String(layer + 1); // The display prefix includes the preamble.
+            control.dispatchEvent(new Event('input', { bubbles: true }));
+          }, middle);
+          await densePage.getByText('Toolpath replay', { exact: false }).waitFor();
+          await densePage.waitForFunction(layer => {
+            const motion = window.__diag?.().motion;
+            return motion?.layer === layer && motion.state === 'ready' && motion.visible;
+          }, middle, { timeout });
+          scrub = await densePage.evaluate(async ({ x, y, z }) => {
+            const control = document.getElementById('gcodePath');
+            async function seek(value) {
+              control.value = String(value);
+              control.dispatchEvent(new Event('input', { bubbles: true }));
+              await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+              return window.__diag().motion.position;
+            }
+            const start = await seek(0);
+            let lift = null;
+            for (let value = 5; value <= 150; value += 5) {
+              const point = await seek(value);
+              if (point && Math.abs(point[0] - x) < 0.002 && Math.abs(point[1] - y) < 0.002 && point[2] > z + 2) {
+                lift = point;
+                break;
+              }
+            }
+            return { start, lift, end: await seek(1000), back: await seek(0) };
+          }, Object.fromEntries(['x', 'y', 'z'].map((axis, i) => [axis, rasterPoint(middle, 1)[i] / 100])));
+          assert.ok(scrub.lift && onRasterMotion(plate, middle, scrub.lift), 'Replay must include the exact non-printing Z lift');
+          const layerEndpoint = layer => rasterPoint(layer, layerShare(plate.segments, plate.layers, layer)).map(point => point / 100);
+          for (const [actual, expected] of [[scrub.start, layerEndpoint(middle - 1)], [scrub.end, layerEndpoint(middle)]]) {
+            assert.ok(Math.hypot(...actual.map((point, i) => point - expected[i])) < 0.002,
+              `Scrub endpoint ${actual} must match ordered toolpath endpoint ${expected}`);
+          }
+          assert.deepEqual(scrub.back, scrub.start, 'Seeking backwards must return to the exact same start');
+          const coldLayer = middle + 5;
+          await densePage.evaluate(layer => {
+            Object.assign(window.__packedLayerGate, { armed: true, blocked: false, release: null });
+            const control = document.getElementById('gcodeScrub');
+            control.value = String(layer + 1);
+            control.dispatchEvent(new Event('input', { bubbles: true }));
+          }, coldLayer);
+          await densePage.waitForFunction(layer => {
+            const motion = window.__diag?.().motion;
+            return window.__packedLayerGate.blocked && motion?.layer === layer && motion.state === 'buffering';
+          }, coldLayer, { timeout });
+        }
 
         mode = 'normal';
         const next = name + ' replacement';
@@ -765,22 +1012,49 @@ function* compactToolpath(plate) {
         await write(next, 'FINISH');
         await densePage.waitForFunction(() => !window.__diag?.().compact && window.__preview?.layers.length === 3
           && window.__log().filter(line => line.includes('loadGcode OK')).length === 2, null, { timeout });
+        if (plate === compactPlate) {
+          await densePage.evaluate(async () => {
+            window.__packedLayerGate.release();
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          });
+        }
         assert.equal(await densePage.evaluate(() => window.__preview.scene.getObjectByName('packed-toolpath')), undefined);
         assert.equal(await densePage.evaluate(() => window.__packedDisposeCount), rendered.objects, 'A replacement job disposes every packed buffer');
+        assert.equal(await densePage.evaluate(() => window.__diag()?.motion), null, 'A replacement clears the old packed motion');
         assert.equal(await densePage.locator('#gcodeDetail').isVisible(), false);
         packedEvidence.push({ fixture: name, initialState: 'PAUSED', ...plate, sourceBytes: compactByteLength(plate), rendered: rendered.compact,
-          geometryObjects: rendered.objects, gpuLines: rendered.gpuLines, heartbeat: rendered.heartbeat, httpRequests: 1 });
+          geometryObjects: rendered.objects, gpuLines: rendered.gpuLines, heartbeat: rendered.heartbeat, httpRequests: 1, lateJoinRequests,
+          motion: { first: afterFirst, middle: afterMiddle, final: afterFinal, lateJoin, scrub, staticDrawsDuringAnimation: animationOnly.staticDraws - staticBefore.staticDraws } });
       } finally {
         await densePage.close();
       }
     }
     await checkPackedPlate(compactPlate, 'gcode-compact-plate', 45000);
-    passed.push('Compact preview starts at the paused layer, then renders exact layer progression and final geometry over one HTTP transfer without a simulated nozzle');
+    passed.push('Packed preview animates the estimated nozzle through first, middle and final layers, honors pause and resume, and preserves static geometry over one HTTP transfer');
     if (process.env.BAMBUBOARD_TEST_DENSE_PLATE === '1') {
       await checkPackedPlate(stressPlate, 'gcode-full-dense-plate', 180000);
       passed.push('A 4.2-million-line dense plate renders all 3.44 million exact extrusion segments and 1,475 layers');
     }
     await fs.writeFile(path.join(artifacts, 'gcode-compact-results.json'), JSON.stringify(packedEvidence, null, 2));
+
+    packedFixture = compactPlate;
+    mode = 'packed-held';
+    await write('Canceled packed job', 'RUNNING', { layer_num: 1, total_layer_num: compactPlate.layers });
+    const canceledPackedPage = await context.newPage();
+    try {
+      await canceledPackedPage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
+      await until(() => packedHold?.blocked, 45000);
+      await canceledPackedPage.locator('#gcodeCancel').click();
+      await until(() => packedHold.closed, 45000);
+      await canceledPackedPage.getByText(/Toolpath loading canceled/).waitFor();
+      assert.deepEqual(await canceledPackedPage.evaluate(() => {
+        const { motion, compact } = window.__diag();
+        return { motion, compact, nozzle: window.__nozzle.visible };
+      }), { motion: null, compact: null, nozzle: false });
+      passed.push('Cancel during dense streaming closes the download without installing stale geometry or moving the nozzle');
+    } finally {
+      await canceledPackedPage.close();
+    }
 
     const beforeDenseOverflow = count;
     mode = 'complexity'; await write('Dense arc plate above the geometry budget', 'FINISH'); await open();

@@ -84,3 +84,109 @@ test('packed previews refuse over-budget, invalid and unsupported geometry witho
   turns.parseBatch(['M83', 'G1 Z0.2']);
   assert.throws(() => turns.parseBatch(['G2 I5 J0 P2 E1']), { ...refusal, message: /turn count/ });
 });
+
+const yieldTask = () => new Promise(resolve => setImmediate(resolve));
+
+test('packed lazy motion preserves modal feed, the preceding Z transition, travel arcs and retraction', async () => {
+  const controller = new AbortController();
+  const { packed } = await fixture({ signal: controller.signal, yieldTask });
+  await packed.parseBatch([
+    'G28', 'G21', 'G90', 'M83', 'G0 X10 Y10 Z0.2 F600',
+    'G1 X20 E1', 'G1 E-1', 'G2 X30 Y10 Z0.4 I5 J0 F600',
+  ]);
+  await packed.parseBatch([
+    'M82', 'G92 E10', 'T1', 'G1 X35 E11', 'G91', 'G1 X5 E12',
+    'G90', 'G0 X100 Y100 Z10', // post-print parking is excluded
+  ]);
+  const data = await packed.finish();
+  assert.deepEqual(data.layers.map(layer => layer.end), [0, 1, 3]);
+  assert.ok(data.motion.sourceBytes > 0 && data.motion.sourceBytes < data.motion.rawSourceBytes);
+  assert.equal(await data.motion.load(0), null);
+  const first = await data.motion.load(1);
+  assert.equal(first.duration, 1);
+  assert.deepEqual(first.sample(0.5), { x: 15, y: 10, z: Math.fround(0.2), extruding: true });
+  const second = await data.motion.load(2);
+  assert.equal(second.basis, 'feed');
+  const arcSeconds = Math.hypot(5 * Math.PI, 0.2) / 10;
+  assert.ok(Math.abs(second.duration - (0.1 + arcSeconds + 1)) < 1e-8);
+  assert.deepEqual(second.sample(0), { x: 20, y: 10, z: Math.fround(0.2), extruding: false });
+  const middleArc = second.sample((0.1 + arcSeconds / 2) / second.duration);
+  assert.ok(Math.abs(middleArc.x - 25) < 1e-6 && Math.abs(middleArc.y - 15) < 1e-6);
+  assert.ok(Math.abs(middleArc.z - 0.3) < 1e-6);
+  assert.equal(middleArc.extruding, false);
+  const end = second.sample(1);
+  assert.deepEqual(end, { x: 40, y: 10, z: Math.fround(0.4), extruding: true });
+  assert.equal(second.moves, 4);
+});
+
+test('packed lazy motion exposes distance seek without inventing missing or partially supplied feed', async () => {
+  const { packed } = await fixture({ yieldTask });
+  await packed.parseBatch(['G90', 'M83', 'G0 X10 Y10 Z0.2', 'G1 X20 E1', 'G1 X40 E1 F600']);
+  const data = await packed.finish();
+  const path = await data.motion.load(1);
+  assert.equal(path.duration, 0);
+  assert.equal(path.distance, 30);
+  assert.equal(path.basis, 'distance');
+  assert.deepEqual(path.sample(1 / 2), { x: 25, y: 10, z: Math.fround(0.2), extruding: true });
+  assert.equal(path.sample(NaN), null);
+});
+
+test('packed motion replays exact line ranges across compressed blocks and honors cancellation', async () => {
+  const { packed } = await fixture({ yieldTask });
+  const lines = ['G90', 'M83', 'G0 X10 Y10 Z0.2 F600'];
+  for (let n = 0; n < 15_000; n++) lines.push(`G1 X${n % 2 ? '10.0000' : '11.0000'} E1`);
+  lines.push('G0 Z0.4', 'G1 X12 E1');
+  for (let i = 0; i < lines.length; i += 512) await packed.parseBatch(lines.slice(i, i + 512));
+  const { motion } = await packed.finish();
+  assert.ok(motion.rawSourceBytes > 192 * 1024);
+  assert.ok(motion.sourceBytes < 5 * 1024);
+  const first = await motion.load(1);
+  assert.equal(first.moves, 15_000);
+  assert.ok(Math.abs(first.duration - 1500) < 1e-6);
+  assert.equal(first.sample(1).x, 10);
+  const second = await motion.load(2);
+  assert.equal(second.moves, 2);
+  assert.deepEqual(second.sample(1), { x: 12, y: 10, z: Math.fround(0.4), extruding: true });
+  const controller = new AbortController();
+  const stop = new Error('canceled stale layer');
+  controller.abort(stop);
+  await assert.rejects(motion.load(1, { signal: controller.signal }), error => error === stop);
+});
+
+test('packed long extrusion arc expansion yields and stops on cancellation', async () => {
+  const controller = new AbortController();
+  const stop = new Error('canceled dense arc expansion');
+  let yielded = false;
+  const { packed } = await fixture({
+    signal: controller.signal,
+    yieldTask: async () => { yielded = true; controller.abort(stop); },
+  });
+  const arcs = Array(24).fill('G2 I2000 J0 E1');
+  await assert.rejects(packed.parseBatch(['G90', 'M83', 'G0 X10 Y10 Z0.2 F600', ...arcs]), error => error === stop);
+  assert.equal(yielded, true);
+});
+
+test('a supported static plate can distinguish an unsupported travel arc from an empty motion layer', async () => {
+  const { packed } = await fixture({ yieldTask });
+  await packed.parseBatch([
+    'G90', 'M83', 'G0 X10 Y10 Z0.2 F600', 'G1 X20 E1',
+    'G18', 'G2 Z0.6 K0.2', 'G17', 'G1 X30 E1',
+  ]);
+  const { motion, segmentCount } = await packed.finish();
+  assert.equal(segmentCount, 2);
+  assert.equal(await motion.load(0), null);
+  assert.equal((await motion.load(1)).sample(1).x, 20);
+  assert.deepEqual(await motion.load(2), { unavailable: 'unsupported-arc', bytes: 0 });
+});
+
+test('a layer beyond the decoded move budget leaves other animation layers and static paths usable', async () => {
+  const { packed } = await fixture({ yieldTask });
+  await packed.parseBatch(['G90', 'M83', 'G0 X10 Y10 Z0.2 F600', 'G1 X20 E1']);
+  const travels = Array.from({ length: 500 }, (_, i) => i % 2 ? 'G0 X22' : 'G0 X21');
+  for (let i = 0; i < 501; i++) await packed.parseBatch(travels);
+  await packed.parseBatch(['G1 X30 E1', 'G0 Z0.4', 'G1 X40 E1']);
+  const { motion, segmentCount } = await packed.finish();
+  assert.equal(segmentCount, 3);
+  assert.deepEqual(await motion.load(1), { unavailable: 'complexity', bytes: 0 });
+  assert.equal((await motion.load(2)).sample(1).x, 40);
+});
