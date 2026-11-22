@@ -14,7 +14,7 @@ async function fixture(t) {
   return { buffer, pending };
 }
 
-test('motion underflow prioritizes a cold layer, then warms its successor and recovers a backward seek', async t => {
+test('motion underflow prioritizes a cold window, then warms its successor and recovers a backward seek', async t => {
   const { buffer, pending } = await fixture(t);
   buffer.select(1400);
   await sleep(0);
@@ -34,11 +34,11 @@ test('motion underflow prioritizes a cold layer, then warms its successor and re
   assert.equal(buffer.current(), undefined);
   pending[2].resolve({ bytes: 999 });
   await sleep(0);
-  assert.deepEqual(buffer.stats(), { bytes: 0, layers: [], pending: 7 });
+  assert.deepEqual(buffer.stats(), { bytes: 0, layers: [], windows: [], pendingWindow: 7 });
   pending[3].resolve({ bytes: 30 });
   await sleep(0);
   assert.equal(buffer.current().bytes, 30);
-  assert.deepEqual(buffer.stats().layers, [7]);
+  assert.deepEqual(buffer.stats().windows, [7]);
 });
 
 test('a temporary request failure retries the same layer and disposal cancels pending warm work', async t => {
@@ -55,15 +55,17 @@ test('a temporary request failure retries the same layer and disposal cancels pe
   assert.equal(pending[2].signal.aborted, true);
   pending[2].resolve({ bytes: 888 });
   await sleep(0);
-  assert.deepEqual(buffer.stats(), { bytes: 0, layers: [], pending: null });
+  assert.deepEqual(buffer.stats(), { bytes: 0, layers: [], windows: [], pendingWindow: null });
 });
 
 test('live motion uses the latest clock after underflow, freezes across pause, and never loops', async () => {
   const { createPackedNozzlePlayback } = await import('../public/widgets/gcode-viz/packed-nozzle-playback.js');
   let time = 0, release;
   const playback = createPackedNozzlePlayback({
+    windowCount: 4,
+    layer: () => ({ duration: 10, basis: 'feed', locate: fraction => ({ index: 3, fraction }) }),
     load: () => new Promise(resolve => { release = resolve; }),
-  }, 4, () => {}, () => time);
+  }, () => {}, () => time);
   playback.live(3);
   await sleep(0);
   assert.equal(playback.frame().state, 'buffering');
@@ -86,7 +88,7 @@ test('live motion uses the latest clock after underflow, freezes across pause, a
   playback.dispose();
 });
 
-test('an in-flight warm layer becomes active without restarting its decode', async t => {
+test('an in-flight warm window becomes active without restarting its decode', async t => {
   const { buffer, pending } = await fixture(t);
   buffer.select(10);
   await sleep(0);
@@ -106,13 +108,23 @@ test('without a known feed, manual distance seek is available without invented l
   const { createPackedNozzlePlayback } = await import('../public/widgets/gcode-viz/packed-nozzle-playback.js');
   const endpoint = { x: 1, y: 2, z: 3 };
   const playback = createPackedNozzlePlayback({
-    load: async () => ({ bytes: 10, duration: 0, sample: () => endpoint }),
-  }, 2, () => {});
+    windowCount: 2,
+    layer: () => ({ duration: 0, basis: 'distance', locate: fraction => ({ index: 1, fraction }) }),
+    load: async () => ({
+      bytes: 10,
+      sample: (_fraction, basis) => {
+        assert.equal(basis, 'distance');
+        return endpoint;
+      },
+    }),
+  }, () => {});
   playback.live(1);
   await sleep(0);
   assert.equal(playback.frame().state, 'untimed');
   assert.equal(playback.frame().position, null);
   playback.seek(1, 1);
+  assert.equal(playback.frame().state, 'buffering');
+  await sleep(0);
   assert.equal(playback.frame().position, endpoint);
   playback.dispose();
 });
@@ -132,5 +144,63 @@ test('repeated decoding failure becomes a bounded unavailable result', async t =
   assert.deepEqual(buffer.current(), { unavailable: 'decode', bytes: 0 });
   await sleep(120);
   assert.equal(tries, 5);
-  assert.equal(buffer.stats().pending, null);
+  assert.equal(buffer.stats().pendingWindow, null);
+});
+
+test('motion inside one layer catches up after a skipped window and backward seek cancels lookahead', async t => {
+  const { createPackedNozzlePlayback } = await import('../public/widgets/gcode-viz/packed-nozzle-playback.js');
+  let time = 0;
+  const requests = [];
+  const playback = createPackedNozzlePlayback({
+    windowCount: 140,
+    layer: () => ({
+      duration: 140,
+      basis: 'feed',
+      moves: 286_720,
+      locate(progress) {
+        const point = progress * 140;
+        const index = Math.min(139, Math.floor(point));
+        return { index, fraction: point - index };
+      },
+    }),
+    load(index, { signal }) {
+      return new Promise(resolve => requests.push({ index, signal, resolve }));
+    },
+  }, () => {}, () => time);
+  t.after(playback.dispose);
+  const accept = async req => {
+    req.resolve({
+      bytes: 125_000, layer: 1, moves: 2048,
+      sample: fraction => ({ x: req.index + fraction, y: 0, z: 0 }),
+    });
+    await sleep(0);
+  };
+
+  playback.live(1);
+  await sleep(0);
+  await accept(requests[0]);
+  assert.equal(playback.frame().position.x, 0);
+  assert.equal(requests[1].index, 1);
+  time = 124_250;
+  assert.equal(playback.frame().state, 'buffering');
+  assert.equal(requests[1].signal.aborted, true);
+  await sleep(0);
+  assert.equal(requests[2].index, 124);
+  time = 126_500;
+  assert.equal(playback.frame().window, 126);
+  assert.equal(requests[2].signal.aborted, true);
+  await accept(requests[2]);
+  assert.equal(playback.frame().state, 'buffering');
+  await accept(requests[3]);
+  assert.equal(playback.frame().position.x, 126.5);
+  assert.equal(playback.frame().layerMoves, 286_720);
+
+  playback.seek(1, 0.025);
+  assert.equal(requests[4].signal.aborted, true);
+  await sleep(0);
+  assert.equal(requests[5].index, 3);
+  await accept(requests[5]);
+  assert.equal(playback.frame().position.x, 3.5);
+  assert.deepEqual(playback.stats().layers, [1]);
+  assert.ok(playback.stats().bytes <= 250_000);
 });

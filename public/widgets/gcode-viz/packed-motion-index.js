@@ -1,9 +1,8 @@
 const SOURCE_BLOCK_CHARACTERS = 192 * 1024;
 const MOVE_BLOCK_SIZE = 1024;
-// At most two decoded layers are kept by the viewer. At 61 bytes per move
-// in the worst case, the existing 250,000-command layer budget keeps both
-// under 30 MiB of typed buffers, separate from the immutable source spool.
-const MAX_LAYER_MOVES = 250_000;
+// Checkpoints and replay windows share this command boundary. The character
+// bound can also split a compressed block when unusually long lines require it.
+export const MOTION_WINDOW_LINES = 2048;
 
 export function createPackedMotionSource() {
   const blocks = [];
@@ -28,7 +27,7 @@ export function createPackedMotionSource() {
       pending.push(command, '\n');
       characters += command.length + 1;
       count++;
-      return characters >= SOURCE_BLOCK_CHARACTERS;
+      return characters >= SOURCE_BLOCK_CHARACTERS || count % MOTION_WINDOW_LINES === 0;
     },
     async flush(signal) {
       if (!pending.length) return;
@@ -76,26 +75,91 @@ export function createPackedMotionSource() {
   };
 }
 
-export function createLayerMoves() {
+function travelDistance(from, to, arc) {
+  return arc
+    ? Math.hypot(arc.radius * arc.sweep, to.z - from.z)
+    : Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+}
+
+export function addMotionWeights(weights, move, arc) {
+  const xyz = travelDistance(move.pos, move.next, arc);
+  const length = xyz || Math.abs(move.deltaE);
+  if (!(length > 0)) return;
+  const seconds = length * 60 / move.feed;
+  if (move.feed > 0 && Number.isFinite(weights.duration + seconds)) weights.duration += seconds;
+  else weights.untimed++;
+  weights.distance += xyz;
+  weights.moves++;
+}
+
+// A layer range starts before its entering travel and ends at its last
+// deposition. Intersect those exact boundaries with fixed source spans so
+// no portion of a long layer needs to be decoded before its first sample.
+export function indexMotionWindows(ranges, spans) {
+  const windows = [];
+  const layers = ranges.map((range, layer) => {
+    if (!range) return null;
+    const parts = [];
+    let duration = 0, distance = 0, moves = 0, untimed = false;
+    for (let i = range.start.span; i <= range.end.span; i++) {
+      const span = spans[i];
+      const start = i === range.start.span ? range.start : span.start;
+      const end = i === range.end.span ? range.end : span.end;
+      if (end.unsupported > start.unsupported) return { unavailable: 'unsupported-arc' };
+      const length = end.distance - start.distance;
+      const time = end.duration - start.duration;
+      parts.push({ line: start.line, state: start.state, end: end.line, length, time });
+      distance += length;
+      duration += time;
+      moves += end.moves - start.moves;
+      untimed ||= end.untimed > start.untimed;
+    }
+    if (!(distance > 0)) return null;
+    if (untimed || !Number.isFinite(duration)) duration = 0;
+    const basis = duration > 0 ? 'feed' : 'distance';
+    const first = windows.length;
+    let through = 0;
+    for (const { line, state, end, length, time } of parts) {
+      const weight = basis === 'feed' ? time : length;
+      if (!(weight > 0)) continue;
+      const before = through;
+      through += weight;
+      windows.push({ line, state, end, before, through, layer });
+    }
+    const last = windows.length - 1;
+    return {
+      duration, distance, moves, basis,
+      locate(fraction) {
+        if (!Number.isFinite(fraction)) return null;
+        if (fraction <= 0) return { index: first, fraction: 0 };
+        if (fraction >= 1) return { index: last, fraction: 1 };
+        const target = fraction * through;
+        let lo = first, hi = last;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (windows[mid].through <= target) lo = mid + 1;
+          else hi = mid;
+        }
+        const { before, through: end } = windows[lo];
+        return { index: lo, fraction: Math.max(0, Math.min(1, (target - before) / (end - before))) };
+      },
+    };
+  });
+  return { layers, windows };
+}
+
+export function createWindowMoves() {
   const blocks = [];
   let count = 0;
   let time = 0;
   let distance = 0;
   let timed = true;
   let bytes = 0;
-  let exceeding = false;
 
   function add(from, to, deltaE, feed, extrusion, arc) {
-    if (exceeding) return;
-    const xyz = arc
-      ? Math.hypot(arc.radius * arc.sweep, to.z - from.z)
-      : Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+    const xyz = travelDistance(from, to, arc);
     const length = xyz || Math.abs(deltaE);
     if (!(length > 0)) return;
-    if (count === MAX_LAYER_MOVES) {
-      exceeding = true;
-      return;
-    }
     let block = blocks.at(-1);
     if (count % MOVE_BLOCK_SIZE === 0) {
       block = {
@@ -132,27 +196,25 @@ export function createLayerMoves() {
 
   return {
     add,
-    get exceeded() { return exceeding; },
     finish() {
-      if (exceeding || !count || !(distance > 0)) return null;
+      if (!count) return null;
       const duration = timed ? time : 0;
-      const distanceBased = duration === 0;
-      const total = distanceBased ? distance : duration;
-      const weightOffset = Number(distanceBased);
-      function weight(i) {
-        if (i < 0) return 0;
-        const block = blocks[Math.floor(i / MOVE_BLOCK_SIZE)];
-        return block.weights[(i % MOVE_BLOCK_SIZE) * 2 + weightOffset];
-      }
       return {
         bytes,
         duration,
         distance,
         moves: count,
-        basis: distanceBased ? 'distance' : 'feed',
-        sample(fraction) {
-          if (!Number.isFinite(fraction)) return null;
+        sample(fraction, basis) {
+          const distanceBased = basis === 'distance';
+          const total = distanceBased ? distance : duration;
+          if (!Number.isFinite(fraction) || !(total > 0)) return null;
           const target = Math.max(0, Math.min(1, fraction)) * total;
+          const weightOffset = Number(distanceBased);
+          function weight(i) {
+            if (i < 0) return 0;
+            const block = blocks[Math.floor(i / MOVE_BLOCK_SIZE)];
+            return block.weights[(i % MOVE_BLOCK_SIZE) * 2 + weightOffset];
+          }
           let lo = 0;
           let hi = count - 1;
           while (lo < hi) {

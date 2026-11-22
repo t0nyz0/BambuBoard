@@ -1,5 +1,7 @@
 import { PreviewWorkloadError, PREVIEW_WORKLOAD_LIMITS } from './preview-workload.js';
-import { createLayerMoves, createPackedMotionSource } from './packed-motion-index.js';
+import {
+  addMotionWeights, createPackedMotionSource, createWindowMoves, indexMotionWindows, MOTION_WINDOW_LINES,
+} from './packed-motion-index.js';
 
 const CHUNK_SEGMENTS = 32_768;
 const MAX_PACKED_SEGMENTS = 3_800_000;
@@ -176,16 +178,19 @@ function getCurve(move) {
   return describeArc(move.pos, move.next, move.params, move.units, move.clockwise);
 }
 
-function createMotionPlayback(parser, spool, ranges) {
+function createMotionPlayback(parser, spool, ranges, spans) {
+  const { layers, windows } = indexMotionWindows(ranges, spans);
   return {
+    windowCount: windows.length,
+    layer: index => layers[index] ?? null,
     get sourceBytes() { return spool.sourceBytes; },
     get rawSourceBytes() { return spool.rawSourceBytes; },
     async load(index, { signal, yieldTask = () => new Promise(resolve => setTimeout(resolve, 0)) } = {}) {
       signal?.throwIfAborted();
-      const range = ranges[index];
-      if (!range || range.line === range.end) return null;
-      const reader = createMotionReader(range.state);
-      const moves = createLayerMoves();
+      const window = windows[index];
+      if (!window) return null;
+      const reader = createMotionReader(window.state);
+      const moves = createWindowMoves();
       const onSetting = () => {};
       let unsupportedArc = false;
       const onMove = move => {
@@ -201,11 +206,11 @@ function createMotionPlayback(parser, spool, ranges) {
         }
         moves.add(move.pos, move.next, move.deltaE, move.feed, move.extrusion, curve);
       };
-      await spool.replay(range.line, range.end, signal, async (lines, from, to) => {
+      await spool.replay(window.line, window.end, signal, async (lines, from, to) => {
         let deadline = performance.now() + 8;
         for (let i = from; i < to; i++) {
           reader.read(parser.parseCommand(lines[i], false), onSetting, onMove);
-          if (moves.exceeded || unsupportedArc) return false;
+          if (unsupportedArc) return false;
           if (i % 128 === 0 && performance.now() >= deadline) {
             await yieldTask();
             signal?.throwIfAborted();
@@ -215,8 +220,8 @@ function createMotionPlayback(parser, spool, ranges) {
       });
       signal?.throwIfAborted();
       if (unsupportedArc) return { unavailable: 'unsupported-arc', bytes: 0 };
-      if (moves.exceeded) return { unavailable: 'complexity', bytes: 0 };
-      return moves.finish();
+      const path = moves.finish();
+      return path ? { ...path, layer: window.layer } : null;
     },
   };
 }
@@ -238,9 +243,11 @@ export function createPackedToolpath(parser, {
   const reader = createMotionReader();
   const spool = yieldTask ? createPackedMotionSource() : null;
   const ranges = spool ? [null] : null;
+  const spans = spool ? [] : null;
+  let span = null;
   let lineIndex = 0;
   let deadline = 0;
-  let transition = spool ? { line: 0, state: reader.snapshot() } : null;
+  let transition = null;
   let tool = 0;
 
   function addSegment(ax, ay, az, bx, by, bz) {
@@ -270,7 +277,22 @@ export function createPackedToolpath(parser, {
   }
 
   function captureTransition() {
-    if (spool && !transition) transition = { line: lineIndex, state: reader.snapshot() };
+    if (spool && !transition) {
+      transition = { ...span.end, state: reader.snapshot(), span: spans.length - 1 };
+    }
+  }
+
+  function measureMotion(move, curve) {
+    if (!move.anchored) return;
+    if (move.arc && !curve) {
+      try { curve = getCurve(move); }
+      catch (error) {
+        if (!(error instanceof PreviewWorkloadError)) throw error;
+        span.end.unsupported++;
+        return;
+      }
+    }
+    addMotionWeights(span.end, move, curve);
   }
 
   function addCurve(curve, from, to) {
@@ -303,6 +325,7 @@ export function createPackedToolpath(parser, {
   function onMove(move) {
     if (!move.extrusion) {
       captureTransition();
+      if (spool) measureMotion(move);
       return;
     }
     const { pos, next, arc } = move;
@@ -315,13 +338,17 @@ export function createPackedToolpath(parser, {
       lastZ = next.z;
       if (spool) {
         captureTransition();
-        ranges.push({ ...transition, end: lineIndex + 1 });
+        ranges.push({ start: transition, end: {} });
       }
     }
     if (spool) {
       // Include any inter-layer travel in the next layer, but never replay
       // parking and post-processing after the final deposition.
-      ranges.at(-1).end = lineIndex + 1;
+      measureMotion(move, curve);
+      const end = ranges.at(-1).end;
+      Object.assign(end, span.end);
+      end.line = lineIndex + 1;
+      end.span = spans.length - 1;
       transition = null;
     }
     tool = move.tool;
@@ -338,9 +365,15 @@ export function createPackedToolpath(parser, {
     let flush = false;
     if (spool) {
       lineIndex = spool.count;
+      if (lineIndex % MOTION_WINDOW_LINES === 0) {
+        const boundary = { line: lineIndex, duration: 0, distance: 0, moves: 0, unsupported: 0, untimed: 0 };
+        span = { start: { ...boundary, state: reader.snapshot() }, end: boundary };
+        spans.push(span);
+      }
       flush = spool.append(line);
     }
     const pending = reader.read(command, captureTransition, onMove);
+    if (spool) span.end.line = lineIndex + 1;
     if (flush) return Promise.resolve(pending).then(() => spool.flush(signal));
     return pending;
   }
@@ -356,7 +389,7 @@ export function createPackedToolpath(parser, {
 
   function result() {
     return { chunks, layers, segmentCount, bounds: Number.isFinite(modelBounds[0]) ? modelBounds : allBounds,
-      motion: spool ? createMotionPlayback(parser, spool, ranges) : null };
+      motion: spool ? createMotionPlayback(parser, spool, ranges, spans) : null };
   }
 
   return {

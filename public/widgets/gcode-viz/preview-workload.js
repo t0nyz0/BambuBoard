@@ -133,7 +133,10 @@ export function createPreviewBudget(parser, { inches = false, limits = PREVIEW_W
         currentLayerToolRuns++;
       }
       if (layer.commands.length > limits.layerCommands || currentLayerSegments > limits.layerSegments) {
-        throw new PreviewWorkloadError('A layer is too dense for a reliable 3D preview.');
+        // The native preview retains travel and simulates every move. The
+        // packed renderer checks its own extrusion geometry budget while
+        // keeping travel in independently seekable motion windows.
+        throw new PreviewWorkloadError('A layer is too dense for a reliable 3D preview.', { canPack: true });
       }
       if (currentLayerToolRuns + 1 > limits.layerDrawBatches) {
         throw new PreviewWorkloadError('A layer needs too many separate render batches.');

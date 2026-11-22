@@ -64,6 +64,34 @@ function* compactToolpath(plate) {
   }
 }
 
+
+const windowLayer = { moves: 270000, movesPerRow: 1000, z: 0.16 };
+// Each move is exactly 1 mm at 60 mm/min. The last move of every row
+// extrudes, including the final move, so travels stay inside the layer.
+const windowHeader = compactHeader + 'G0 X10.00 Y10.00 Z0.16 F60\n';
+function windowPoint(move) {
+  const row = Math.floor(move / windowLayer.movesPerRow);
+  return [10 + (move - row) % 2, 10 + row, windowLayer.z];
+}
+function windowMoveLine(move) {
+  const [x, y] = windowPoint(move);
+  const extrusion = move % windowLayer.movesPerRow === 0;
+  return `G${extrusion ? 1 : 0} X${axis(x * 100)} Y${axis(y * 100)}${extrusion ? ' E0.05' : ''}\n`;
+}
+const windowLayerSegments = windowLayer.moves / windowLayer.movesPerRow;
+function windowByteLength() {
+  return windowHeader.length + (windowLayer.moves - windowLayerSegments) * windowMoveLine(1).length
+    + windowLayerSegments * windowMoveLine(windowLayer.movesPerRow).length;
+}
+function* windowToolpath() {
+  yield windowHeader;
+  for (let start = 1; start <= windowLayer.moves; start += 4096) {
+    const lines = [];
+    for (let move = start; move <= windowLayer.moves && move < start + 4096; move++) lines.push(windowMoveLine(move));
+    yield lines.join('');
+  }
+}
+
 function compactTiming(plate) {
   const layers = [];
   let elapsed = 0, previous = [0, 0, 0];
@@ -178,7 +206,7 @@ function onRasterMotion(plate, layer, position) {
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&mode=preview&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (!['packed', 'packed-held'].includes(mode)) return next();
+    if (!['packed', 'packed-held', 'packed-window'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
@@ -189,10 +217,12 @@ function onRasterMotion(plate, layer, position) {
       if (hold) hold.closed = true;
       controller.abort();
     });
-    res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(compactByteLength(packedFixture)), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
+    const windowed = mode === 'packed-window';
+    const length = windowed ? windowByteLength() : compactByteLength(packedFixture);
+    res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(length), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
       let chunks = 0;
-      for (const chunk of compactToolpath(packedFixture)) {
+      for (const chunk of windowed ? windowToolpath() : compactToolpath(packedFixture)) {
         signal.throwIfAborted();
         if (!res.write(chunk)) await once(res, 'drain', { signal });
         if (hold && ++chunks === 88) {
@@ -727,16 +757,19 @@ function onRasterMotion(plate, layer, position) {
     assert.ok(densePreview.paths.some(path => path.length >= 16000 * 3), 'The dense printable fixture draws its actual motion geometry');
     passed.push('A dense two-layer fixture renders all 16,000 extrusion moves on its first layer');
 
-    const packedEvidence = [];
-    async function checkPackedPlate(plate, name, timeout) {
-      await page.goto('about:blank');
-      const densePage = await context.newPage();
-      await densePage.addInitScript(() => {
+    async function attachPackedBrowserProbes(target, virtualClock = false) {
+      await target.addInitScript(virtualClock => {
+        if (virtualClock) {
+          window.__motionClockOffset = 0;
+          const actualNow = performance.now.bind(performance);
+          performance.now = () => actualNow() + window.__motionClockOffset;
+        }
         window.__packedHeartbeat = { loading: 0, maximumGapMs: 0 };
-        const gate = window.__packedLayerGate = { armed: false, blocked: false, release: null };
+        const gate = window.__packedLayerGate = { armed: false, blocked: false, release: null, reads: 0, canceled: 0 };
         const stream = Blob.prototype.stream;
         Blob.prototype.stream = function () {
           const original = stream.call(this);
+          gate.reads++;
           if (!gate.armed) return original;
           gate.armed = false;
           gate.blocked = true;
@@ -754,6 +787,7 @@ function onRasterMotion(plate, layer, position) {
             },
             cancel(reason) {
               cancelled = true;
+              gate.canceled++;
               return reader.cancel(reason);
             },
           });
@@ -770,7 +804,14 @@ function onRasterMotion(plate, layer, position) {
           wasBusy = busy;
           last = now;
         }, 25);
-      });
+      }, virtualClock);
+    }
+
+    const packedEvidence = [];
+    async function checkPackedPlate(plate, name, timeout) {
+      await page.goto('about:blank');
+      const densePage = await context.newPage();
+      await attachPackedBrowserProbes(densePage);
       let requests = 0, lateJoinRequests = 0;
       densePage.on('request', request => { if (new URL(request.url()).pathname === '/api/gcode/current') requests++; });
       const before = count;
@@ -1046,6 +1087,154 @@ function onRasterMotion(plate, layer, position) {
       passed.push('A 4.2-million-line dense plate renders all 3.44 million exact extrusion segments and 1,475 layers');
     }
     await fs.writeFile(path.join(artifacts, 'gcode-compact-results.json'), JSON.stringify(packedEvidence, null, 2));
+
+    async function checkWindowedLayer() {
+      await page.goto('about:blank');
+      const livePage = await context.newPage();
+      let latePage;
+      try {
+        const timeout = 60_000;
+        const job = 'Windowed single layer';
+        const viewer = base + '/widgets/gcode-viz/?debug=1&mode=preview';
+        const before = count;
+        const waitForPlate = target => target.waitForFunction(segments => {
+          const packed = window.__diag?.().compact;
+          return packed?.visibleSegments === segments && packed.staticLines >= segments;
+        }, windowLayerSegments, { timeout });
+        const waitForPose = async (target, move, exact = false) => {
+          const handle = await target.waitForFunction(({ point, exact }) => {
+            const motion = window.__diag?.().motion;
+            const pos = motion?.position;
+            if (motion?.state !== 'ready' || !motion.visible || motion.layer !== 1 || !pos) return false;
+            const matchesX = exact ? Math.abs(pos[0] - point[0]) < 0.002 : pos[0] >= 9.998 && pos[0] <= 11.002;
+            return matchesX && Math.abs(pos[1] - point[1]) < 0.002 && Math.abs(pos[2] - point[2]) < 0.002 && motion;
+          }, { point: windowPoint(move), exact }, { timeout });
+          const motion = await handle.jsonValue();
+          await handle.dispose();
+          assert.equal(motion.layerMoves, windowLayer.moves, 'Travel and extrusion must all contribute actual indexed moves');
+          assert.ok(motion.windowMoves > 0 && motion.windowMoves <= 2048, JSON.stringify(motion));
+          assert.ok(motion.windows.length > 0 && motion.windows.length <= 2 && motion.windows.includes(motion.window), JSON.stringify(motion));
+          assert.ok(motion.bytes > 0 && motion.bytes <= 2 * 2048 * 61, JSON.stringify(motion));
+          return motion;
+        };
+        const finishLookahead = target => target.waitForFunction(() => {
+          const motion = window.__diag?.().motion;
+          return motion?.windows.length === 2 && motion.pendingWindow === null;
+        }, null, { timeout });
+        const advanceClock = (target, move) => target.evaluate(move => {
+          window.__motionClockOffset = move * 1000;
+        }, move);
+        const seek = (target, fraction) => target.evaluate(fraction => {
+          const slider = document.getElementById('gcodePath');
+          slider.value = String(fraction);
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }, fraction);
+
+        await attachPackedBrowserProbes(livePage, true);
+        mode = 'packed-window';
+        await write(job, 'PAUSED', { layer_num: 1, total_layer_num: 1, mc_percent: 10 });
+        const loadingStarted = performance.now();
+        await livePage.goto(viewer);
+        await waitForPlate(livePage);
+        const initialLoadMs = performance.now() - loadingStarted;
+        assert.ok(initialLoadMs < 45_000, `Preparing the windowed plate took ${initialLoadMs} ms`);
+        const liveStatic = await livePage.evaluate(() => {
+          const { motion, compact } = window.__diag();
+          const group = window.__preview.scene.getObjectByName('packed-toolpath');
+          window.__windowedGeometry = group.children.map(object => ({
+            geometry: object.geometry,
+            attribute: object.geometry.getAttribute('position'),
+            version: object.geometry.getAttribute('position').version,
+          }));
+          return { staticDraws: motion.staticDraws, visible: motion.visible, layers: compact.layers };
+        });
+        assert.deepEqual({ visible: liveStatic.visible, layers: liveStatic.layers }, { visible: false, layers: 2 });
+
+        await writePacket({ ...print, gcode_state: 'RUNNING' });
+        await waitForPose(livePage, 5);
+        const initialHeartbeat = await livePage.evaluate(() => window.__packedHeartbeat);
+        assert.ok(initialHeartbeat.loading > 0 && initialHeartbeat.maximumGapMs < 5000, JSON.stringify(initialHeartbeat));
+        await advanceClock(livePage, 249800);
+        const beforeCeiling = await waitForPose(livePage, 249800);
+        await advanceClock(livePage, 250200);
+        const afterCeiling = await waitForPose(livePage, 250200);
+        assert.ok(afterCeiling.window > beforeCeiling.window, 'A running print must continue into later windows in the same layer');
+        await finishLookahead(livePage);
+
+        // Hold a cold window while both the wall-clock playhead and the
+        // ordinary printer telemetry continue. Release after it has moved.
+        await livePage.evaluate(() => {
+          window.__packedLayerGate.armed = true;
+          window.__motionClockOffset = 263500 * 1000;
+        });
+        await livePage.waitForFunction(() => window.__packedLayerGate.blocked &&
+          window.__diag()?.motion?.state === 'buffering' && !window.__diag().motion.visible, null, { timeout });
+        await livePage.getByText('Buffering nozzle preview', { exact: false }).waitFor();
+        const telemetry = await livePage.waitForResponse(response => new URL(response.url()).pathname === '/data.json' && response.ok(), { timeout });
+        assert.equal((await telemetry.json()).print._bb_job_id, job);
+        await advanceClock(livePage, 264100);
+        await livePage.evaluate(() => window.__packedLayerGate.release());
+        const recovered = await waitForPose(livePage, 264100);
+        assert.ok(recovered.window > afterCeiling.window);
+        assert.equal(recovered.staticDraws, liveStatic.staticDraws, 'Motion-only frames must not redraw the plate');
+        assert.ok(await livePage.evaluate(() => {
+          const group = window.__preview.scene.getObjectByName('packed-toolpath');
+          const saved = window.__windowedGeometry;
+          return group.children.length === saved.length && group.children.every(({ geometry }, index) =>
+            geometry === saved[index].geometry && geometry.getAttribute('position') === saved[index].attribute &&
+            geometry.getAttribute('position').version === saved[index].version);
+        }), 'The same packed GPU geometry stays resident throughout playback and buffering');
+        assert.equal(count, before + 1);
+
+        // A new paused viewer jumps directly to a late window. Its first
+        // decode should read only a few source blocks, not walk from zero.
+        await writePacket({ ...print, gcode_state: 'PAUSED' });
+        latePage = await context.newPage();
+        await attachPackedBrowserProbes(latePage);
+        await latePage.goto(viewer);
+        await waitForPlate(latePage);
+        const readsBeforeSeek = await latePage.evaluate(() => window.__packedLayerGate.reads);
+        assert.deepEqual(await latePage.evaluate(() => window.__diag().motion.windows), []);
+        const seekingStarted = performance.now();
+        await seek(latePage, 980);
+        const directSeek = await waitForPose(latePage, 264600, true);
+        const directSeekMs = performance.now() - seekingStarted;
+        assert.ok(directSeekMs < 10_000, `Direct seeking took ${directSeekMs} ms`);
+        await finishLookahead(latePage);
+        const readsAfterSeek = await latePage.evaluate(() => window.__packedLayerGate.reads);
+        assert.ok(readsAfterSeek - readsBeforeSeek >= 1 && readsAfterSeek - readsBeforeSeek <= 6, 'A late seek may only read the requested window and lookahead');
+        assert.ok(directSeek.window >= recovered.window);
+
+        // Supersede an in-flight rewind with a second rewind. The old
+        // response is released afterwards to check it cannot publish.
+        await latePage.evaluate(() => { window.__packedLayerGate.armed = true; });
+        await seek(latePage, 500);
+        await latePage.waitForFunction(() => window.__packedLayerGate.blocked &&
+          window.__diag()?.motion?.state === 'buffering', null, { timeout });
+        await seek(latePage, 47);
+        const backwardSeek = await waitForPose(latePage, 12690, true);
+        assert.ok(backwardSeek.window < directSeek.window);
+        await latePage.waitForFunction(() => window.__packedLayerGate.canceled === 1, null, { timeout });
+        await latePage.evaluate(() => window.__packedLayerGate.release());
+        await latePage.waitForTimeout(150);
+        assert.deepEqual(await latePage.evaluate(() => window.__diag().motion.position), backwardSeek.position);
+        await latePage.getByText('Toolpath replay', { exact: true }).waitFor();
+        assert.equal(count, before + 2, 'Each viewer downloads the plate once across all windows and seeks');
+
+        const evidence = {
+          moves: windowLayer.moves, extrusionSegments: windowLayerSegments, sourceBytes: windowByteLength(),
+          beforeCeiling, afterCeiling, recovered, directSeek, backwardSeek,
+          initialLoadMs, initialHeartbeat, directSeekMs, lateSourceReads: readsAfterSeek - readsBeforeSeek,
+          httpDownloads: count - before, staticDrawsDuringLivePlayback: recovered.staticDraws - liveStatic.staticDraws,
+        };
+        await fs.writeFile(path.join(artifacts, 'gcode-motion-window-results.json'), JSON.stringify(evidence, null, 2));
+      } finally {
+        await latePage?.close();
+        await livePage.close();
+      }
+    }
+    await checkWindowedLayer();
+    passed.push('Intra-layer motion windows animate a 270,000-move layer across the old ceiling and recover cold live and backward seeks without redrawing the plate');
 
     packedFixture = compactPlate;
     mode = 'packed-held';

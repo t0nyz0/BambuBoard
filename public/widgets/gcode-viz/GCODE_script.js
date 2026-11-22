@@ -1324,7 +1324,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       if (preview.extrusionColor !== packingPalette) renderer.setPalette(preview.extrusionColor);
       parser.preamble = layers[0];
       parser.layers = layers.slice(1);
-      packedPlayback = createPackedNozzlePlayback(packed.motion, layers.length, yieldTask);
+      packedPlayback = createPackedNozzlePlayback(packed.motion, yieldTask);
       packedCompositor = createPackedNozzleRenderer(preview, nozzleGroup, {
         lights: [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim],
       });
@@ -1528,7 +1528,6 @@ function autoFitCamera() {
 
 function packedStatus(frame) {
   if (frame.state === 'buffering') return 'Buffering nozzle preview…';
-  if (frame.unavailable === 'complexity') return 'This layer is too complex for nozzle playback';
   if (frame.unavailable === 'unsupported-arc') return 'Nozzle playback cannot follow an arc in this layer';
   if (frame.unavailable === 'decode') return 'Could not decode nozzle movement for this layer';
   if (frame.state === 'unavailable') return 'Nozzle path unavailable for this layer';
@@ -2053,11 +2052,11 @@ if (debug && logEl) {
 
 function packedMotionDiagnostics() {
   if (!packedPlayback) return null;
-  const { state, layer } = packedPlayback.frame();
+  const { state, layer, window, windowMoves, layerMoves } = packedPlayback.frame();
   const point = packedFrame?.position;
   const { staticDraws, nozzleDraws } = packedCompositor.stats();
   return {
-    ...packedPlayback.stats(), state, layer, visible: nozzleGroup.visible,
+    ...packedPlayback.stats(), state, layer, window, windowMoves, layerMoves, visible: nozzleGroup.visible,
     position: point ? [point.x, point.y, point.z] : null,
     staticDraws, animationDraws: nozzleDraws,
   };

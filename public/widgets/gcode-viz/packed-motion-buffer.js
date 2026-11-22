@@ -1,6 +1,6 @@
-// The backing source can seek any layer. Decode only the selected layer and
-// its immediate successor, with one request in flight and active-first order.
-export function createPackedMotionBuffer(source, layerCount, yieldTask) {
+// Decode only the selected motion window and its immediate successor, with
+// one request in flight and active-first order.
+export function createPackedMotionBuffer(source, windowCount, yieldTask) {
   const ready = new Map();
   let active = -1;
   let request = null;
@@ -11,7 +11,7 @@ export function createPackedMotionBuffer(source, layerCount, yieldTask) {
   function pump() {
     if (disposed || active < 0 || request || retry !== null) return;
     const next = ready.has(active) ? active + 1 : active;
-    if (next >= layerCount || ready.has(next)) return;
+    if (next >= windowCount || ready.has(next)) return;
     const controller = new AbortController();
     const pending = request = { index: next, controller };
     Promise.resolve().then(() => {
@@ -53,8 +53,8 @@ export function createPackedMotionBuffer(source, layerCount, yieldTask) {
     resetRetry();
     // A failed lookahead gets a fresh attempt when it becomes the target.
     if (ready.get(index)?.unavailable === 'decode') ready.delete(index);
-    for (const layer of ready.keys()) {
-      if (index < 0 || (layer !== index && layer !== index + 1)) ready.delete(layer);
+    for (const window of ready.keys()) {
+      if (index < 0 || (window !== index && window !== index + 1)) ready.delete(window);
     }
     if (request && request.index !== index) {
       request.controller.abort();
@@ -67,8 +67,9 @@ export function createPackedMotionBuffer(source, layerCount, yieldTask) {
     select,
     current: () => ready.get(active),
     stats: () => ({
-      layers: [...ready.keys()],
-      pending: request?.index ?? null,
+      windows: [...ready.keys()],
+      layers: [...new Set([...ready.values()].map(path => path?.layer).filter(Number.isInteger))],
+      pendingWindow: request?.index ?? null,
       bytes: [...ready.values()].reduce((sum, path) => sum + (path?.bytes || 0), 0),
     }),
     dispose() {
