@@ -7,10 +7,24 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 echo "Pulling BambuBoard..."
-docker pull ghcr.io/t0nyz0/bambuboard:latest
+IMAGE=ghcr.io/t0nyz0/bambuboard:latest
+DATA_DIR="$(pwd)/data"
+mkdir -p "$DATA_DIR"
+docker pull "$IMAGE"
 
 echo "(Re)starting container..."
-docker rm -f bambuboard >/dev/null 2>&1 || true
+was_running="$(docker inspect -f '{{.State.Running}}' bambuboard 2>/dev/null || true)"
+if [ "$was_running" = true ]; then docker stop bambuboard; fi
+if [ "$(docker image inspect -f '{{.Config.User}}' "$IMAGE")" = node ] &&
+   ! docker run --rm --network none -v "$DATA_DIR:/usr/src/app/data" "$IMAGE" \
+      node -e 'require("./src/lib/containerData").checkContainerData("/usr/src/app/data")'; then
+  if ! docker run --rm --network none --user 0:0 -v "$DATA_DIR:/usr/src/app/data" "$IMAGE" \
+      node scripts/docker-migrate-data.js; then
+    if [ "$was_running" = true ]; then docker start bambuboard; fi
+    exit 1
+  fi
+fi
+docker rm bambuboard >/dev/null 2>&1 || true
 
 docker run -d \
   --name bambuboard \
@@ -25,8 +39,8 @@ docker run -d \
   -e BAMBUBOARD_TEMP_SETTING=${BAMBUBOARD_TEMP_SETTING:-Both} \
   -e BAMBUBOARD_FAN_ICONS=${BAMBUBOARD_FAN_ICONS:-true} \
   -e BAMBUBOARD_LOGGING=${BAMBUBOARD_LOGGING:-false} \
-  -v $(pwd)/data:/usr/src/app/data \
-  ghcr.io/t0nyz0/bambuboard:latest
+  -v "$DATA_DIR:/usr/src/app/data" \
+  "$IMAGE"
 
 echo "BambuBoard running at http://localhost:8080"
 echo "If you haven't configured a printer yet, the setup wizard opens automatically."

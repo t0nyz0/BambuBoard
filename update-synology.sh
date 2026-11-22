@@ -33,7 +33,21 @@ echo "==> Pulling latest BambuBoard image..."
 docker pull "$IMAGE"
 
 echo "==> Stopping old container (if running)..."
-docker stop "$CONTAINER" 2>/dev/null || true
+was_running="$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)"
+if [ "$was_running" = true ]; then docker stop "$CONTAINER"; fi
+
+# Prepare an older volume before removing the old container. Already
+# writable mounts (including upgraded installs) keep their ownership.
+if [ "$(docker image inspect -f '{{.Config.User}}' "$IMAGE")" = node ] &&
+   ! docker run --rm --network none -v "$DATA_DIR:/usr/src/app/data" "$IMAGE" \
+      node -e 'require("./src/lib/containerData").checkContainerData("/usr/src/app/data")'; then
+  echo "==> Preparing legacy BambuBoard data at $DATA_DIR..."
+  if ! docker run --rm --network none --user 0:0 -v "$DATA_DIR:/usr/src/app/data" "$IMAGE" \
+      node scripts/docker-migrate-data.js; then
+    if [ "$was_running" = true ]; then docker start "$CONTAINER"; fi
+    exit 1
+  fi
+fi
 docker rm "$CONTAINER" 2>/dev/null || true
 
 echo "==> Starting BambuBoard..."

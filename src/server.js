@@ -12,6 +12,7 @@ const { buildVideoRouter } = require('./routes/video');
 const { buildStreamRouter } = require('./routes/stream');
 const { buildGcodeRouter } = require('./routes/gcode');
 const { sameOrigin } = require('./lib/requestOrigin');
+const { checkContainerData } = require('./lib/containerData');
 
 const ROOT = path.resolve(__dirname, '..');
 const paths = {
@@ -21,6 +22,14 @@ const paths = {
   data: configMod.DATA_DIR,
 };
 const DATA_FILE = path.join(paths.data, 'data.json');
+
+if (process.env.BAMBUBOARD_CONTAINER === '1') {
+  try { checkContainerData(paths.data); } catch (error) {
+    console.error(`BambuBoard cannot read or write Docker data at ${paths.data} (UID ${process.getuid()}).`);
+    console.error('For an existing volume, follow the Docker upgrade instructions in README.md before restarting.');
+    throw error;
+  }
+}
 
 let config = configMod.load();
 function getConfig() { return config; }

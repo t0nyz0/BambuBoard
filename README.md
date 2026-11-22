@@ -65,17 +65,17 @@ Images are published for `linux/amd64` and `linux/arm64`. The Docker host must b
 
 ```bash
 docker run -d --name bambuboard --restart unless-stopped -p 8080:8080 \
-  -v "$(pwd)/data:/usr/src/app/data" \
+  -v bambuboard-data:/usr/src/app/data \
   ghcr.io/t0nyz0/bambuboard:latest
 ```
 
-Open **http://localhost:8080**, or **http://<your-host-ip>:8080** when Docker runs on another machine. An unconfigured installation opens Setup automatically. Settings, scenes and cached files persist in the mounted `data` directory; back it up before upgrades.
+Open **http://localhost:8080**, or **http://<your-host-ip>:8080** when Docker runs on another machine. An unconfigured installation opens Setup automatically. Settings, scenes and cached files persist in the mounted volume. If upgrading, reuse the same data mount and follow the [Docker upgrade steps](#upgrading-an-existing-docker-installation).
 
 [`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Edit or remove its example `BAMBUBOARD_PRINTER_*` environment settings before running `docker compose up -d`: populated overrides replace values saved through Setup when the app starts. Keep the included `OBS_settings` directory when using its template mount.
 
 ### Synology NAS
 
-The [Synology Compose file](docker-compose.synology.yml) pulls the published image, uses host networking and mounts `~/bambuboard-data`. Save the file on your NAS, then run:
+The [Synology Compose file](docker-compose.synology.yml) pulls the published image, uses host networking and mounts `~/bambuboard-data`. Save the file on your NAS, then follow the [Compose data preparation steps](#upgrading-an-existing-docker-installation) before starting a new bind mount or upgrading older root-owned data.
 
 ```bash
 docker compose -f docker-compose.synology.yml pull
@@ -91,6 +91,27 @@ chmod +x update-synology.sh
 ```
 
 The script elevates with `sudo`, pulls `latest` and replaces the `bambuboard` container. Its bind mount is `$HOME/bambuboard-data` **after elevation**, usually `/root/bambuboard-data`; it prints the actual path. Compose resolves `~` from the account running Compose. For an existing installation, retain its current data mount when choosing either method so your settings and scenes carry over. Open **http://<your-nas-ip>:8080**.
+
+### Upgrading an existing Docker installation
+
+BambuBoard 3.3.2 runs as UID and GID `1000:1000` by default and reports its health using its local HTTP listener. A new named volume works with the default user. Keep your current volume when upgrading.
+
+- For an existing writable mount, upgrade with the same mount. If the owner is a different non-root UID and GID, you can keep that ownership by setting Docker `--user UID:GID` or Compose `user: "UID:GID"`. The runtime user needs read and write access to BambuBoard's files and directories.
+- If an older root-run container owns the data, stop the old container and back up its data. Pull the new image, then run this one-time command. Replace `/absolute/path/to/current-data` with the actual bind path or existing Docker volume name.
+
+  ```bash
+  docker run --rm --network none --user 0:0 \
+    -v "/absolute/path/to/current-data:/usr/src/app/data" \
+    ghcr.io/t0nyz0/bambuboard:latest node scripts/docker-migrate-data.js
+  ```
+
+  For Compose, build or pull the updated image and use the same service and file as your installation. For the Synology file, insert `-f docker-compose.synology.yml` before `run`.
+
+  ```bash
+  docker compose run --rm --no-deps --user 0:0 bambuboard node scripts/docker-migrate-data.js
+  ```
+
+  The command can also prepare a new bind mount created by Docker for Compose. It updates ownership and owner permissions of BambuBoard data and leaves the contents and unrelated files alone. Start the updated container with its default user after the command succeeds. The install/update scripts perform this step for their own data mount when required. If a NAS or network share restricts ownership changes, set permissions on the host or use the mount's existing non-root UID and GID.
 
 ### From source
 

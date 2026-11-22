@@ -20,8 +20,11 @@ RUN npm ci --omit=dev \
 
 COPY . .
 
+RUN install -d -o node -g node -m 0750 /usr/src/app/data
+
 # Default config envs (override via docker-compose / docker run -e)
-ENV BAMBUBOARD_HTTP_PORT=8080 \
+ENV BAMBUBOARD_CONTAINER=1 \
+    BAMBUBOARD_HTTP_PORT=8080 \
     BAMBUBOARD_TEMP_SETTING=Both \
     BAMBUBOARD_FAN_PERCENTAGES=false \
     BAMBUBOARD_FAN_ICONS=true \
@@ -30,4 +33,9 @@ ENV BAMBUBOARD_HTTP_PORT=8080 \
 
 EXPOSE 8080
 
+USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["node", "scripts/docker-healthcheck.js"]
+
+ENTRYPOINT ["sh", "/usr/src/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "src/server.js"]

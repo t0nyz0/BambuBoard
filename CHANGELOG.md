@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file. The format foll
 - Render only HTTP and HTTPS browser sources from OBS imports. Exclude legacy credentials and telemetry from Docker builds.
 - Update basic-ftp, body-parser, ip-address, and qs to versions with the reported security fixes.
 - Refresh the app, browser libraries, test tools, and GitHub Actions to their current compatible releases.
+- Run Docker as an unprivileged user, add a health check, and provide a one-time migration for legacy data written by root.
 
 ---
 

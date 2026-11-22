@@ -57,7 +57,15 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
         run: |
-          docker run --platform "$PLATFORM" --rm -v "$GITHUB_WORKSPACE/test:/usr/src/app/test:ro" bambuboard:test sh -ec 'apk add --no-cache openssl; node --test test/*.test.js'
+          docker build --platform "$PLATFORM" -t bambuboard:integration -f - . <<'DOCKERFILE'
+          FROM bambuboard:test
+          USER root
+          RUN apk add --no-cache openssl
+          USER node
+          DOCKERFILE
+          docker run --platform "$PLATFORM" --rm -v "$GITHUB_WORKSPACE/test:/usr/src/app/test:ro" bambuboard:integration sh -ec 'test "$(id -u)" -eq 1000; node --test test/*.test.js'
+      - name: Container health check and volume upgrade
+        run: bash test/container-runtime-check.sh bambuboard:test
       - name: Native container WebGL toolpath preview
         env:
           PLATFORM: ${{ matrix.platform }}

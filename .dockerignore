@@ -12,5 +12,8 @@ screenshots
 test
 scripts/*
 !scripts/ftp-test.js
+!scripts/docker-healthcheck.js
+!scripts/docker-migrate-data.js
+!scripts/docker-entrypoint.sh
 .codex
 .DS_Store
