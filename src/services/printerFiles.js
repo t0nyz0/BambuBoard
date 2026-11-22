@@ -13,6 +13,9 @@ class GcodeError extends Error {
     super(message); Object.assign(this, { code, retryable, status, stage });
   }
 }
+function oversizedArchive(stage) {
+  return new GcodeError('ARCHIVE_TOO_LARGE', `The sliced archive exceeds the ${archiveMiB} MiB limit.`, { stage, status: 413 });
+}
 function safePath(value) {
   if (typeof value !== 'string' || !value || value.length > 1024 || /[\x00-\x1f\x7f\\]/.test(value)
       || value.split('/').some(s => s === '..' || s === '.')) return null;
@@ -70,7 +73,6 @@ function crc32(data) {
   return (crc ^ -1) >>> 0;
 }
 async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent = () => {}, limits = LIMITS } = {}) {
-  if (buffer.length > limits.archive) throw new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB limit. Open this plate in Bambu Studio.`, { stage: 'validate', status: 413 });
   const oversizedToolpath = (bytes, stage) => {
     const size = (bytes / MiB).toFixed(2);
     return new GcodeError('FILE_TOO_LARGE', `The unpacked G-code is ${size} MiB and exceeds the ${toolpathMiB} MiB preview limit. Open this plate in Bambu Studio.`, { stage, status: 413 });
@@ -79,6 +81,7 @@ async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent
     if (buffer.length > limits.gcode) throw oversizedToolpath(buffer.length, 'validate');
     return validateGcode(buffer);
   }
+  if (buffer.length > limits.archive) throw oversizedArchive('validate');
   const invalidArchive = () => new GcodeError('ARCHIVE_INVALID', 'The sliced archive is damaged or unsupported. Re-export the exact sliced plate.', { stage: 'extract' });
   const zip = await new Promise((resolve, reject) => yauzl.fromBuffer(buffer, { lazyEntries: true, autoClose: false }, (err, value) => err ? reject(invalidArchive()) : resolve(value)));
   try {
@@ -180,18 +183,29 @@ async function fetchPlateGcode(options) {
           let size;
           try { size = await client.size(remote); }
           catch (err) { if (![500, 502, 504].includes(Number(err.code))) throw err; }
-          if (size > limits.archive) throw new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB download limit. Open this plate in Bambu Studio.`, { stage, status: 413 });
+          const raw = /\.gcode$/i.test(remote);
+          const maxBytes = raw ? limits.gcode : limits.archive;
+          const tooLarge = () => raw
+            ? new GcodeError('FILE_TOO_LARGE', `The G-code file exceeds the ${toolpathMiB} MiB download limit. Open this plate in Bambu Studio.`, { stage, status: 413 })
+            : oversizedArchive(stage);
+          if (size > maxBytes) throw tooLarge();
           stage = 'download'; event({ result: 'start', path: remote, expectedBytes: size });
-          const chunks = []; let count = 0;
+          const expected = Number.isSafeInteger(size) && size > 0 ? Buffer.allocUnsafe(size) : null;
+          const chunks = [];
+          const incomplete = () => new GcodeError('FILE_TRUNCATED', 'The printer returned an empty or incomplete sliced file.', { retryable: true, stage });
+          let count = 0;
           const sink = new Writable({ write(chunk, _enc, callback) {
+            if (count + chunk.length > maxBytes) return callback(tooLarge());
+            if (expected && count + chunk.length > expected.length) return callback(incomplete());
+            if (expected) chunk.copy(expected, count);
+            else chunks.push(chunk);
             count += chunk.length;
-            if (count > limits.archive) callback(new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB download limit. Open this plate in Bambu Studio.`, { status: 413 }));
-            else { chunks.push(chunk); callback(); }
+            callback();
           } });
           await client.downloadTo(sink, remote); check();
-          if (!count || (size != null && count !== size)) throw new GcodeError('FILE_TRUNCATED', 'The printer returned an empty or incomplete sliced file.', { retryable: true, stage });
+          if (!count || (size != null && count !== size)) throw incomplete();
           stage = 'extract';
-          const data = await extractPlateGcode(Buffer.concat(chunks, count), { plate: job.plate, plateKnown: job.plateKnown, onEvent: event, limits });
+          const data = await extractPlateGcode(expected || Buffer.concat(chunks, count), { plate: job.plate, plateKnown: job.plateKnown, onEvent: event, limits });
           check();
           event({ stage: 'download', result: 'ok', path: remote, bytes: data.length });
           return data;

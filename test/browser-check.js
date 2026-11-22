@@ -12,6 +12,96 @@ const { h3cAmsPrint } = require('./fixtures/h3c-ams');
 const root = path.resolve(__dirname, '..');
 const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 X80 Y80 E3\nG1 X10 Y80 E4\nG1 X10 Y10 E5\n;LAYER:1\nG1 Z0.4\nG1 X80 Y10 E6\nG1 X80 Y80 E7\nG1 X10 Y80 E8\n';
 
+async function checkLiveWidgetReuse(context, base) {
+  const page = await context.newPage();
+  const toolpath = { name: 'Live toolpath fixture', id: 'browser_source', settings: { url: `${base}/widgets/gcode-viz/?debug=1&view=front&zoom=110`, width: 280, height: 240 } };
+  const status = { name: 'Live status fixture', id: 'browser_source', settings: { url: `${base}/version?v=1`, width: 100, height: 100 } };
+  const camera = { name: 'Live camera fixture', id: 'ffmpeg_source', settings: { width: 320, height: 180 } };
+  const items = [toolpath, status, camera].map((src, id) => ({ id, name: src.name, pos: { x: 0, y: 0 }, align: 5 }));
+  const scene = { id: 'scene', name: 'Live fixture', settings: { items } };
+  const publication = { resolution: { x: 640, y: 480 }, sources: [toolpath, status, camera, scene] };
+  let revision = 1;
+  let toolpathRequests = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/gcode/current') toolpathRequests++;
+  });
+  try {
+    await page.addInitScript(() => {
+      if (window !== window.top) return;
+      const fetchNormally = window.fetch.bind(window);
+      const timeout = AbortSignal.timeout.bind(AbortSignal);
+      AbortSignal.timeout = ms => timeout(Math.min(ms, 300));
+      window.fetch = (url, options) => {
+        if (url !== window.stalledPublicationFixture) return fetchNormally(url, options);
+        window.stalledPublicationFixture = null;
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            window.timedOutPublicationFixture = url;
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      };
+    });
+    await page.route(`${base}/api/obs/active`, route => route.fulfill({ json: { slug: 'live-fixture', updatedAt: revision } }));
+    await page.route(`${base}/api/obs/published`, route => route.fulfill({ json: publication }));
+    await page.goto(base + '/live');
+    await page.locator('iframe').nth(2).waitFor({ state: 'attached' });
+    const toolpathElement = await page.locator('iframe[title="Live toolpath fixture"]').elementHandle();
+    const toolpathFrame = await toolpathElement.contentFrame();
+    await toolpathFrame.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')));
+    assert.equal(await toolpathFrame.evaluate(() => window.__diag().orbit.view), 'front');
+    assert.equal(toolpathRequests, 1);
+    await page.waitForFunction(() => [...document.querySelectorAll('#stage iframe')].every(frame =>
+      frame.contentDocument?.readyState === 'complete' && frame.contentDocument.URL === frame.src));
+    await page.evaluate(() => {
+      window.liveFixtureDocuments = Object.fromEntries([...document.querySelectorAll('#stage iframe')].map(frame => [frame.title, frame.contentDocument]));
+    });
+
+    const toolpathItem = items[0];
+    toolpathItem.pos.x = 35;
+    toolpathItem.scale = { x: 1.5, y: 1 };
+    items.push(items.shift());
+    toolpath.settings.width = 360;
+    toolpath.settings.url = `${base}/widgets/gcode-viz/?debug=1&view=top&zoom=130`;
+    toolpath.settings.css = 'body { --bb-live-fixture: applied; }';
+    status.settings.url = `${base}/version?v=2`;
+    const statusReloaded = page.waitForResponse(`${base}/version?v=2`);
+    revision++;
+    await statusReloaded;
+    await toolpathFrame.waitForFunction(() => window.__diag()?.orbit.view === 'top' && window.__diag()?.orbit.zoom === 130);
+    assert.equal(await toolpathFrame.evaluate(() => getComputedStyle(document.body).getPropertyValue('--bb-live-fixture').trim()), 'applied');
+    assert.deepEqual(await toolpathElement.evaluate(frame => ({ left: frame.parentElement.style.left, width: frame.parentElement.style.width, zIndex: frame.parentElement.style.zIndex })), { left: '35px', width: '540px', zIndex: '2' });
+    assert.equal(await page.evaluate(() => {
+      const rect = document.getElementById('stage').getBoundingClientRect();
+      return document.elementFromPoint(rect.left + rect.width * 0.1, rect.top + rect.height * 0.1)?.title;
+    }), 'Live toolpath fixture', 'OBS order must be preserved when stable frames stay in place');
+    assert.deepEqual(await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#stage iframe')].map(frame => [frame.title, window.liveFixtureDocuments[frame.title] === frame.contentDocument]))), {
+      'Live toolpath fixture': true, 'Live camera': true, 'Live status fixture': false,
+    });
+    assert.equal(toolpathRequests, 1, 'Publishing another widget must not request the unchanged toolpath again');
+
+    toolpath.settings.url = `${base}/widgets/gcode-viz/?debug=1`;
+    delete toolpath.settings.css;
+    revision++;
+    await toolpathFrame.waitForFunction(() => window.__diag()?.orbit.view === 'angled' && window.__diag()?.orbit.zoom === 100);
+    assert.equal(await toolpathFrame.evaluate(() => document.getElementById('bb-live-obs-css')), null);
+    assert.equal(toolpathRequests, 1, 'Resetting camera options must keep the rendered toolpath');
+
+    for (const endpoint of ['/api/obs/active', '/api/obs/published']) {
+      await page.evaluate(path => { window.stalledPublicationFixture = path; }, endpoint);
+      toolpathItem.pos.x += 10;
+      revision++;
+      await page.waitForFunction(path => window.timedOutPublicationFixture === path, endpoint);
+      assert.equal(await page.locator('#live-msg').isVisible(), false, 'A stalled refresh must leave the last render visible');
+      await page.waitForFunction(left => document.querySelector('iframe[title="Live toolpath fixture"]')?.parentElement.style.left === left, `${toolpathItem.pos.x}px`);
+      assert.equal(await toolpathElement.evaluate(frame => window.liveFixtureDocuments[frame.title] === frame.contentDocument), true);
+      assert.equal(toolpathRequests, 1, 'Recovery must keep the existing toolpath');
+    }
+  } finally {
+    await page.close();
+  }
+}
+
 async function checkTelemetryFreshness(context, base, telemetry) {
   const progress = await context.newPage();
   const bed = await context.newPage();
@@ -430,6 +520,7 @@ async function checkAms3h(context, base, artifactDir) {
     }
     await checkTelemetryFreshness(context, base, telemetry);
     await checkAms3h(context, base, artifactDir);
+    await checkLiveWidgetReuse(context, base);
     // Old hosts, AMS/nozzle selection, custom themes and bindings survive an editor round-trip.
     const parameters = structuredClone(published);
     const ams = parameters.sources.find(source => source.settings?.url?.includes('/widgets/ams/'));

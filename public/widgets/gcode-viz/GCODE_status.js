@@ -17,8 +17,8 @@
       tools.hidden = kind !== 'error';
       this.recovery(true);
     },
-    recovery(available) {
-      document.getElementById('gcodeRetry').hidden = !available;
+    recovery(available, canRetry = available) {
+      document.getElementById('gcodeRetry').hidden = !canRetry;
       fileButton.hidden = !available;
     },
     bindRetry(callback) { retry = callback; },

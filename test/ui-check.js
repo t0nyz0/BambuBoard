@@ -267,15 +267,19 @@ async function runEngine(name, artifactDir) {
     passed.push('Publish failure keeps saved draft and earlier live output');
 
     const live = await context.newPage(); await live.goto(base + '/live'); await live.waitForSelector('.live-item');
-    await live.locator('.live-item').first().evaluate(node => { node.dataset.qaIdentity = 'stable'; });
+    await live.locator('iframe[title="Second AMS"]').evaluate(node => { node.dataset.qaIdentity = 'stable'; });
+    const liveFirstAms = live.locator('iframe[title="First AMS"]');
+    const livePosition = () => liveFirstAms.evaluate(node => node.parentElement.style.left);
+    assert.equal(await livePosition(), '20px');
     await save(); await live.waitForTimeout(2200);
-    assert.equal(await live.locator('[data-qa-identity="stable"]').count(), 1, 'Draft save must not remount the live output');
+    assert.equal(await livePosition(), '20px', 'Draft save must not move the live widget');
     await page.locator('#golive-btn').click(); await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved · Live');
-    await live.waitForFunction(() => !document.querySelector('[data-qa-identity="stable"]'));
+    await live.waitForFunction(() => document.querySelector('iframe[title="First AMS"]')?.parentElement.style.left === '430px');
+    assert.equal(await live.locator('[data-qa-identity="stable"]').count(), 1, 'Publishing preserves the unchanged live widget');
     const published = await request('/api/obs/published');
     const exportScene = await request('/api/obs/single-source');
     assert.deepEqual(exportScene.resolution, published.resolution); assert.equal(exportScene.sources[0].settings.width, 2560);
-    await live.close(); passed.push('Live output mounts only on publication and OBS export matches 2K canvas');
+    await live.close(); passed.push('Live output adopts only published geometry and retains unchanged widgets; OBS export matches the 2K canvas');
 
     // Reject discarding edits, then reset explicitly to the last saved draft.
     await edit('#insp-x', 999);
@@ -382,11 +386,20 @@ async function runEngine(name, artifactDir) {
       main(removalFixture).push(item(label, 550, 100));
     }
     const mediaFixture = url => url.origin === base && ['/widgets/camera/', '/widgets/gcode-viz/'].includes(url.pathname);
+    const toolpathDownload = '**/api/gcode/current?editor-fixture=1';
+    let toolpathRequests = 0;
+    await page.route(toolpathDownload, route => {
+      toolpathRequests++;
+      return route.fulfill({ contentType: 'text/plain', body: 'G1 X1 Y1\n' });
+    });
     await page.route(mediaFixture, route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Local widget fixture</title>
       <script>
         window.fixtureFrameId = Math.random();
         window.addEventListener('message', event => { if (event.data?.type === 'bambuboard:gcode-view') window.fixtureView = event.data; });
-        if (location.pathname.includes('gcode-viz')) parent.postMessage({ type: 'bambuboard:gcode-view-ready' }, location.origin);
+        if (location.pathname.includes('gcode-viz')) {
+          parent.postMessage({ type: 'bambuboard:gcode-view-ready' }, location.origin);
+          fetch('/api/gcode/current?editor-fixture=1').then(response => response.text()).then(() => { window.fixtureToolpathReady = true; });
+        }
       </script>` }));
     await fs.writeFile(path.join(data, 'scenes', removalSlug + '.json'), JSON.stringify(removalFixture));
     const readRemovalDraft = () => request('/api/obs/scenes/' + encodeURIComponent(removalSlug));
@@ -558,7 +571,24 @@ async function runEngine(name, artifactDir) {
       return !!settings && settings.view === view && settings.zoom === zoom;
     }, { view, zoom });
     await waitForView('front', '125');
+    await page.waitForFunction(() => document.querySelector('iframe[title="Toolpath preview"]')?.contentWindow?.fixtureToolpathReady);
     const frameId = await frame.evaluate(node => node.contentWindow.fixtureFrameId);
+    const downloadCount = toolpathRequests;
+    await select('First AMS');
+    await edit('#insp-h', 150);
+    await undoRemoval();
+    await redoRemoval();
+    await page.getByRole('button', { name: 'Move to front' }).click();
+    const firstAms = page.locator('.scene-item iframe[title="First AMS"]');
+    const layerLevel = locator => locator.evaluate(node => Number(node.closest('.scene-item').style.zIndex));
+    assert.ok(await layerLevel(firstAms) > await layerLevel(frame), 'Reordering still updates the visual stack');
+    await remove('Printer camera').click();
+    await undoRemoval();
+    assert.equal(await frame.evaluate(node => node.contentWindow.fixtureFrameId), frameId);
+    assert.equal(toolpathRequests, downloadCount, 'Editing other widgets must not request the toolpath again');
+    await select('Toolpath preview');
+    passed.push('Widget resize, undo, redo, reorder and removal keep the existing toolpath document and do not refetch it');
+
     await viewControl.selectOption('side');
     await zoomControl.evaluate(input => {
       input.value = '150';
@@ -581,6 +611,8 @@ async function runEngine(name, artifactDir) {
     assert.equal(await zoomControl.inputValue(), '100');
     await undoRemoval();
     await waitForView('side', '150');
+    assert.equal(await frame.evaluate(node => node.contentWindow.fixtureFrameId), frameId, 'Undo and redo keep the renderer as well');
+    assert.equal(toolpathRequests, downloadCount);
 
     const readToolpathDraft = () => request('/api/obs/scenes/' + encodeURIComponent(toolpathSlug));
     assert.equal(toolpathUrl(await readToolpathDraft()).searchParams.get('view'), 'front');
@@ -598,8 +630,56 @@ async function runEngine(name, artifactDir) {
     const outputToolpath = new URL(await frame.getAttribute('src'), base);
     assert.equal(outputToolpath.searchParams.get('view'), 'side');
     assert.equal(outputToolpath.searchParams.get('zoom'), '150');
-    await page.unroute(mediaFixture);
     passed.push('Toolpath camera previews without loading a new iframe; shared locks, Undo, Reset, Save and Apply preserve the source settings');
+
+    const repeatedFixture = structuredClone(toolpathFixture);
+    const repeatedSlug = 'Repeated preview fixture';
+    main(repeatedFixture).splice(0, main(repeatedFixture).length,
+      item('Toolpath preview', 380, 200), item('Toolpath preview', 980, 200), item('Test logo', 300, 700));
+    repeatedFixture.sources.push({ name: 'Test logo', id: 'image_source', settings: {
+      width: 80, height: 70, file: 'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2280%22%20height=%2270%22/%3E',
+    } });
+    await fs.writeFile(path.join(data, 'scenes', repeatedSlug + '.json'), JSON.stringify(repeatedFixture));
+    await openEditor();
+    await page.locator('#loader').selectOption('scn:' + repeatedSlug);
+    const repeatsReady = () => page.waitForFunction(() => {
+      const frames = [...document.querySelectorAll('iframe[title="Toolpath preview"]')];
+      return frames.length === 2 && frames.every(node => node.contentWindow?.fixtureToolpathReady);
+    });
+    const identityAt = idx => page.locator(`.scene-item[data-idx="${idx}"] iframe`).evaluate(node => node.contentWindow.fixtureFrameId);
+    await repeatsReady();
+    const survivor = await identityAt(1);
+    const beforeRestoring = toolpathRequests;
+    await page.locator('.layer-row[data-idx="0"] button[data-action="remove"]').click();
+    assert.equal(await identityAt(0), survivor);
+    await undoRemoval();
+    await repeatsReady();
+    assert.equal(await identityAt(1), survivor, 'Undo must keep the surviving copy of an ID-less repeated source');
+    assert.equal(toolpathRequests, beforeRestoring + 1, 'Only the restored layer needs a new document');
+    await page.locator('.layer-row[data-idx="1"] .lr-name').click();
+    await page.locator('#insp-crop-l').evaluate(input => {
+      input.value = '24';
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const cropStyle = () => page.locator('.scene-item.selected .body').evaluate(node => node.style.clipPath);
+    assert.match(await cropStyle(), /24px/);
+    await undoRemoval();
+    assert.equal(await cropStyle(), '');
+    assert.equal(await identityAt(1), survivor);
+    await select('Test logo');
+    await page.locator('#insp-scale-filter').evaluate(input => {
+      input.value = 'point';
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const scaleFilter = () => page.locator('.scene-item.selected img').evaluate(node => getComputedStyle(node).imageRendering);
+    assert.equal(await scaleFilter(), 'pixelated');
+    await undoRemoval();
+    assert.equal(await scaleFilter(), 'auto');
+    await redoRemoval();
+    assert.equal(await scaleFilter(), 'pixelated');
+    passed.push('Undo preserves repeated preview identity and restores crop and image filtering in place');
+    await page.unroute(mediaFixture);
+    await page.unroute(toolpathDownload);
 
     await page.goto(base + '/setup');
     await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');

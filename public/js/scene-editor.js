@@ -29,6 +29,7 @@ const state = {
   live: null,            // current output metadata from the server
   sources: {},           // name → source object (lookup)
   items: [],             // scene items, in render order
+  renderedScene: null,   // scene owning the mounted preview items
   selectedIndex: -1,
   customizations: {},    // source UUID/name → { theme, accent, fontSize, bindings }
   zoom: 1,
@@ -569,6 +570,7 @@ function loadCollection (json, identity = {}) {
   state.savedRevision = identity.savedRevision || null;
   state.savedName = (state.savedSlug ? identity.name : sanitizeSceneName(identity.name)) || sanitizeSceneName(scenes[0].name);
   state.draftConflict = false;
+  state.renderedScene = null;
   hydrateCollection(json, { draftName: state.savedName });
   state.savedCollection = applyChangesToCollection();
   state.savedFingerprint = draftFingerprint();
@@ -835,23 +837,90 @@ function snapToWidgets (px, py, movingIdx, movingW, movingH) {
   return { x: bestX, y: bestY };
 }
 
+function previewLayerKey(item) {
+  return JSON.stringify([item.name, item.id]);
+}
+
+function previewSourceKey(source) {
+  if (isWidgetSrc(source)) {
+    const slug = widgetSlugOf(source);
+    const params = widgetParams(slug, source);
+    if (slug === 'gcode-viz') {
+      // Camera controls update the mounted renderer by message.
+      params.delete('view');
+      params.delete('zoom');
+    }
+    return JSON.stringify([slug, params.toString(), source.settings?.css]);
+  }
+  const { width, height, ...content } = source.settings || {};
+  return JSON.stringify([source.id, content]);
+}
+
+function removePreviewItem(node) {
+  node.remove();
+  node._previewPlayer?.destroy();
+}
+
 function render () {
   const c = els.canvas();
   // Update canvas dimensions in case CANVAS_W/H changed (resolution from JSON).
   c.style.width = CANVAS_W + 'px';
   c.style.height = CANVAS_H + 'px';
-  c.innerHTML = '';
+  const previous = new Set([...c.querySelectorAll(':scope > .scene-item')]
+    .sort((a, b) => Number(a.dataset.idx) - Number(b.dataset.idx)));
+  const byItem = new Map();
+  const byKey = new Map();
+  if (state.renderedScene === state.sceneName) {
+    for (const node of previous) {
+      byItem.set(node._previewItem, node);
+      const key = previewLayerKey(node._previewItem);
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push(node);
+    }
+  }
+  state.renderedScene = state.sceneName;
+  const available = new Set(previous);
+  const matched = new Map();
+  for (const item of state.items) {
+    const node = byItem.get(item);
+    if (node) {
+      matched.set(item, node);
+      available.delete(node);
+    }
+  }
+  // Undo reconstructs items. Reserve unchanged copies before matching by
+  // source alone so an earlier restored copy cannot take a survivor's frame.
+  for (const item of state.items) {
+    if (matched.has(item)) continue;
+    const node = byKey.get(previewLayerKey(item))?.find(old => available.has(old) && sameEditValue(old._previewItem, item));
+    if (node) {
+      matched.set(item, node);
+      available.delete(node);
+    }
+  }
   state.items.forEach((item, idx) => {
     // Defensive: if rendering ONE item throws (an unexpected source type, a
     // missing helper, etc.), don't black-hole the rest of the canvas. Log the
     // failure and keep going. Saved us from the looksLikeImageUrl-undefined
     // bug where a single source threw and 10 left-rail widgets vanished.
     try {
-      renderItem(item, idx);
+      const source = state.sources[item.name];
+      if (!source || source.enabled === false) return;
+      const candidates = byKey.get(previewLayerKey(item));
+      const node = matched.get(item) || candidates?.find(old => available.has(old));
+      available.delete(node);
+      if (node?._previewSourceKey === previewSourceKey(source)) {
+        updatePreviewLayout(node, item, source, idx);
+        if (isWidgetSrc(source) && widgetSlugOf(source) === 'gcode-viz') sendGcodeView(node.querySelector('iframe'), source);
+        previous.delete(node);
+      } else {
+        renderItem(item, idx);
+      }
     } catch (err) {
       console.error('scene-editor: error rendering item', item.name, err);
     }
   });
+  for (const node of previous) removePreviewItem(node);
   updateDiff();
   renderLayersPanel();
 }
@@ -863,56 +932,12 @@ function renderItem (item, idx, replacing) {
     const c = els.canvas();
     const sz = itemSize(item, src);
 
-    // Compute the CSS top-left position from OBS pos + align. OBS treats `pos`
-    // as the anchor-point screen coords; we need top-left for CSS positioning.
-    const align = alignOffsets(item.align);
-    const left = (item.pos?.x || 0) - sz.w * align.ox;
-    const top  = (item.pos?.y || 0) - sz.h * align.oy;
-
     const node = document.createElement('div');
-    node.className = 'scene-item' + (idx === state.selectedIndex ? ' selected' : '');
-    if (item.visible === false) node.classList.add('item-hidden');
-    if (item.locked === true)   node.classList.add('locked');
-    node.style.left   = left + 'px';
-    node.style.top    = top  + 'px';
-    node.style.width  = sz.w + 'px';
-    node.style.height = sz.h + 'px';
-    // Rotation around the alignment anchor. OBS rot is in degrees, positive
-    // = clockwise (matches CSS).
-    if (item.rot) {
-      const ox = (align.ox * 100).toFixed(2) + '%';
-      const oy = (align.oy * 100).toFixed(2) + '%';
-      node.style.transformOrigin = `${ox} ${oy}`;
-      node.style.transform = `rotate(${item.rot}deg)`;
-    }
-    // Blend mode (mix-blend-mode covers most OBS blend types: lighten,
-    // multiply, screen, darken, color-dodge, color-burn, hard-light,
-    // soft-light, difference, exclusion). The OBS "default" maps to "normal"
-    // which is also the CSS default.
-    const bt = item.blend_type;
-    if (bt && bt !== 'normal' && bt !== 'default') {
-      // Only apply known-safe values to avoid breaking layout with unsupported names.
-      const safe = ['lighten','multiply','screen','darken','color-dodge','color-burn','hard-light','soft-light','difference','exclusion','overlay'];
-      if (safe.includes(bt)) node.style.mixBlendMode = bt;
-    }
-    node.dataset.idx = idx;
+    node.className = 'scene-item';
+    node._previewSourceKey = previewSourceKey(src);
 
     const body = document.createElement('div');
     body.className = 'body';
-
-    // Crop: clip the body to exclude cropped edges. OBS crop values are in
-    // source (natural) pixels; convert to rendered pixels using the scale factors.
-    const cl = item.crop_left   || 0;
-    const ct = item.crop_top    || 0;
-    const cr = item.crop_right  || 0;
-    const cb = item.crop_bottom || 0;
-    if (cl || ct || cr || cb) {
-      body.style.clipPath = `inset(${ct * sz.scaleY}px ${cr * sz.scaleX}px ${cb * sz.scaleY}px ${cl * sz.scaleX}px)`;
-    }
-
-    // scale_filter: only meaningful for pixel-content elements (img/video).
-    // OBS "point" → CSS pixelated; everything else → auto.
-    const ir = item.scale_filter === 'point' ? 'pixelated' : 'auto';
 
     if (isWidgetSrc(src)) {
       // Render iframe at the source's natural design viewport, then visually
@@ -942,7 +967,6 @@ function renderItem (item, idx, replacing) {
         img.style.height = '100%';
         img.style.objectFit = 'contain';
         img.style.display = 'block';
-        img.style.imageRendering = ir;
         // If the image fails to load (e.g. it was actually HTML), gracefully
         // fall back to an iframe so we still show *something*.
         img.onerror = () => {
@@ -966,7 +990,6 @@ function renderItem (item, idx, replacing) {
       img.style.height = '100%';
       img.style.objectFit = 'contain';
       img.style.display = 'block';
-      img.style.imageRendering = ir;
       body.appendChild(img);
     } else if (src.id === 'text_ft2_source' || src.id === 'text_gdiplus_v2' || src.id === 'text_gdiplus') {
       // Render text source content. Font size scales with the source's natural
@@ -1001,12 +1024,12 @@ function renderItem (item, idx, replacing) {
         tag.style.height = '100%';
         tag.style.objectFit = 'contain';
         tag.style.background = '#000';
-        tag.style.imageRendering = ir;
         body.appendChild(tag);
       } else {
         // Try the RTSP relay WebSocket endpoint (if available).
         // JSMpeg renders MPEG-TS into a <canvas> element.
         fetch('/api/printer/video/status').then(r => r.json()).then(status => {
+          if (!node.isConnected) return;
           if (status.available && typeof JSMpeg !== 'undefined') {
             const canvas = document.createElement('canvas');
             canvas.style.width = '100%';
@@ -1016,7 +1039,7 @@ function renderItem (item, idx, replacing) {
             const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${wsProto}//${location.host}/api/printer/video`;
             try {
-              new JSMpeg.Player(wsUrl, {
+              node._previewPlayer = new JSMpeg.Player(wsUrl, {
                 canvas: canvas,
                 autoplay: true,
                 audio: false,
@@ -1042,27 +1065,27 @@ function renderItem (item, idx, replacing) {
 
     const label = document.createElement('div');
     label.className = 'label';
-    label.textContent = `${item.name} · ${Math.round(sz.w)}×${Math.round(sz.h)}`;
 
     const move = document.createElement('div');
     move.className = 'move-handle';
-    attachDrag(move, idx, /*resize*/ false);
+    attachDrag(move, node, /*resize*/ false);
 
     const handle = document.createElement('div');
     handle.className = 'resize-handle';
     handle.title = 'Scale widget proportionally';
-    attachDrag(handle, idx, /*resize*/ true);
+    attachDrag(handle, node, /*resize*/ true);
 
     node.appendChild(body);
     node.appendChild(label);
     if (isWidgetSrc(src)) { node.appendChild(move); node.appendChild(handle); }
+    updatePreviewLayout(node, item, src, idx);
     node.addEventListener('click', (e) => {
       e.stopPropagation();
       c.focus({ preventScroll: true });
-      selectItem(idx);
+      selectItem(Number(node.dataset.idx));
     });
-    if (replacing) replacing.replaceWith(node);
-    else c.appendChild(node);
+    if (replacing) removePreviewItem(replacing);
+    c.appendChild(node);
 }
 
 function redrawPreviewItem(idx) {
@@ -1169,13 +1192,15 @@ function refreshAutoSizeButton(item, source, layers = widgetLayers(source)) {
 }
 
 function refreshWidgetPreview(source) {
-  const url = widgetUrlForPreview(widgetSlugOf(source), source);
+  const slug = widgetSlugOf(source);
+  const key = previewSourceKey(source);
   for (const item of els.canvas().querySelectorAll('.scene-item')) {
     if (state.sources[state.items[Number(item.dataset.idx)]?.name] !== source) continue;
     const frame = item.querySelector('iframe');
-    if (frame && frame.getAttribute('src') !== url) {
+    if (frame && item._previewSourceKey !== key) {
+      item._previewSourceKey = key;
       state.measuredFrames.delete(frame);
-      frame.src = url;
+      frame.src = widgetUrlForPreview(slug, source);
     }
   }
   refreshAutoSizeButton(state.items[state.selectedIndex], source);
@@ -1341,8 +1366,9 @@ function renderBindingsRows (bindings, source) {
 }
 
 // ---- drag / resize ----
-function attachDrag (handle, idx, resize) {
+function attachDrag (handle, node, resize) {
   handle.addEventListener('pointerdown', (e) => {
+    const idx = Number(node.dataset.idx);
     if (state.items[idx]?.locked) return;
     e.stopPropagation();
     e.preventDefault();
@@ -1396,17 +1422,27 @@ function attachDrag (handle, idx, resize) {
   });
 }
 
-function applyToDom (idx) {
-  const node = els.canvas().querySelector(`.scene-item[data-idx="${idx}"]`);
-  if (!node) return;
-  const item = state.items[idx];
-  const src = state.sources[item.name];
+const previewBlendModes = new Set(['lighten', 'multiply', 'screen', 'darken', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'overlay']);
+
+function updatePreviewLayout(node, item, src, idx, showNaturalSize = false) {
   const sz = itemSize(item, src);
   const align = alignOffsets(item.align);
+  node._previewItem = item;
+  node.dataset.idx = idx;
+  node.classList.toggle('selected', idx === state.selectedIndex);
+  node.classList.toggle('item-hidden', item.visible === false);
+  node.classList.toggle('locked', item.locked === true);
+  // Changing stacking order via CSS keeps each iframe attached to its
+  // current document. Moving it within the DOM can reload the widget.
+  node.style.zIndex = idx + 1;
+  // OBS position and rotation are relative to the source's alignment anchor.
   node.style.left = ((item.pos?.x || 0) - sz.w * align.ox) + 'px';
   node.style.top  = ((item.pos?.y || 0) - sz.h * align.oy) + 'px';
   node.style.width = sz.w + 'px';
   node.style.height = sz.h + 'px';
+  node.style.transformOrigin = item.rot ? `${(align.ox * 100).toFixed(2)}% ${(align.oy * 100).toFixed(2)}%` : '';
+  node.style.transform = item.rot ? `rotate(${item.rot}deg)` : '';
+  node.style.mixBlendMode = previewBlendModes.has(item.blend_type) ? item.blend_type : '';
   const iframe = node.querySelector('iframe');
   if (iframe) {
     iframe.style.width  = sz.naturalW + 'px';
@@ -1415,11 +1451,28 @@ function applyToDom (idx) {
   }
   const body = node.querySelector('.body');
   const crop = [item.crop_top, item.crop_right, item.crop_bottom, item.crop_left];
-  if (body) body.style.clipPath = crop.some(Boolean)
-    ? `inset(${crop.map((value, i) => `${(value || 0) * (i % 2 === 0 ? sz.scaleY : sz.scaleX)}px`).join(' ')})`
-    : '';
+  // OBS crop values are in natural pixels. Scale to the rendered viewport.
+  if (body) {
+    body.style.clipPath = crop.some(Boolean)
+      ? `inset(${crop.map((value, i) => `${(value || 0) * (i % 2 === 0 ? sz.scaleY : sz.scaleX)}px`).join(' ')})`
+      : '';
+    // Reapply the filter to retained previews, including after Undo or Reset.
+    const rendering = item.scale_filter === 'point' ? 'pixelated' : '';
+    body.style.imageRendering = rendering;
+    for (const element of body.querySelectorAll('img, video')) element.style.imageRendering = rendering;
+  }
   const lbl = node.querySelector('.label');
-  if (lbl) lbl.textContent = `${item.name} · ${Math.round(sz.w)}×${Math.round(sz.h)} (natural ${Math.round(sz.naturalW)}×${Math.round(sz.naturalH)})`;
+  if (lbl) {
+    const natural = showNaturalSize ? ` (natural ${Math.round(sz.naturalW)}×${Math.round(sz.naturalH)})` : '';
+    lbl.textContent = `${item.name} · ${Math.round(sz.w)}×${Math.round(sz.h)}${natural}`;
+  }
+}
+
+function applyToDom (idx) {
+  const node = els.canvas().querySelector(`.scene-item[data-idx="${idx}"]`);
+  if (!node) return;
+  const item = state.items[idx];
+  updatePreviewLayout(node, item, state.sources[item.name], idx, true);
 }
 
 // ---- layers panel (OBS Sources-style dock) ----
@@ -1847,11 +1900,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if ((item.scale_filter || '') === v) return;
     snapshot();
     if (v) item.scale_filter = v; else delete item.scale_filter;
-    const body = els.canvas().querySelector(`.scene-item[data-idx="${idx}"] .body`);
-    if (body) {
-      body.style.imageRendering = v === 'point' ? 'pixelated' : '';
-      body.querySelectorAll('img, video').forEach(node => { node.style.imageRendering = v === 'point' ? 'pixelated' : ''; });
-    }
+    applyToDom(idx);
     updateDiff();
   });
 

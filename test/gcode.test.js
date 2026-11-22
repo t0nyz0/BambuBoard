@@ -62,7 +62,8 @@ test('H3C tries explicit archive paths first and prefers /cache for bare filenam
 test('explicit raw paths work without cloud credentials or guessing an unidentified plate', async t => {
   const fixture = await ftpsFixture(t, { files: { '/Exact name.gcode': gcode, '/cache/Fixture_plate_1.gcode': gcode } });
   const job = describe({ gcode_file: 'file:///sdcard/Exact%20name.gcode', task_id: '0', url: 'https://cloud.invalid/job?token=do-not-forward' });
-  assert.deepEqual(await fetchPlateGcode({ ...options, job, port: fixture.port }), gcode);
+  const limits = { ...LIMITS, archive: gcode.length - 1 };
+  assert.deepEqual(await fetchPlateGcode({ ...options, job, port: fixture.port, limits }), gcode);
   assert.ok(!fixture.commands.some(c => c.arg.includes('token=') || c.arg.includes('cloud.invalid')));
   await assert.rejects(fetchPlateGcode({ ...options, job: describe({ subtask_name: 'Fixture' }), port: fixture.port }), { code: 'FILE_NOT_FOUND' });
   assert.ok(!fixture.commands.some(c => c.verb === 'RETR' && c.arg.includes('Fixture_plate_1')), 'An unknown plate cannot silently become plate 1');
@@ -117,6 +118,8 @@ test('archive validation catches corruption, unsliced projects, checksums and de
   const plate = archive({ 'Metadata/plate_1.gcode': gcode });
   await assert.rejects(extractPlateGcode(plate, { limits: { ...LIMITS, gcode: 10 } }), { code: 'FILE_TOO_LARGE', stage: 'extract', status: 413, retryable: false });
   await assert.rejects(extractPlateGcode(gcode, { limits: { ...LIMITS, gcode: 10 } }), { code: 'FILE_TOO_LARGE', stage: 'validate', status: 413 });
+  assert.deepEqual(await extractPlateGcode(gcode, { limits: { ...LIMITS, archive: 10 } }), gcode);
+  await assert.rejects(extractPlateGcode(plate, { limits: { ...LIMITS, archive: 10 } }), { code: 'ARCHIVE_TOO_LARGE', stage: 'validate', status: 413 });
   await assert.rejects(extractPlateGcode(archive({ 'Metadata/plate_1.gcode': gcode, 'Metadata/plate_1.gcode.md5': 'a'.repeat(129) })), { code: 'ARCHIVE_INVALID' });
   // A stored ZIP entry with traditional encryption includes a 12-byte header.
   const encrypted = archive({ 'Metadata/plate_1.gcode': Buffer.concat([Buffer.alloc(12), gcode]) });

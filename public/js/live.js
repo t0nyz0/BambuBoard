@@ -17,6 +17,7 @@
 (function () {
   const stage = document.getElementById('stage');
   const msg = document.getElementById('live-msg');
+  let mountedItems = new Map();
 
   // `?transparent=1` makes the page + stage backgrounds transparent so an OBS
   // Browser Source composites /live over whatever's behind it (and per-widget
@@ -80,7 +81,6 @@
     return `rgba(${r},${g},${b},${a})`;
   }
 
-  const widgetSlugRe = /\/widgets\/([a-zA-Z0-9_\-]+)\//;
   function looksLikeImageUrl(url) {
     if (!url) return false;
     const p = url.split(/[?#]/)[0].toLowerCase();
@@ -91,17 +91,20 @@
 
   // Inject OBS browser-source settings.css into same-origin widget iframes,
   // matching how OBS injects it (and how the editor previews it).
-  function injectObsCss(iframe, css) {
-    if (!css) return;
-    iframe.addEventListener('load', () => {
-      try {
-        const doc = iframe.contentDocument;
-        if (!doc) return;
-        const style = doc.createElement('style');
-        style.textContent = css;
+  function applyObsCss(iframe) {
+    try {
+      const doc = iframe.contentDocument;
+      if (!doc?.head) return;
+      let style = doc.getElementById('bb-live-obs-css');
+      const css = iframe.dataset.obsCss;
+      if (!css) { style?.remove(); return; }
+      if (!style) {
+        style = doc.createElement('style');
+        style.id = 'bb-live-obs-css';
         doc.head.appendChild(style);
-      } catch (_) { /* cross-origin */ }
-    });
+      }
+      style.textContent = css;
+    } catch (_) { /* cross-origin */ }
   }
 
   // For cross-origin image sources (e.g. the trademark logo on S3) we can't
@@ -140,108 +143,133 @@
     return scenes.find(s => s.name === wantName) || scenes[0];
   }
 
-  function buildItem(item, src) {
+  function sourceContent(src) {
+    const { id } = src;
+    const settings = src.settings || {};
+    const css = typeof settings.css === 'string' ? settings.css : '';
+    if (id === 'color_source') return { kind: 'color', value: obsColorToCss(settings.color) };
+    if (id === 'image_source' || id === 'image_source_v2') {
+      return { kind: 'image', url: settings.file || settings.url || '', css };
+    }
+    if (id === 'ffmpeg_source' || id === 'rtsp_source' || id === 'vlc_source') {
+      // Swap the OBS media source for the configured printer's camera widget.
+      return { kind: 'camera', url: '/widgets/camera/index.html' };
+    }
+    if (id !== 'browser_source' || typeof settings.url !== 'string') return null;
+    const parsed = parseBrowserSourceUrl(settings.url);
+    if (!parsed) return null;
+    const url = /^\/(widgets|assets)\//.test(parsed.pathname)
+      ? location.origin + parsed.pathname + parsed.search + parsed.hash
+      : parsed.href;
+    if (looksLikeImageUrl(url)) {
+      // The old H2D logo used an opaque trademark JPEG. Keep the local
+      // transparent replacement without reapplying that image's old backdrop.
+      if (/019117180|eu-trademark\.s3\.amazonaws\.com/.test(url)) {
+        return { kind: 'image', url: '/assets/logo-h2d.png' };
+      }
+      return { kind: 'image', url, css };
+    }
+
+    const content = { kind: 'widget', url, css };
+    if (/^\/widgets\/gcode-viz(?:\/(?:index\.html)?)?$/.test(parsed.pathname)) {
+      // The G-code widget accepts these two options without losing its model.
+      const frameUrl = new URL(url);
+      const { searchParams } = frameUrl;
+      content.gcodeView = { view: searchParams.get('view'), zoom: searchParams.get('zoom') };
+      searchParams.delete('view');
+      searchParams.delete('zoom');
+      content.identityUrl = frameUrl.href;
+    }
+    return content;
+  }
+
+  function sendGcodeView(mounted) {
+    mounted.element.firstElementChild?.contentWindow?.postMessage({
+      type: 'bambuboard:gcode-view', ...mounted.gcodeView,
+    }, location.origin);
+  }
+
+  window.addEventListener('message', event => {
+    if (event.origin !== location.origin || event.data?.type !== 'bambuboard:gcode-view-ready') return;
+    const mounted = [...mountedItems.values()].find(item => item.gcodeView && item.element.firstElementChild?.contentWindow === event.source);
+    if (mounted) sendGcodeView(mounted);
+  });
+
+  const blendModes = ['lighten', 'multiply', 'screen', 'darken', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'overlay'];
+
+  function renderItem(item, src, previous, layer) {
+    const content = sourceContent(src);
+    if (!content) return null;
+    const { kind, url, css, value, identityUrl, gcodeView } = content;
+    const signature = JSON.stringify([kind, identityUrl || url, kind === 'image' ? css : null, value]);
+    const reuse = previous?.signature === signature;
+    const wrap = reuse ? previous.element : document.createElement('div');
+    const mounted = { element: wrap, signature, gcodeView, css };
     const sz = itemSize(item, src);
     const { ox, oy } = alignOffsets(item.align);
     const pos = item.pos || { x: 0, y: 0 };
-    const left = (pos.x || 0) - ox * sz.w;
-    const top = (pos.y || 0) - oy * sz.h;
 
-    const wrap = document.createElement('div');
     wrap.className = 'live-item';
-    wrap.style.left = left + 'px';
-    wrap.style.top = top + 'px';
+    wrap.style.left = ((pos.x || 0) - ox * sz.w) + 'px';
+    wrap.style.top = ((pos.y || 0) - oy * sz.h) + 'px';
     wrap.style.width = sz.w + 'px';
     wrap.style.height = sz.h + 'px';
+    wrap.style.zIndex = layer;
 
     // Rotation around the alignment anchor (OBS rot is degrees, +ve clockwise
     // = CSS). Mirrors scene-editor.js renderItem.
-    if (item.rot) {
-      wrap.style.transformOrigin = `${(ox * 100).toFixed(2)}% ${(oy * 100).toFixed(2)}%`;
-      wrap.style.transform = `rotate(${item.rot}deg)`;
-    }
+    wrap.style.transformOrigin = item.rot ? `${(ox * 100).toFixed(2)}% ${(oy * 100).toFixed(2)}%` : '';
+    wrap.style.transform = item.rot ? `rotate(${item.rot}deg)` : '';
     // Blend mode. OBS "default"/"normal" = CSS default; apply only known-safe
     // mix-blend-mode values so an unknown name can't break layout.
-    const bt = item.blend_type;
-    if (bt && bt !== 'normal' && bt !== 'default') {
-      const safe = ['lighten', 'multiply', 'screen', 'darken', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion', 'overlay'];
-      if (safe.includes(bt)) wrap.style.mixBlendMode = bt;
-    }
+    wrap.style.mixBlendMode = blendModes.includes(item.blend_type) ? item.blend_type : '';
     // Crop: clip the cropped edges. OBS crop values are in source (natural)
     // pixels; convert to rendered pixels via the item's scale factors.
     const cl = item.crop_left || 0, ct = item.crop_top || 0;
     const cr = item.crop_right || 0, cb = item.crop_bottom || 0;
-    if (cl || ct || cr || cb) {
-      wrap.style.clipPath = `inset(${ct * sz.scaleY}px ${cr * sz.scaleX}px ${cb * sz.scaleY}px ${cl * sz.scaleX}px)`;
-    }
+    wrap.style.clipPath = cl || ct || cr || cb
+      ? `inset(${ct * sz.scaleY}px ${cr * sz.scaleX}px ${cb * sz.scaleY}px ${cl * sz.scaleX}px)` : '';
 
-    const id = src.id;
-    const settings = src.settings || {};
-
-    if (id === 'color_source') {
-      wrap.style.background = obsColorToCss(settings.color);
-    } else if (id === 'image_source' || id === 'image_source_v2') {
-      applyObsCssApprox(wrap, settings.css);
-      const img = document.createElement('img');
-      img.src = settings.file || settings.url || '';
-      img.style.width = '100%';
-      img.style.height = '100%';
-      img.style.objectFit = 'contain';
-      wrap.appendChild(img);
-    } else if (id === 'ffmpeg_source' || id === 'rtsp_source' || id === 'vlc_source') {
-      // Swap the OBS camera media source for our in-browser camera widget.
-      const iframe = document.createElement('iframe');
-      iframe.src = '/widgets/camera/index.html';
-      iframe.title = 'Live camera';
-      iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      wrap.appendChild(iframe);
-    } else if (id === 'browser_source' && typeof settings.url === 'string') {
-      const parsed = parseBrowserSourceUrl(settings.url);
-      if (!parsed) return null;
-      const url = /^\/(widgets|assets)\//.test(parsed.pathname)
-        ? location.origin + parsed.pathname + parsed.search + parsed.hash
-        : parsed.href;
-      if (looksLikeImageUrl(url)) {
-        // Back-compat shim: the old default H2D logo was an external
-        // black-on-white JPEG (eu-trademark.s3.amazonaws.com/019117180) with
-        // no transparency. Swap it for the local transparent white PNG and
-        // DON'T apply the source's dark-backdrop CSS, so the logo floats over
-        // the scene. Fixes existing saved scenes without editing user data.
-        if (/019117180|eu-trademark\.s3\.amazonaws\.com/.test(url)) {
-          const img = document.createElement('img');
-          img.src = '/assets/logo-h2d.png';
-          img.style.width = '100%';
-          img.style.height = '100%';
-          img.style.objectFit = 'contain';
-          wrap.appendChild(img);
-          return wrap;
-        }
-        // Other cross-origin images: apply the OBS css backdrop to the wrapper
-        // so a transparent logo/badge gets its designed box.
-        applyObsCssApprox(wrap, settings.css);
-        const img = document.createElement('img');
-        img.src = url;
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.objectFit = 'contain';
-        wrap.appendChild(img);
-      } else {
-        // Paint at the source's natural viewport, then scale to the rendered
-        // box — mirrors OBS browser-source semantics + the editor.
-        const iframe = document.createElement('iframe');
-        iframe.src = url;
-        iframe.title = item.name || 'widget';
-        iframe.style.width = sz.naturalW + 'px';
-        iframe.style.height = sz.naturalH + 'px';
-        iframe.style.transform = `scale(${sz.scaleX}, ${sz.scaleY})`;
-        injectObsCss(iframe, settings.css);
-        wrap.appendChild(iframe);
+    if (!reuse) {
+      if (kind === 'color') wrap.style.background = value;
+      if (kind === 'image') {
+        if (css) applyObsCssApprox(wrap, css);
+        const image = document.createElement('img');
+        image.src = url;
+        image.style.width = '100%';
+        image.style.height = '100%';
+        image.style.objectFit = 'contain';
+        wrap.appendChild(image);
       }
-    } else {
-      return null; // unknown/unsupported source type — skip
+      if (kind === 'camera' || kind === 'widget') {
+        const frame = document.createElement('iframe');
+        frame.src = url;
+        if (kind === 'camera') {
+          frame.title = 'Live camera';
+          frame.style.width = '100%';
+          frame.style.height = '100%';
+        } else {
+          frame.addEventListener('load', () => applyObsCss(frame));
+        }
+        wrap.appendChild(frame);
+      }
     }
-    return wrap;
+    if (kind === 'widget') {
+      const frame = wrap.firstElementChild;
+      // Paint at the source's natural viewport, then scale to the rendered box.
+      frame.title = item.name || 'widget';
+      frame.style.width = sz.naturalW + 'px';
+      frame.style.height = sz.naturalH + 'px';
+      frame.style.transform = `scale(${sz.scaleX}, ${sz.scaleY})`;
+      if (!reuse || css !== previous.css) {
+        frame.dataset.obsCss = css || '';
+        applyObsCss(frame);
+      }
+      if (reuse && gcodeView && (gcodeView.view !== previous.gcodeView?.view || gcodeView.zoom !== previous.gcodeView?.zoom)) {
+        sendGcodeView(mounted);
+      }
+    }
+    return mounted;
   }
 
   function fitStage() {
@@ -253,16 +281,16 @@
     stage.style.top = Math.round((window.innerHeight - sh) / 2) + 'px';
   }
 
-  async function render(outputName) {
+  async function render(outputName, signal) {
     const label = FORCED_SCENE || outputName || 'Published output';
     let json;
     try {
       const url = FORCED_SCENE ? `/api/obs/scenes/${encodeURIComponent(FORCED_SCENE)}` : '/api/obs/published';
-      const res = await fetch(url, { cache: 'no-store' });
+      const res = await fetch(url, { cache: 'no-store', signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       json = await res.json();
     } catch (e) {
-      showMsg('Could not load scene: ' + e.message);
+      if (!mountedItems.size) showMsg('Could not load scene: ' + e.message);
       return;
     }
 
@@ -274,62 +302,68 @@
     const scene = activeSceneOf(json);
     if (!scene) { showMsg(`Scene "${label}" has no renderable scene source.`); return; }
 
-    const sourcesByName = {};
-    (json.sources || []).forEach(s => { if (s && s.name) sourcesByName[s.name] = s; });
-
-    // Rebuild from scratch (this runs on first load AND whenever the published
-    // scene changes). Clearing here — only after a successful fetch/parse —
-    // means a transient network blip never blanks an already-good render.
-    stage.innerHTML = '';
-
+    const sourcesByName = new Map((json.sources || []).filter(src => src?.name).map(src => [src.name, src]));
+    const next = new Map();
+    const occurrences = new Map();
     const items = (scene.settings && scene.settings.items) || [];
-    // OBS renders items bottom-to-top in array order; later items sit on top.
-    let placed = 0;
-    items.forEach(item => {
+    items.forEach((item, layer) => {
+      // Some older layouts have no item IDs. Separate repeated occurrences of
+      // those sources too, including hidden items when counting occurrences.
+      const identity = item.id == null ? `source:${item.source_uuid || item.name}` : `item:${item.id}`;
+      const count = occurrences.get(identity) || 0;
+      occurrences.set(identity, count + 1);
+      const key = JSON.stringify([identity, count]);
       if (item.visible === false) return;
-      const src = sourcesByName[item.name];
-      if (!src) return;
-      if (src.enabled === false) return; // OBS source disabled — skip
-      const el = buildItem(item, src);
-      if (el) { stage.appendChild(el); placed++; }
+      const src = sourcesByName.get(item.name);
+      if (!src || src.enabled === false) return;
+      const previous = mountedItems.get(key);
+      const mounted = renderItem(item, src, previous, layer);
+      if (!mounted) return;
+      // Moving a mounted iframe in the DOM reloads it. Keep stable nodes in
+      // place and use z-index to follow OBS's bottom-to-top item order.
+      if (mounted.element !== previous?.element) stage.appendChild(mounted.element);
+      next.set(key, mounted);
     });
+    for (const [key, previous] of mountedItems) {
+      if (next.get(key)?.element !== previous.element) previous.element.remove();
+    }
+    mountedItems = next;
 
     fitStage();
-    if (placed > 0) hideMsg();
+    if (mountedItems.size > 0) hideMsg();
     else showMsg(`Scene "${label}" loaded but has no renderable items.`);
     return true;
   }
 
   window.addEventListener('resize', fitStage);
 
-  // Auto-update: poll the published scene's identity (ID + application time) and only
-  // re-render when it actually changes. Critical — re-rendering rebuilds the
-  // camera iframe, and reconnecting every poll would trip the printer's RTSP
-  // connection limit, so an unchanged scene must leave the DOM (and the live
-  // camera) untouched. A pinned ?scene= preview renders once and doesn't poll.
+  // Poll the publication identity and reconcile only when it changes. A
+  // pinned ?scene= preview renders once and doesn't poll the active scene.
   const POLL_MS = 4000;
+  const FETCH_TIMEOUT_MS = 8000;
   let lastKey = null;
+  let polling = false;
 
   async function tick() {
-    if (document.hidden) return;
-    let key, label;
-    if (FORCED_SCENE) {
-      key = `forced:${FORCED_SCENE}`;
-    } else {
-      try {
-        const response = await fetch('/api/obs/active', { cache: 'no-store' });
+    if (document.hidden || polling) return;
+    polling = true;
+    try {
+      const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+      let key, label;
+      if (FORCED_SCENE) key = `forced:${FORCED_SCENE}`;
+      else {
+        const response = await fetch('/api/obs/active', { cache: 'no-store', signal });
         if (!response.ok) return;
         const active = await response.json();
         if (!active || !Object.hasOwn(active, 'slug')) return;
         key = `${active.slug ?? 'default'}@${active.updatedAt ?? 0}`;
         label = active.name || active.label || active.slug;
-      } catch (_) {
-        return; // transient — keep current render, try next tick
       }
-    }
-    if (key !== lastKey) {
-      const loaded = await render(label);
-      if (loaded) lastKey = key;
+      if (key !== lastKey && await render(label, signal)) lastKey = key;
+    } catch (_) {
+      // Keep the current render after transient failures and retry next tick.
+    } finally {
+      polling = false;
     }
   }
 

@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { fetchPlateGcode, extractPlateGcode, GcodeError, LIMITS, describe } = require('../services/printerFiles');
-const { archiveMiB } = require('../../public/js/gcode-limits');
+const { toolpathMiB } = require('../../public/js/gcode-limits');
 
 function isUnconfirmedJob(code) {
   return code === 'JOB_CHANGED' || code === 'JOB_PENDING';
@@ -73,8 +73,8 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
     await Promise.all(entries.sort((a, b) => b.time - a.time).slice(5).map(entry => fs.unlink(path.join(cacheDir, entry.name)).catch(() => {})));
   }
   function send(res, ctx, data) {
-    res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Gcode-Job': encodeURIComponent(ctx.job.key) });
-    res.send(data);
+    res.set({ 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': String(data.length), 'Cache-Control': 'no-store', 'X-Gcode-Job': encodeURIComponent(ctx.job.key) });
+    res.end(data);
   }
   function fail(res, err, retryAfter = 0) {
     const error = err instanceof GcodeError ? err : new GcodeError('GCODE_INTERNAL', 'BambuBoard could not save or read the toolpath. Check its data directory and diagnostic log.', { status: 500, stage: 'cache' });
@@ -133,7 +133,9 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
       return send(res, ctx, await download(ctx));
     } catch (err) { fail(res, err, ctx ? Math.max(0, (failures.get(ctx.key)?.until || 0) - now()) : 0); }
   });
-  router.post('/current', express.raw({ type: 'application/octet-stream', limit: LIMITS.archive }), async (req, res) => {
+  // Raw G-code can be larger than a 3MF. The extractor applies the smaller
+  // archive limit based on the file contents.
+  router.post('/current', express.raw({ type: 'application/octet-stream', limit: LIMITS.gcode }), async (req, res) => {
     const started = now();
     try {
       const ctx = await context(req);
@@ -148,7 +150,7 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
     } catch (err) { fail(res, err); }
   });
   router.use((err, _req, res, next) => {
-    if (err.type === 'entity.too.large') return fail(res, new GcodeError('FILE_TOO_LARGE', `The sliced file exceeds the ${archiveMiB} MiB upload limit. Open this plate in Bambu Studio.`, { status: 413 }));
+    if (err.type === 'entity.too.large') return fail(res, new GcodeError('FILE_TOO_LARGE', `The file exceeds the ${toolpathMiB} MiB upload limit. Open this plate in Bambu Studio.`, { status: 413 }));
     next(err);
   });
   return { router, flushDiagnostics: () => diagnosticQueue, async stop() {

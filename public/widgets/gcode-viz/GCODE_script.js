@@ -952,6 +952,9 @@ function previewLimit(detail) {
     retryable: false, recovery: false,
   });
 }
+function archiveLimit(detail) {
+  return Object.assign(new Error(detail), { retryable: false, rawFallback: true });
+}
 // Browsers can suspend animation frames in an obscured/offscreen iframe.
 // Give visible status a chance to paint without making loading depend on it.
 function paintLoading() {
@@ -974,8 +977,10 @@ function showFailure() {
   const seconds = Math.max(0, Math.ceil((failure.nextAt - Date.now()) / 1000));
   const automatic = failure.retryable && failure.attempts < MAX_AUTO_ATTEMPTS && lastGcodeState !== 'FINISH';
   const recovery = failure.recovery !== false;
-  setOverlay(`${failure.detail}${automatic ? ` Retrying in ${seconds}s.` : recovery ? ' Use Retry now or load the exact sliced file.' : ''}`, 'error');
-  window.BBGcodeUI.recovery(recovery);
+  const next = failure.rawFallback ? ' Load the exact .gcode file or open this plate in Bambu Studio.'
+    : automatic ? ` Retrying in ${seconds}s.` : recovery ? ' Use Retry now or load the exact sliced file.' : '';
+  setOverlay(failure.detail + next, 'error');
+  window.BBGcodeUI.recovery(recovery, recovery && !failure.rawFallback);
 }
 async function readToolpath(res, progress) {
   const total = Number(res.headers.get('Content-Length')) || 0;
@@ -985,20 +990,41 @@ async function readToolpath(res, progress) {
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  const parts = []; let bytes = 0;
+  const parts = [];
+  let bytes = 0, characters = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.length;
       if (bytes > PREVIEW_MAX_BYTES) throw previewLimit(`This toolpath exceeds the ${toolpathMiB} MiB preview limit.`);
-      parts.push(decoder.decode(value, { stream: true }));
+      const part = decoder.decode(value, { stream: true });
+      parts.push(part);
+      characters += part.length;
       progress(bytes, total);
     }
-    parts.push(decoder.decode());
-    return parts.join('');
+    const last = decoder.decode();
+    parts.push(last);
+    return { parts, bytes, characters: characters + last.length };
   } finally { await reader.cancel().catch(() => {}); }
 }
+
+function* splitToolpath(parts) {
+  let pending = '';
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    parts[i] = null;
+    let start = 0;
+    for (let end = part.indexOf('\n'); end !== -1; end = part.indexOf('\n', start)) {
+      yield pending + part.slice(start, end);
+      pending = '';
+      start = end + 1;
+    }
+    pending += part.slice(start);
+  }
+  if (pending) yield pending;
+}
+
 async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = null, manual = false) {
   const serial = ++loadSerial;
   loadController?.abort();
@@ -1018,7 +1044,12 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     if (forceNocache) query.set('nocache', '1');
     if (manual) query.set('retry', '1');
     forceNocache = false;
-    if (file && file.size > archiveMiB * 1024 * 1024) throw previewLimit(`This sliced file exceeds the ${archiveMiB} MiB upload limit.`);
+    if (file) {
+      if (/\.3mf$/i.test(file.name) && file.size > archiveMiB * 1024 * 1024) {
+        throw archiveLimit(`This archive exceeds the ${archiveMiB} MiB upload limit.`);
+      }
+      if (file.size > PREVIEW_MAX_BYTES) throw previewLimit(`This file exceeds the ${toolpathMiB} MiB upload limit.`);
+    }
     const res = await fetch('/api/gcode/current?' + query, {
       cache: 'no-store', signal: controller.signal,
       ...(file ? { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file } : {}),
@@ -1030,6 +1061,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       const friendly = report.code === 'FILE_NOT_FOUND'
         ? 'The printer cannot expose this print file. It may be in internal storage. Diagnostics show the paths checked.'
         : report.detail || `File request failed (HTTP ${res.status}).`;
+      if (report.code === 'ARCHIVE_TOO_LARGE') throw archiveLimit(friendly);
       throw Object.assign(new Error(friendly), {
         retryable: report.retryable !== false && [404, 409, 429, 500, 502, 503, 504].includes(res.status),
         retryAfterMs: Number(report.retryAfterMs) || Number(res.headers.get('Retry-After')) * 1000 || 0,
@@ -1040,12 +1072,12 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     const header = res.headers.get('X-Gcode-Job');
     if (header && decodeURIComponent(header) !== taskKey) throw Object.assign(new Error('The print changed during download.'), { code: 'JOB_CHANGED' });
     let lastProgressAt = -Infinity;
-    const text = await readToolpath(res, (bytes, total) => {
+    const { parts, bytes, characters } = await readToolpath(res, (receivedBytes, total) => {
       if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
-      if (performance.now() - lastProgressAt < 150 && bytes !== total) return;
+      if (performance.now() - lastProgressAt < 150 && receivedBytes !== total) return;
       lastProgressAt = performance.now();
-      const received = (bytes / (1024 * 1024)).toFixed(1);
-      const amount = total ? `${Math.min(100, Math.floor(bytes / total * 100))}% (${received} / ${(total / (1024 * 1024)).toFixed(1)} MiB)` : `${received} MiB received`;
+      const received = (receivedBytes / (1024 * 1024)).toFixed(1);
+      const amount = total ? `${Math.min(100, Math.floor(receivedBytes / total * 100))}% (${received} / ${(total / (1024 * 1024)).toFixed(1)} MiB)` : `${received} MiB received`;
       setOverlay(`Downloading print file… ${amount}`, 'loading');
     });
     clearTimeout(timer);
@@ -1053,22 +1085,24 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     stage = 'parse';
     setOverlay('Processing toolpath… 0%', 'loading');
     await paintLoading();
-    // Parse incrementally without rebuilding the geometry for each chunk.
-    // Yield so changes of print and cancellation are observed during parsing.
+    // Release each decoded chunk as it is parsed, without joining a second
+    // copy of the full file. Yield between batches for cancellation and paint.
+    const input = splitToolpath(parts);
     let offset = 0, parsedLines = 0;
-    while (offset < text.length) {
+    for (;;) {
       if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
       const lines = [];
-      for (let i = 0; i < 5000 && offset < text.length; i++) {
-        let end = text.indexOf('\n', offset);
-        if (end < 0) end = text.length;
-        lines.push(text.slice(offset, end));
-        offset = end + 1;
+      for (let i = 0; i < 5000; i++) {
+        const next = input.next();
+        if (next.done) break;
+        lines.push(next.value);
+        offset += next.value.length + 1;
       }
+      if (!lines.length) break;
       parsedLines += lines.length;
       if (parsedLines > toolpathLines) throw previewLimit(`This plate exceeds the ${toolpathLines.toLocaleString('en-US')}-line preview limit.`);
       preview.parser.parseGCode(lines);
-      setOverlay(`Processing toolpath… ${Math.min(100, Math.floor(offset / text.length * 100))}%`, 'loading');
+      setOverlay(`Processing toolpath… ${Math.min(100, Math.floor(offset / characters * 100))}%`, 'loading');
       await new Promise(resolve => setTimeout(resolve, 0));
     }
     setOverlay('Rendering 3D preview…', 'loading');
@@ -1094,14 +1128,14 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     setLabel(verifyLayers ? 1 : lastEndLayer, renderCap);
     canvas.style.visibility = 'visible';
     setOverlay('');
-    dbg(`loadGcode OK layers=${totalLayers} bytes=${text.length} source=${file ? 'manual' : 'printer'}`);
+    dbg(`loadGcode OK layers=${totalLayers} bytes=${bytes} source=${file ? 'manual' : 'printer'}`);
   } catch (error) {
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     currentTaskKey = null;
     const detail = controller.signal.aborted ? 'The file request timed out. Check the printer connection and diagnostic log.' : error.message;
     const retryable = stage === 'fetch' && error.retryable !== false;
     const backoff = [5000, 15000, 30000, 60000, 120000][Math.min(attempts - 1, 4)];
-    failure = { taskKey, attempts, detail, retryable, recovery: error.recovery, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
+    failure = { taskKey, attempts, detail, retryable, recovery: error.recovery, rawFallback: error.rawFallback, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
     dbg(`loadGcode FAIL stage=${stage} attempts=${attempts} retryable=${retryable}: ${detail}`);
     showFailure();
   } finally {
