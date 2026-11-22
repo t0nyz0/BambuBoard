@@ -62,6 +62,19 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     await page.goto(base + '/scene-editor');
     await page.waitForSelector('.scene-item');
     await page.evaluate(() => document.fonts.ready);
+    const templates = await fetch(base + '/api/obs/templates').then(r => r.json());
+    assert.ok(templates.length > 0, 'Built-in layouts are available');
+    for (const { slug } of templates) {
+      await Promise.all([
+        page.waitForResponse(base + '/api/obs/templates/' + slug + '/raw'),
+        page.locator('#loader').selectOption('tpl:' + slug),
+      ]);
+      await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'New draft');
+      await page.locator('#canvas iframe[src*="/widgets/"]').first().waitFor({ state: 'attached' });
+      assert.equal(await page.getByText('Unsupported browser source URL', { exact: true }).count(), 0, slug);
+    }
+    await page.reload();
+    await page.waitForSelector('.scene-item');
     assert.equal(await page.locator('.bb-logo').getAttribute('src'), '/assets/bambuboard-prism.svg');
     assert.equal(await page.locator('#bb-stepper').isVisible(), false);
     assert.equal(await page.locator('#draft-state').innerText(), 'New draft');
@@ -74,6 +87,10 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     await page.locator('#golive-btn').click();
     await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved · Live');
     const published = await fetch(base + '/api/obs/published').then(r => r.json());
+    const publishedLayout = await context.newPage();
+    await publishedLayout.goto(base + '/live');
+    await publishedLayout.locator('.live-item iframe[src*="/widgets/"]').first().waitFor({ state: 'attached' });
+    await publishedLayout.close();
     // Change geometry using the real inspector and save without publishing.
     await page.locator('.layer-row .lr-name').first().click();
     await page.locator('#insp-x').fill('42');
