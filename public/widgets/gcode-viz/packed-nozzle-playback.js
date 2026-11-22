@@ -1,4 +1,5 @@
 import { createPackedMotionBuffer } from './packed-motion-buffer.js';
+import { conservativeLayerPace, estimateLayerPace, estimatedLayerFraction, reportedPaceSpeed } from './packed-layer-pace.js';
 
 export function createPackedNozzlePlayback(source, yieldTask, now = () => performance.now()) {
   const buffer = createPackedMotionBuffer(source, source.windowCount, yieldTask);
@@ -11,6 +12,7 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
   let receipt = null;
   let anchored = false;
   let lastPose = null;
+  let pacing;
 
   function readClock(time) {
     return elapsed + (clockAt === null ? 0 : Math.max(0, time - clockAt) / 1000);
@@ -26,6 +28,7 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
     receipt = null;
     anchored = false;
     lastPose = null;
+    pacing = undefined;
   }
 
   function setTiming(timing, advancing) {
@@ -51,6 +54,29 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
     }
   }
 
+  function pacedAge(wallAge) {
+    return pacing.nominalAnchor + Math.max(0, wallAge - pacing.wallAnchor) / pacing.factor;
+  }
+
+  function setPace(timing) {
+    if (!timing || pacing === null) return;
+    const evidence = timing.pace;
+    if (evidence === undefined) {
+      if (!pacing) pacing = null;
+      return;
+    }
+    const speed = reportedPaceSpeed(evidence);
+    if (pacing?.speed === speed) return;
+
+    // A speed change affects subsequent motion. Reusing the new speed for
+    // the whole layer would jump the nozzle and redraw past deposition.
+    const wallAnchor = pacing || evidence.layerSpeedStable !== true ? readClock(now()) : 0;
+    const nominalAnchor = pacing ? pacedAge(wallAnchor) : wallAnchor / conservativeLayerPace(null);
+    const factor = evidence.layerSpeedStable === true ? estimateLayerPace(source, layer, evidence)
+      : conservativeLayerPace(speed);
+    pacing = { speed, factor, wallAnchor, nominalAnchor };
+  }
+
   function frame() {
     const snapshot = { mode, layer, state: mode, position: null, deposition: lastPose, ended: false, fraction };
     if (mode === 'hidden' || mode === 'waiting' || (mode === 'paused' && !anchored)) return snapshot;
@@ -70,14 +96,17 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
     }
     const time = now();
     const startingReplay = mode === 'replay' && clockAt === null;
-    const progress = mode === 'manual' || startingReplay ? fraction : Math.min(1, readClock(time) / track.duration);
+    const wallAge = readClock(time);
+    const estimated = pacing && (mode === 'live' || mode === 'paused')
+      ? estimatedLayerFraction(pacedAge(wallAge) / track.duration) : Math.min(1, wallAge / track.duration);
+    const progress = mode === 'manual' || startingReplay ? fraction : estimated;
     const target = track.locate(progress);
     if (!target) {
       buffer.select(-1);
       return { ...snapshot, state: 'unavailable' };
     }
     buffer.select(target.index);
-    const result = { ...snapshot, window: target.index, layerMoves: track.moves, fraction: progress };
+    const result = { ...snapshot, window: target.index, layerMoves: track.moves, fraction: progress, paceFactor: pacing?.factor };
     const path = buffer.current();
     if (path === undefined) return { ...result, state: mode === 'paused' ? 'paused' : 'buffering' };
     if (path === null || path.unavailable) {
@@ -90,7 +119,7 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
     const pose = path.sample(target.fraction, track.basis);
     if (pose) {
       lastPose = pose;
-      if (mode === 'live' || mode === 'paused') sampledElapsed = progress * track.duration;
+      if (mode === 'live' || mode === 'paused') sampledElapsed = wallAge;
     }
     const waitingForLayer = mode === 'live' && progress === 1;
     return {
@@ -108,7 +137,9 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
       const track = source.layer(index);
       if (!timing || !(track?.duration > 0)) return;
       const age = timing.elapsedMs / 1000 + (timing.advancing ? Math.max(0, now() - timing.observedAt) / 1000 : 0);
-      const first = track.locate(Math.min(1, age / track.duration));
+      const progress = timing.pace === undefined ? Math.min(1, age / track.duration)
+        : estimatedLayerFraction(age / track.duration / estimateLayerPace(source, index, timing.pace));
+      const first = track.locate(progress);
       if (first) buffer.select(first.index);
     },
     live(index, timing) {
@@ -121,6 +152,7 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
         return;
       }
       setTiming(timing, true);
+      setPace(timing);
       mode = 'live';
       frame();
     },
@@ -128,6 +160,7 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
       if (index < 0 || mode === 'manual' || mode === 'replay') return;
       selectLayer(index);
       setTiming(timing, false);
+      setPace(timing);
       mode = 'paused';
     },
     hide() {

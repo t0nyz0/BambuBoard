@@ -603,9 +603,15 @@ function hasExactModelLayers(layers) {
   return layers[1]?.modelLayer === 1 && layers.at(-1)?.modelLayer === layers.length - 1;
 }
 
+function matchedLayerTiming(job, marked = packedModelLayerCount) {
+  if (!job?.layerTiming || !marked || Number(job.totalLayers) !== marked ||
+      !Number.isInteger(job.layer) || job.layer < 1 || job.layer > marked) return job?.layerTiming;
+  return { ...job.layerTiming, pace: job.layerPace ?? {} };
+}
+
 function modelToParsed(layer, mqttTotal, count = totalLayers, offset = modelLayerOffset, marked = packedModelLayerCount) {
   if (layer <= 0) return 0;
-  if (marked && (!mqttTotal || mqttTotal === marked) && layer <= marked) return layer + 1;
+  if (marked && (!mqttTotal || mqttTotal === marked) && Number.isInteger(layer) && layer <= marked) return layer + 1;
   if (mqttTotal > 0 && count > 0) {
     return Math.min(count, Math.round((layer / mqttTotal) * (count - offset) + offset));
   }
@@ -1335,9 +1341,10 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       stage = 'render';
       provisionalPlayback = createPackedNozzlePlayback(packed.motion, yieldTask);
       if (lastGcodeState === 'RUNNING' && wantedJob?.layerTiming?.advancing && !wantedJob.effectivelyDone) {
-        const first = modelToParsed(Number(wantedJob?.layer) || 0, Number(wantedJob?.totalLayers) || 0,
-          layers.length, findModelLayerOffset(layers, 1), hasExactModelLayers(layers) ? layers.length - 1 : 0);
-        if (first > 0) provisionalPlayback.prime(first - 1, wantedJob?.layerTiming);
+        const marked = hasExactModelLayers(layers) ? layers.length - 1 : 0;
+        const first = modelToParsed(Number(wantedJob.layer) || 0, Number(wantedJob.totalLayers) || 0,
+          layers.length, findModelLayerOffset(layers, 1), marked);
+        if (first > 0) provisionalPlayback.prime(first - 1, matchedLayerTiming(wantedJob, marked));
       }
       const packingPalette = preview.extrusionColor;
       const stageStart = performance.now();
@@ -1396,9 +1403,9 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       const initial = modelToParsed(reportedLayer, Number(wantedJob?.totalLayers) || 0);
       if (packedPlayback && !showWhole && initial > 0) {
         if (lastGcodeState === 'RUNNING' && (wantedJob?.layerTiming?.advancing ?? lastSubStage === 0)) {
-          packedPlayback.live(initial - 1, wantedJob?.layerTiming);
+          packedPlayback.live(initial - 1, matchedLayerTiming(wantedJob));
         } else {
-          packedPlayback.pause(initial - 1, wantedJob?.layerTiming);
+          packedPlayback.pause(initial - 1, matchedLayerTiming(wantedJob));
         }
       }
       advanceTo(showWhole ? totalLayers : Math.max(1, initial));
@@ -1570,7 +1577,7 @@ function autoFitCamera() {
 
 function packedStatus(frame) {
   if (frame.state === 'buffering') return 'Buffering nozzle preview…';
-  if (frame.state === 'awaiting-layer') return 'Waiting for printer progress';
+  if (frame.state === 'awaiting-layer') return 'Waiting for next layer';
   if (frame.state === 'waiting') return 'Waiting for layer timing';
   if (frame.unavailable === 'unsupported-arc') return 'Nozzle playback cannot follow an arc in this layer';
   if (frame.unavailable === 'decode') return 'Could not decode nozzle movement for this layer';
@@ -1854,7 +1861,8 @@ async function tick() {
           receivedAt: data._bb_received_at, observedAt: performance.now() }
       : null;
     wantedJob = { ...job, layer: regressedLayer ? wantedJob.layer : reportedLayer,
-      totalLayers: regressedLayer ? wantedJob.totalLayers : print.total_layer_num, layerTiming };
+      totalLayers: regressedLayer ? wantedJob.totalLayers : print.total_layer_num,
+      layerTiming, layerPace: print._bb_layer_pace };
     canRequestToolpath = job.available && !['IDLE', 'FAILED'].includes(state);
     window.BBGcodeUI.allowFile(canRequestToolpath);
     const layerNum = wantedJob.layer;
@@ -2039,8 +2047,9 @@ async function tick() {
       } else {
         const target = modelToParsed(layerNum, Number(wantedJob.totalLayers) || 0);
         if (target > 0 && packedCompositor.available) {
-          if (state === 'RUNNING' && (layerTiming?.advancing ?? subStage === 0)) packedPlayback.live(target - 1, layerTiming);
-          else packedPlayback.pause(target - 1, layerTiming);
+          const timing = matchedLayerTiming(wantedJob);
+          if (state === 'RUNNING' && (timing?.advancing ?? subStage === 0)) packedPlayback.live(target - 1, timing);
+          else packedPlayback.pause(target - 1, timing);
         }
         if (target > 0) advanceTo(target);
       }
@@ -2138,12 +2147,12 @@ if (debug && logEl) {
 
 function packedMotionDiagnostics() {
   if (!packedPlayback) return null;
-  const { state, layer, window, windowMoves, layerMoves } = packedPlayback.frame();
+  const { state, layer, window, windowMoves, layerMoves, paceFactor } = packedPlayback.frame();
   const point = packedFrame?.position;
   const { staticDraws, nozzleDraws, depositionStart, depositedSegments, depositedEnd,
     depositionReady, partialDeposited } = packedCompositor.stats();
   return {
-    ...packedPlayback.stats(), state, layer, window, windowMoves, layerMoves, visible: nozzleGroup.visible,
+    ...packedPlayback.stats(), state, layer, window, windowMoves, layerMoves, paceFactor, visible: nozzleGroup.visible,
     position: point ? [point.x, point.y, point.z] : null,
     staticDraws, animationDraws: nozzleDraws, depositionStart, depositedSegments, depositedEnd,
     depositionReady, partialDeposited, reportedLayer: wantedJob?.layer, markerLayerCount: packedModelLayerCount,

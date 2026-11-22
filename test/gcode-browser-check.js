@@ -105,6 +105,19 @@ const depositionToolpath = Buffer.from(
   'G0 Z0.4\nG1 Y160 E1\n'
 );
 
+// Each non-final physical layer commands 160 mm at 10 mm/s. Three prior
+// measured layers will instead report roughly 48 seconds apiece.
+const pacedLayerCount = 5;
+const pacedToolpath = Buffer.from(
+  compactHeader + motionless.repeat(200_001) + 'G0 X50 Y70 Z0.2 F600\nG1 X60 E1\n' +
+  Array.from({ length: pacedLayerCount }, (_, i) => {
+    const layer = i + 1;
+    const z = (layer * 0.2).toFixed(1);
+    return `; CHANGE_LAYER\n; Z_HEIGHT: ${z}\n; layer num/total_layer_count: ${layer}/${pacedLayerCount}\n` +
+      `G0 Z${z}\nG1 X120 E1\nG1 Y90 E1\nG1 X60 E1\nG0 Y70\n`;
+  }).join('')
+);
+
 function compactTiming(plate) {
   const layers = [];
   let elapsed = 0, previous = [0, 0, 0];
@@ -220,7 +233,7 @@ function onRasterMotion(plate, layer, position) {
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&mode=preview&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition'].includes(mode)) return next();
+    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
@@ -232,12 +245,12 @@ function onRasterMotion(plate, layer, position) {
       controller.abort();
     });
     const windowed = mode === 'packed-window';
-    const deposition = mode === 'packed-deposition';
-    const length = deposition ? depositionToolpath.length : windowed ? windowByteLength() : compactByteLength(packedFixture);
+    const fixture = mode === 'packed-deposition' ? depositionToolpath : mode === 'packed-pace' ? pacedToolpath : null;
+    const length = fixture ? fixture.length : windowed ? windowByteLength() : compactByteLength(packedFixture);
     res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(length), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
       let chunks = 0;
-      const toolpath = deposition ? [depositionToolpath] : windowed ? windowToolpath() : compactToolpath(packedFixture);
+      const toolpath = fixture ? [fixture] : windowed ? windowToolpath() : compactToolpath(packedFixture);
       for (const chunk of toolpath) {
         signal.throwIfAborted();
         if (!res.write(chunk)) await once(res, 'drain', { signal });
@@ -1195,7 +1208,7 @@ function onRasterMotion(plate, layer, position) {
         await target.getByText('Waiting for layer timing', { exact: true }).waitFor();
         await checkDetail();
 
-        await setLayer(1, 25_000);
+        await setLayer(1, 31_250);
         const red = await waitForMotion({ visible: true, state: 'ready', x: [55, 62], depositionStart: 1, depositedEnd: 1,
           depositedSegments: 0, partialDeposited: true, reportedLayer: 1 });
         await target.getByText('Estimated nozzle position', { exact: true }).waitFor();
@@ -1208,7 +1221,7 @@ function onRasterMotion(plate, layer, position) {
         await target.screenshot({ path: path.join(artifacts, 'gcode-deposition-label-narrow.png'), timeout });
         await target.setViewportSize({ width: 640, height: 640 });
 
-        await setLayer(1, 90_000);
+        await setLayer(1, 112_500);
         const travel = await waitForMotion({ visible: true, state: 'ready', x: [120, 130], depositionStart: 1, depositedEnd: 2,
           depositedSegments: 1, partialDeposited: false, reportedLayer: 1 });
         assert.ok(travel.window > red.window, 'Travel crossed a real replay source-window boundary');
@@ -1217,7 +1230,7 @@ function onRasterMotion(plate, layer, position) {
           { x: 110, y: 70, red: false, green: false },
         ]);
 
-        await setLayer(1, 155_000);
+        await setLayer(1, 193_750);
         const green = await waitForMotion({ visible: true, state: 'ready', x: [183, 190], depositionStart: 1, depositedEnd: 2,
           depositedSegments: 1, partialDeposited: true, reportedLayer: 1 });
         await checkPixels('gcode-deposition-green-partial', [
@@ -1226,26 +1239,26 @@ function onRasterMotion(plate, layer, position) {
           { x: 173, y: 70, red: false, green: true },
           { x: 209, y: 70, red: false, green: false },
         ]);
-        await setLayer(1, 156_000, false, 'PAUSED');
+        await setLayer(1, 195_000, false, 'PAUSED');
         await waitForMotion({ visible: false, state: 'paused', depositedEnd: 2, partialDeposited: true });
-        await setLayer(1, 160_000);
+        await setLayer(1, 200_000);
         const resumed = await waitForMotion({ visible: true, state: 'ready', x: [188, 196], depositedEnd: 2, partialDeposited: true });
         assert.ok(resumed.position[0] > green.position[0]);
 
-        await setLayer(1, 210_000);
+        await setLayer(1, 340_000);
         const ended = await waitForMotion({ visible: false, state: 'awaiting-layer', depositionStart: 1, depositedEnd: 3,
           depositedSegments: 2, partialDeposited: false });
-        await target.getByText('Waiting for printer progress', { exact: true }).waitFor();
+        await target.getByText('Waiting for next layer', { exact: true }).waitFor();
         await target.waitForResponse(response => new URL(response.url()).pathname === '/data.json' && response.ok(), { timeout });
         await target.waitForResponse(response => new URL(response.url()).pathname === '/data.json' && response.ok(), { timeout });
         assert.equal((await waitForMotion({ state: 'awaiting-layer', visible: false })).animationDraws, ended.animationDraws);
 
-        await setLayer(2, 14_000);
+        await setLayer(2, 17_500);
         await waitForMotion({ visible: true, state: 'ready', x: [229.99, 230.01], depositionStart: 3, depositedEnd: 3,
           partialDeposited: true, reportedLayer: 2 });
         await setLayer(1, 9_000);
         await waitForMotion({ visible: false, state: 'waiting', depositedEnd: 3, reportedLayer: 2 });
-        await setLayer(2, 18_000);
+        await setLayer(2, 22_500);
         await waitForMotion({ visible: true, state: 'ready', depositedEnd: 3, partialDeposited: true, reportedLayer: 2 });
         assert.equal(count, before + 1, 'Live marker progression, layer timing and viewport reuse one G-code download');
       } finally {
@@ -1254,6 +1267,109 @@ function onRasterMotion(plate, layer, position) {
     }
     await checkMarkedDeposition();
     passed.push('Exact model-layer markers separate same-Z setup and keep two-color partial deposition, travel, pause and late telemetry synchronized');
+
+    async function checkLearnedLayerPace() {
+      await page.goto('about:blank');
+      mode = 'packed-pace';
+      const before = count;
+      const target = await context.newPage();
+      const view = base + '/widgets/gcode-viz/?debug=1&view=top';
+      const timeout = 20_000;
+      const priorLayers = [
+        { layer: 1, durationMs: 47_900 },
+        { layer: 2, durationMs: 48_060 },
+        { layer: 3, durationMs: 48_000 },
+      ];
+      const pace = samples => ({ speedPercent: 100, layerSpeedStable: true, samples });
+      const atAge = async (layer, elapsedMs, samples = priorLayers) => {
+        await writePacket({ ...print, layer_num: layer,
+          _bb_layer_elapsed_ms: elapsedMs, _bb_layer_pace: pace(samples) });
+      };
+      const waitForPose = async ({ layer, x, y, complete }) => {
+        const expectation = { layer, x, y, complete, totalLayers: pacedLayerCount };
+        const handle = await target.waitForFunction(({ layer, x, y, complete, totalLayers }) => {
+          const motion = window.__diag?.().motion;
+          const xyz = motion?.position;
+          if (motion?.reportedLayer !== layer || motion.markerLayerCount !== totalLayers ||
+              !xyz || !motion.visible || motion.state !== 'ready' || !motion.depositionReady ||
+              !motion.partialDeposited || motion.depositedEnd !== complete ||
+              Math.abs(xyz[2] - layer * 0.2) > 0.002 ||
+              Math.abs(xyz[1] - y) > 0.01 ||
+              xyz[0] < x[0] || xyz[0] > x[1]) return false;
+          return motion;
+        }, expectation, { timeout }).catch(async error => {
+          const motion = await target.evaluate(() => window.__diag?.().motion);
+          throw new Error(`Expected ${JSON.stringify(expectation)}; observed ${JSON.stringify(motion)}`, { cause: error });
+        });
+        const motion = await handle.jsonValue();
+        await handle.dispose();
+        return motion;
+      };
+      try {
+        await attachPackedBrowserProbes(target, { virtualClock: true });
+        // The old playback had already exhausted the 16-second nominal
+        // motion here. A cold viewer starts on the correct ordered return.
+        await write('Measured layer pace', 'RUNNING', { layer_num: 4, total_layer_num: pacedLayerCount,
+          _bb_layer_elapsed_ms: 30_000, _bb_layer_advancing: true, _bb_layer_pace: pace(priorLayers) });
+        await target.goto(view);
+        const middle = await waitForPose({ layer: 4, x: [92, 104], y: 90, complete: 12 });
+        assert.equal(middle.depositionStart, 10, 'The setup and three known completed layers are preserved');
+        assert.equal(middle.depositedSegments, 2);
+        assert.ok(Math.abs(middle.paceFactor - 3) < 0.05, JSON.stringify(middle));
+        await target.getByText('Estimated nozzle position', { exact: true }).waitFor();
+
+        // A new packet for the same physical layer arrives well beyond the
+        // nominal duration. Preserve ordered motion without looping or
+        // adding an arbitrary line that is absent from the file.
+        await atAge(4, 36_500);
+        const later = await waitForPose({ layer: 4, x: [73, 81], y: 90, complete: 12 });
+        assert.ok(later.position[0] < middle.position[0] - 10, 'The third extrusion keeps growing on the actual path');
+        assert.equal(later.depositionStart, middle.depositionStart);
+        assert.equal(later.depositedSegments, middle.depositedSegments);
+        await target.screenshot({ path: path.join(artifacts, 'gcode-measured-layer-pace.png'), timeout });
+
+        // A fresh MQTT snapshot can be newer than the last snapshot and
+        // still be behind the display's extrapolation across HTTP polls.
+        await target.evaluate(() => { window.__motionClockOffset += 1_800; });
+        const extrapolated = await waitForPose({ layer: 4, x: [65, 75], y: 90, complete: 12 });
+        const receipt = target.waitForResponse(async response =>
+          new URL(response.url()).pathname === '/data.json' && response.ok() &&
+          (await response.json()).print._bb_layer_elapsed_ms === 36_600, { timeout });
+        await atAge(4, 36_600);
+        await receipt;
+        await target.waitForTimeout(100);
+        const refreshed = await target.evaluate(() => window.__diag().motion);
+        assert.ok(refreshed.partialDeposited && refreshed.position[0] <= extrapolated.position[0] + 0.1,
+          `A fresh report must not rewind visible deposition: ${extrapolated.position} → ${refreshed.position}`);
+
+        // When even the learned duration and its bounded tail are behind
+        // the print, retain the deposited layer without looping the nozzle
+        // or showing the next physical layer early.
+        await atAge(4, 68_000);
+        const exhaustedHandle = await target.waitForFunction(() => {
+          const motion = window.__diag?.().motion;
+          return motion?.reportedLayer === 4 && motion.state === 'awaiting-layer' &&
+            motion.depositedEnd === 13 && motion.depositionReady && motion;
+        }, null, { timeout });
+        const exhausted = await exhaustedHandle.jsonValue();
+        await exhaustedHandle.dispose();
+        assert.equal(exhausted.position, null);
+        assert.equal(exhausted.partialDeposited, false);
+        await target.getByText('Waiting for next layer', { exact: true }).waitFor();
+
+        await atAge(5, 9_000, [...priorLayers, { layer: 4, durationMs: 68_100 }]);
+        const next = await waitForPose({ layer: 5, x: [88, 98], y: 70, complete: 13 });
+        assert.equal(next.depositionStart, 13, 'Only the actual layer report moves the completed prefix to layer 5');
+        assert.equal(next.depositedSegments, 0);
+        assert.equal(count, before + 1, 'Pace and actual layer changes reuse the downloaded plate');
+        await fs.writeFile(path.join(artifacts, 'gcode-layer-pace-results.json'),
+          JSON.stringify({ nominalSeconds: 16, priorLayers, middle, later, extrapolated, refreshed, exhausted, next, httpDownloads: count - before }, null, 2));
+      } finally {
+        await target.close();
+      }
+    }
+    await checkLearnedLayerPace();
+    passed.push('Prior measured physical layers guide late estimated motion and deposition until the actual telemetry layer transition');
 
     await checkPackedPlate(compactPlate, 'gcode-compact-plate', 45000);
     passed.push('Packed preview animates the estimated nozzle through first, middle and final layers, honors pause and resume, and preserves static geometry over one HTTP transfer');

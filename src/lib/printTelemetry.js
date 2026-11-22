@@ -3,7 +3,10 @@ const { confirmsBareCalibration, describe, hasDifferentPrintFile, id } = require
 const { AMS_3H_ID, number, loaded } = require('../../public/widgets/_amsActive');
 
 const LAYER_REPORT_GAP_MS = 60_000;
-const LAYER_TIMING_FIELDS = ['_bb_layer_elapsed_ms', '_bb_layer_advancing'];
+const PACE_REPORT_GAP_MS = 5_000;
+const PACE_BOUNDARY_UNCERTAINTY = 0.25;
+const PACE_HISTORY_LAYERS = 6;
+const LAYER_TIMING_FIELDS = ['_bb_layer_elapsed_ms', '_bb_layer_advancing', '_bb_layer_pace'];
 const ACTIVE_LAYER_STATES = new Set(['RUNNING', 'PAUSE', 'PAUSED']);
 const PREPARING_STATES = new Set(['PREPARE', 'SLICING']);
 const JOB_FIELDS = ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'param', 'url', 'print_type', 'plate_idx', 'plate_id', 'layer_num', 'total_layer_num', 'mc_percent', 'mc_remaining_time', 'mapping'];
@@ -104,9 +107,11 @@ function mergePrint(previous = {}, delta = {}) {
 // for a layer. Unknown, skipped and previously seen layers have no anchor.
 function createLayerClock() {
   let previous = null;
+  let paceSamples = [];
 
   function reset() {
     previous = null;
+    paceSamples = [];
   }
 
   function observe(print, delta, at) {
@@ -125,26 +130,77 @@ function createLayerClock() {
     let stage = recent ? previous.stage : null;
     // New firmware can report stage._id instead of stg_cur. Use the
     // newest packet carrying a stage so an older retained shape cannot win.
-    if (Object.hasOwn(delta, 'stg_cur')) stage = number(delta.stg_cur);
-    else if (delta.stage && Object.hasOwn(delta.stage, '_id')) stage = number(delta.stage._id);
+    const hasFlatStage = Object.hasOwn(delta, 'stg_cur');
+    const hasNestedStage = delta.stage && Object.hasOwn(delta.stage, '_id');
+    if (hasFlatStage) stage = number(delta.stg_cur);
+    else if (hasNestedStage) stage = number(delta.stage._id);
+    const stageAgrees = hasFlatStage || hasNestedStage
+      ? !(hasFlatStage && hasNestedStage && stage !== number(delta.stage._id))
+      : recent && previous.stageAgrees;
 
     const advancing = state === 'RUNNING' && layer > 0 && stage === 0;
+    const paceAdvancing = advancing && stageAgrees;
+    const sameLayer = recent && layer !== null && layer === previous.layer;
+    const nextLayer = recent && layer > 0 && previous.layer !== null &&
+      layer === previous.layer + 1 && layer > previous.highest;
+    const continuous = sameLayer || nextLayer;
     let elapsed = null;
-    if (recent && layer > 0) {
-      if (layer === previous.layer && previous.elapsed !== null) {
-        elapsed = previous.elapsed + (previous.advancing ? gap : 0);
-      } else if (previous.layer !== null && layer === previous.layer + 1 && layer > previous.highest) {
-        elapsed = 0;
+    if (sameLayer && previous.elapsed !== null) {
+      elapsed = previous.elapsed + (previous.advancing ? gap : 0);
+    } else if (nextLayer) {
+      elapsed = 0;
+    }
+
+    // spd_mag is the reported speed percentage. A mode-only change can
+    // precede its matching percentage, so do not use the retained magnitude.
+    const speedMode = Object.hasOwn(delta, 'spd_lvl') ? number(delta.spd_lvl) :
+      continuous ? previous.speedMode : null;
+    const modeChanged = continuous && speedMode !== previous.speedMode;
+    let speedPercent = continuous && !modeChanged ? previous.speedPercent : null;
+    if (Object.hasOwn(delta, 'spd_mag')) {
+      const reportedSpeed = number(delta.spd_mag);
+      speedPercent = Number.isSafeInteger(reportedSpeed) && reportedSpeed > 0 ? reportedSpeed : null;
+    }
+    const sameSpeed = continuous && !modeChanged && speedPercent !== null && speedPercent === previous.speedPercent;
+    const paceTotal = Number.isSafeInteger(total) && total > 0 ? total : null;
+    const paceContinuous = sameSpeed && paceTotal === previous.paceTotal && gap <= PACE_REPORT_GAP_MS;
+    const boundary = nextLayer && Object.hasOwn(delta, 'layer_num');
+    const layerSpeedStable = paceContinuous && (boundary || (sameLayer && previous.layerSpeedStable));
+    let paceStart = null;
+    if (!paceContinuous || preparing) paceSamples = [];
+    if (paceContinuous && paceAdvancing && previous.paceAdvancing) {
+      if (sameLayer) {
+        paceStart = previous.paceStart;
+      } else if (boundary) {
+        paceStart = { at, gap };
+        const start = previous.paceStart;
+        if (start) {
+          const durationMs = Math.round(at - start.at);
+          // The actual transition could have occurred between the last
+          // report of the old layer and the first report of the new one.
+          const uncertainty = start.gap + gap;
+          if (durationMs > 0 && uncertainty <= durationMs * PACE_BOUNDARY_UNCERTAINTY) {
+            paceSamples = [...paceSamples, { layer: previous.layer, durationMs }];
+          }
+        }
       }
     }
+    if (paceSamples[0]?.layer < layer - PACE_HISTORY_LAYERS) {
+      paceSamples = paceSamples.filter(sample => sample.layer >= layer - PACE_HISTORY_LAYERS);
+    }
+
     previous = {
-      job, layer, stage, at, advancing, elapsed,
+      job, layer, stage, stageAgrees, at, advancing, paceAdvancing, elapsed,
+      speedMode, speedPercent, layerSpeedStable, paceStart, paceTotal,
       highest: Math.max(layer ?? 0, recent ? previous.highest : 0),
     };
-    return elapsed === null ? null : {
+    if (elapsed === null) return null;
+    const timing = {
       _bb_layer_elapsed_ms: Math.round(elapsed),
       _bb_layer_advancing: advancing,
     };
+    if (speedPercent !== null) timing._bb_layer_pace = { speedPercent, layerSpeedStable, samples: paceSamples };
+    return timing;
   }
 
   return { observe, reset };
