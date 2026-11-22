@@ -116,6 +116,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
     return new URL(`${protocol}://${host}`).origin;
   }
   function hostFromReq(req) { return new URL(originFromReq(req)).host; }
+  function obsLiveUrl(req) { return `${originFromReq(req)}/live`; }
 
   // Freeze legacy active pointers once on startup. The scene files remain
   // unchanged; older versions still understand the slug in this record.
@@ -398,8 +399,12 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   // either of them never depends on the draft's continued presence.
   router.get('/active', async (req, res) => {
     try {
+      const info = publicOutputInfo(await outputInfo());
+      let obsUrl = null;
+      // A malformed proxy header or public URL should only affect OBS export.
+      try { obsUrl = obsLiveUrl(req); } catch (_) {}
       res.setHeader('Cache-Control', 'no-store');
-      res.json(publicOutputInfo(await outputInfo()));
+      res.json({ ...info, obsUrl });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
   router.get('/published', async (req, res) => {
@@ -474,7 +479,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   // imports it cleanly.
   router.get('/single-source', async (req, res) => {
     try {
-    const liveUrl = `${originFromReq(req)}/live`;
+    const liveUrl = obsLiveUrl(req);
     const { resolution } = await outputInfo();
     const collection = {
       name: `BambuBoard ${PKG_VERSION}`,

@@ -5,6 +5,7 @@
   const delays = [1000, 3000, 10000], maxBuffered = 8 * 1024 * 1024, sliceBytes = 256 * 1024;
   let capabilities = null, remote = null, active = false, owned = null, stopping = false, checking = false, selectedOnce = false;
   let lastClient = { state: 'idle', events: [] }, statusSequence = 0;
+  let setupFeedback = null;
   const messages = { idle: 'Ready when you are.', starting: 'Preparing the stream…', connecting: 'Connecting to YouTube and encoding the first frames…', sending: 'Sending video. Confirm the broadcast in YouTube Studio.', reconnecting: 'Connection interrupted. Reconnecting…', stopping: 'Stopping the stream…', stopped: 'Stream stopped.' };
   const setText = (id, text) => { if ($(id).textContent !== text) $(id).textContent = text; };
   function supportProblem() {
@@ -49,14 +50,46 @@
     }
     controls();
   }
+  function clearSetupFeedback() {
+    const field = setupFeedback?.field;
+    if (field) {
+      $(field).removeAttribute('aria-invalid');
+      $(field).removeAttribute('aria-errormessage');
+    }
+    setupFeedback = null;
+  }
+  function showSetupFeedback(state, message, field) {
+    if (owned || active || stopping) return;
+    clearSetupFeedback();
+    setupFeedback = { state, message, field };
+    render(setupFeedback, message);
+    if (field) {
+      const input = $(field);
+      input.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-errormessage', 'yt-status');
+      input.closest('details').open = true;
+      input.focus();
+    }
+  }
+  function clearFeedbackForInput(id) {
+    if (!setupFeedback) return;
+    const invalidatesFeedback = setupFeedback.field ? setupFeedback.field === id : id === 'yt-mode' || id === 'yt-destination';
+    if (!invalidatesFeedback) return;
+    clearSetupFeedback();
+    render({ state: 'idle' });
+  }
   function qualityChanged() {
     const profile = capabilities?.profiles.find(p => p.id === $('yt-quality').value);
-    if (profile) { $('yt-bitrate').value = profile.bitrate; setText('yt-bitrate-help', `YouTube recommends ${profile.bitrate.toLocaleString()} kbps for this H.264 preset.`); }
+    if (profile) {
+      $('yt-bitrate').value = profile.bitrate;
+      setText('yt-bitrate-help', `YouTube recommends ${profile.bitrate.toLocaleString()} kbps for this H.264 preset.`);
+      clearFeedbackForInput('yt-bitrate');
+    }
   }
   function options() {
     const key = $('yt-key').value.trim(), bitrate = Number($('yt-bitrate').value);
-    if (!/^[A-Za-z0-9_-]{4,128}$/.test(key)) throw new Error('Paste the stream key from YouTube Studio, without a URL or spaces.');
-    if (!Number.isInteger(bitrate) || bitrate < 1000 || bitrate > 25000) throw new Error('Video bitrate must be between 1,000 and 25,000 kbps.');
+    if (!/^[A-Za-z0-9_-]{4,128}$/.test(key)) throw Object.assign(new Error('Paste the stream key from YouTube Studio, without a URL or spaces.'), { field: 'yt-key' });
+    if (!Number.isInteger(bitrate) || bitrate < 1000 || bitrate > 25000) throw Object.assign(new Error('Video bitrate must be between 1,000 and 25,000 kbps.'), { field: 'yt-bitrate' });
     return { key, profile: $('yt-quality').value, bitrate, destination: $('yt-destination').value, source: $('yt-mode').value };
   }
   async function request(route, body) {
@@ -134,8 +167,9 @@
     ws.onclose = () => { if (current(ctx) && ctx.ws === ws) retry(ctx, ctx.failure || { code: 'CONNECTION', message: 'The relay connection closed.', retryable: true }); };
   }
   async function start() {
-    if (owned || active || stopping || !capabilities || supportProblem()) return;
-    let opts; try { opts = options(); } catch (error) { return render({ state: 'error' }, error.message); }
+    if (owned || active || stopping || checking || !capabilities || supportProblem()) return;
+    clearSetupFeedback();
+    let opts; try { opts = options(); } catch (error) { return showSetupFeedback('error', error.message, error.field); }
     const ctx = { options: opts, attempt: 0, cancelled: false, retryTimer: null, capture: null, ws: null, recorder: null }; owned = ctx;
     note(ctx, 'starting', opts.source === 'server' ? 'Preparing server capture…' : 'Choose the /live tab in the share picker…');
     try {
@@ -178,12 +212,14 @@
     try {
       const data = await request('status'); if (sequence !== statusSequence) return;
       capabilities = data.capabilities; active = data.active; remote = data.session;
+      if (active) clearSetupFeedback();
       if (!selectedOnce) { selectedOnce = true; $('yt-mode').value = capabilities.serverCapture ? 'server' : 'browser'; qualityChanged(); }
       if (owned?.options.source === 'server' && owned.id && remote.id === owned.id) {
         if (!active) { const ctx = owned; ctx.options.key = ''; owned = null; ctx.cancelled = true; }
         render(remote);
       } else if (!owned && !stopping) {
         if (active) render(remote);
+        else if (setupFeedback) render(setupFeedback, setupFeedback.message);
         // Closing a failed browser producer makes the server report "stopped".
         // Preserve the actionable local error instead of erasing it on polling.
         else if (lastClient.state === 'error') render({ state: 'error' }, lastClient.events.at(-1)?.message);
@@ -191,19 +227,24 @@
         else if (lastClient.state === 'idle') render(remote);
       }
       controls();
-    } catch (_) { if (!owned) render({ state: 'error' }, 'Could not check streaming status. Check the BambuBoard server connection.'); }
+    } catch (_) { if (!owned && !setupFeedback) render({ state: 'error' }, 'Could not check streaming status. Check the BambuBoard server connection.'); }
   }
   $('yt-start').addEventListener('click', start); $('yt-stop').addEventListener('click', stop);
-  $('yt-quality').addEventListener('change', qualityChanged); $('yt-mode').addEventListener('change', controls);
+  $('yt-quality').addEventListener('change', qualityChanged);
+  $('yt-mode').addEventListener('change', () => { controls(); clearFeedbackForInput('yt-mode'); });
+  $('yt-destination').addEventListener('change', () => clearFeedbackForInput('yt-destination'));
+  for (const id of ['yt-key', 'yt-bitrate']) $(id).addEventListener('input', () => clearFeedbackForInput(id));
   $('yt-show-key').addEventListener('click', () => {
     const show = $('yt-key').type === 'password'; $('yt-key').type = show ? 'text' : 'password';
     setText('yt-show-key', show ? 'Hide' : 'Show'); $('yt-show-key').setAttribute('aria-label', show ? 'Hide stream key' : 'Show stream key'); $('yt-show-key').setAttribute('aria-pressed', String(show));
   });
   $('yt-check').addEventListener('click', async () => {
-    const problem = supportProblem(); if (problem) return render({ state: 'error' }, problem);
-    checking = true; controls(); setText('yt-status', 'Checking encoder, capture support and the encrypted YouTube connection…');
-    try { const data = await request('check', { source: $('yt-mode').value, destination: $('yt-destination').value }); render({ state: 'idle' }, data.message); }
-    catch (error) { render({ state: 'error' }, error.message); }
+    if (owned || active || stopping || checking || !capabilities) return;
+    const problem = supportProblem(); if (problem) return showSetupFeedback('error', problem);
+    checking = true;
+    showSetupFeedback('idle', 'Checking encoder, capture support and the encrypted YouTube connection…');
+    try { const data = await request('check', { source: $('yt-mode').value, destination: $('yt-destination').value }); showSetupFeedback('idle', data.message); }
+    catch (error) { showSetupFeedback('error', error.message); }
     finally { checking = false; controls(); }
   });
   $('yt-diagnostics').addEventListener('click', async event => {

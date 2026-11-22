@@ -96,6 +96,12 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
         if (width === 1440 || width === 390) await page.screenshot({ path: path.join(artifactDir, `${route === '/' ? 'live' : route.slice(1)}-${width}.png`), fullPage: true });
       }
     }
+    const obsRoutes = /\/api\/obs\/(active|single-source)$/;
+    const publicHost = 'obs-fixture.example.test';
+    const publicUrl = `https://${publicHost}`;
+    await page.route(obsRoutes, route => route.continue({
+      headers: { ...route.request().headers(), 'x-forwarded-host': publicHost, 'x-forwarded-proto': 'https' },
+    }));
     await page.setViewportSize({ width: 1440, height: 1100 }); await page.goto(base + '/');
     await page.waitForFunction(() => document.getElementById('publication-state').textContent === 'Published');
     assert.equal(await page.locator('#youtube-details').getAttribute('open'), null);
@@ -103,8 +109,16 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     assert.ok(order);
     const iframe = page.frameLocator('#live-frame');
     await iframe.locator('.live-item').first().waitFor();
-    const sceneExport = await fetch(base + '/api/obs/single-source').then(r => r.json());
+    assert.equal(await page.locator('#live-frame').getAttribute('src'), '/live');
+    assert.equal(await page.locator('#live-url').inputValue(), publicUrl + '/live');
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+    await page.locator('#copy-url').click();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), publicUrl + '/live');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#download-obs').click()]);
+    const sceneExport = JSON.parse(await fs.readFile(await download.path(), 'utf8'));
+    assert.equal(sceneExport.sources[0].settings.url, publicUrl + '/live');
     assert.equal(sceneExport.sources[0].settings.width, published.resolution.x);
+    await page.unroute(obsRoutes);
     // Test HTTP LAN feature detection with the real document, without capture.
     await page.addInitScript(() => Object.defineProperty(window, 'isSecureContext', { value: false }));
     await page.reload(); await page.locator('#youtube-details').evaluate(node => { node.open = true; });

@@ -57,10 +57,31 @@ test('saving or deleting a draft leaves the applied snapshot and OBS export inta
   assert.deepEqual((await request('/published')).body, original);
   assert.deepEqual((await request('/active')).body, before);
 
-  const exportScene = (await request('/single-source', null, 'GET', { 'X-Forwarded-Host': 'stream.example.test', 'X-Forwarded-Proto': 'https' })).body;
+  const forwarded = { 'X-Forwarded-Host': 'stream.example.test', 'X-Forwarded-Proto': 'https' };
+  const exportScene = (await request('/single-source', null, 'GET', forwarded)).body;
+  const obsInfo = (await request('/active', null, 'GET', forwarded)).body;
+  assert.equal(obsInfo.obsUrl, exportScene.sources[0].settings.url);
   assert.deepEqual(exportScene.resolution, { x: 2560, y: 1440 });
   assert.deepEqual(exportScene.migration_resolution, exportScene.resolution);
   assert.deepEqual(exportScene.sources[0].settings, { url: 'https://stream.example.test/live', width: 2560, height: 1440 });
+  const malformedProxy = { 'X-Forwarded-Host': '[' };
+  const malformedActive = await request('/active', null, 'GET', malformedProxy);
+  assert.equal(malformedActive.status, 200);
+  assert.equal(malformedActive.body.revision, draft.revision);
+  assert.equal(malformedActive.body.obsUrl, null);
+  assert.equal((await request('/single-source', null, 'GET', malformedProxy)).status, 500);
+
+  const previousPublicUrl = process.env.BAMBUBOARD_PUBLIC_URL;
+  process.env.BAMBUBOARD_PUBLIC_URL = 'https://canonical.example.test:8443';
+  try {
+    const configured = (await request('/active', null, 'GET', forwarded)).body;
+    const downloaded = (await request('/single-source', null, 'GET', forwarded)).body;
+    assert.equal(configured.obsUrl, 'https://canonical.example.test:8443/live');
+    assert.equal(configured.obsUrl, downloaded.sources[0].settings.url);
+  } finally {
+    if (previousPublicUrl === undefined) delete process.env.BAMBUBOARD_PUBLIC_URL;
+    else process.env.BAMBUBOARD_PUBLIC_URL = previousPublicUrl;
+  }
 
   const next = await apply(request, latest, before.updatedAt);
   assert.equal(next.status, 200);

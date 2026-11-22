@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file. The format foll
 
 - Reject duplicate draft names and stale saves. Preserve undo after resetting or switching scenes, respect locked layers, and keep widget previews loaded while editing.
 - Show a retry action when the widget catalog is unavailable.
+- Use the same browser source URL for OBS copy and download, including when a public URL is configured.
+- Keep YouTube setup and validation messages visible while stream status refreshes.
 
 ---
 
