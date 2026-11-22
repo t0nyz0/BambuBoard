@@ -3,6 +3,7 @@ import {
   addMotionWeights, createPackedMotionSource, createWindowMoves, indexMotionWindows, locateMotionWindow,
   replayPackedMotionSource, MOTION_WINDOW_LINES,
 } from './packed-motion-index.js';
+import { parseToolpathLayerMarker } from './toolpath-layer-marker.js';
 
 const CHUNK_SEGMENTS = 32_768;
 const MAX_PACKED_SEGMENTS = 3_800_000;
@@ -199,8 +200,9 @@ export function restorePackedMotion(parser, descriptor) {
       const moves = createWindowMoves();
       const onSetting = () => {};
       let unsupportedArc = false;
+      let deposited = window.deposited;
       const onMove = move => {
-        if (!move.anchored) return;
+        if (!move.anchored && !move.extrusion) return;
         let curve;
         if (move.arc) {
           try { curve = getCurve(move); }
@@ -210,7 +212,10 @@ export function restorePackedMotion(parser, descriptor) {
             return;
           }
         }
-        moves.add(move.pos, move.next, move.deltaE, move.feed, move.extrusion, curve);
+        // An unanchored motion never supplies a nozzle pose. Its commanded
+        // static geometry still contributes to subsequent segment ordinals.
+        if (move.anchored) moves.add(move, curve, deposited);
+        if (move.extrusion) deposited += curve?.count ?? 1;
       };
       await replayPackedMotionSource(blocks, window.line, window.end, signal, async (lines, from, to) => {
         let deadline = performance.now() + 8;
@@ -228,6 +233,77 @@ export function restorePackedMotion(parser, descriptor) {
       if (unsupportedArc) return { unavailable: 'unsupported-arc', bytes: 0 };
       const path = moves.finish();
       return path ? { ...path, layer: window.layer } : null;
+    },
+  };
+}
+
+// A verified slicer layer may contain several distinct geometry Z values.
+// Keep the natural Z grouping as a fallback until the complete marker chain
+// is known. Both indexes point into exactly the same global segment buffer.
+function createSlicerLayerIndex(checkpoint) {
+  const markers = [];
+  let pending = null;
+  let expectedTotal = null;
+  let valid = true;
+  const complete = marker => marker.modelLayer !== undefined && marker.z !== undefined;
+
+  function invalidate() {
+    valid = false;
+    pending = null;
+    markers.length = 0;
+  }
+
+  return {
+    read(marker, segments) {
+      if (!valid) return;
+      switch (marker.kind) {
+        case 'invalid':
+          invalidate();
+          return;
+        case 'change':
+          if ((pending && !complete(pending)) || markers.length >= PREVIEW_WORKLOAD_LIMITS.layers) {
+            invalidate();
+            return;
+          }
+          pending = { start: checkpoint(), segments };
+          markers.push(pending);
+          return;
+        case 'height':
+          if (!pending || pending.expectedZ !== undefined) {
+            invalidate();
+            return;
+          }
+          pending.expectedZ = marker.z;
+          return;
+        case 'number':
+          if (!pending || pending.modelLayer !== undefined || marker.layer !== markers.length ||
+              marker.total < marker.layer || marker.total > PREVIEW_WORKLOAD_LIMITS.layers ||
+              (expectedTotal !== null && marker.total !== expectedTotal)) {
+            invalidate();
+            return;
+          }
+          pending.modelLayer = marker.layer;
+          expectedTotal = marker.total;
+      }
+    },
+    confirm(z) {
+      if (pending?.expectedZ !== undefined && pending.z === undefined && Math.abs(z - pending.expectedZ) <= 0.01) {
+        pending.z = z;
+      }
+    },
+    finish(segments, lastDeposition) {
+      if (!valid || !pending || !complete(pending) || markers.length !== expectedTotal) return null;
+      const layers = [{ height: 0, z: 0, end: markers[0].segments }];
+      const ranges = [null];
+      let previousZ = 0;
+      for (let i = 0; i < markers.length; i++) {
+        const { modelLayer, z, start } = markers[i];
+        const next = markers[i + 1];
+        layers.push({ modelLayer, z, height: Math.abs(z - previousZ), end: next?.segments ?? segments });
+        ranges.push(start ? { start, end: next?.start ?? lastDeposition } : null);
+        previousZ = z;
+      }
+      return { layers, ranges };
     },
   };
 }
@@ -256,6 +332,15 @@ export function createPackedToolpath(parser, {
   let deadline = 0;
   let transition = null;
   let tool = 0;
+
+  function checkpoint() {
+    if (!spool) return null;
+    const boundary = span?.end ?? {
+      line: 0, duration: 0, distance: 0, moves: 0, unsupported: 0, untimed: 0, deposited: segmentCount,
+    };
+    return { ...boundary, state: reader.snapshot(), span: Math.max(0, spans.length - 1) };
+  }
+  const slicer = createSlicerLayerIndex(checkpoint);
 
   function addSegment(ax, ay, az, bx, by, bz) {
     if (segmentCount >= maxSegments) {
@@ -337,9 +422,10 @@ export function createPackedToolpath(parser, {
     }
     const { pos, next, arc } = move;
     const curve = arc ? getCurve(move) : null;
+    if (move.anchored) slicer.confirm(next.z);
     if (lastZ === null || Math.abs(next.z - lastZ) > parser.tolerance) {
       if (layers.length > PREVIEW_WORKLOAD_LIMITS.layers) throw complexity('The preview cannot safely hold this many layers.');
-      layer = { height: Math.abs(next.z - (lastZ ?? 0)), end: segmentCount };
+      layer = { height: Math.abs(next.z - (lastZ ?? 0)), z: next.z, end: segmentCount };
       layers.push(layer);
       layerStart = segmentCount;
       lastZ = next.z;
@@ -352,6 +438,7 @@ export function createPackedToolpath(parser, {
       // Include any inter-layer travel in the next layer, but never replay
       // parking and post-processing after the final deposition.
       measureMotion(move, curve);
+      span.end.deposited = segmentCount + (curve?.count ?? 1);
       const end = ranges.at(-1).end;
       Object.assign(end, span.end);
       end.line = lineIndex + 1;
@@ -367,12 +454,19 @@ export function createPackedToolpath(parser, {
     if (line.length > PREVIEW_WORKLOAD_LIMITS.commandCharacters) {
       throw complexity('A single G-code command is too large to preview safely.');
     }
+    if (line.startsWith(';')) {
+      const marker = parseToolpathLayerMarker(line);
+      if (marker) slicer.read(marker, segmentCount);
+      return;
+    }
     const command = parser.parseCommand(line, false);
     if (!isMotionSource(command.gcode)) return;
     if (spool) {
       lineIndex = spool.count;
       if (lineIndex % MOTION_WINDOW_LINES === 0) {
-        const boundary = { line: lineIndex, duration: 0, distance: 0, moves: 0, unsupported: 0, untimed: 0 };
+        const boundary = {
+          line: lineIndex, duration: 0, distance: 0, moves: 0, unsupported: 0, untimed: 0, deposited: segmentCount,
+        };
         span = { start: { ...boundary, state: reader.snapshot() }, end: boundary };
         spans.push(span);
       }
@@ -396,14 +490,15 @@ export function createPackedToolpath(parser, {
     signal?.throwIfAborted();
     let descriptor = null;
     let timing;
+    const marked = slicer.finish(segmentCount, ranges?.at(-1)?.end);
     if (spool) {
       const { writeMs, ...source } = spool.finish();
       const start = performance.now();
-      descriptor = { ...source, ...indexMotionWindows(ranges, spans) };
+      descriptor = { ...source, ...indexMotionWindows(marked?.ranges ?? ranges, spans) };
       timing = { sourceMs: writeMs, indexMs: performance.now() - start };
     }
     return {
-      chunks, layers, segmentCount, bounds: Number.isFinite(modelBounds[0]) ? modelBounds : allBounds,
+      chunks, layers: marked?.layers ?? layers, segmentCount, bounds: Number.isFinite(modelBounds[0]) ? modelBounds : allBounds,
       motion: transferable ? descriptor : restorePackedMotion(parser, descriptor), timing,
     };
   }

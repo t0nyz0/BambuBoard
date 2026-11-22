@@ -27,7 +27,8 @@ export async function buildPackedRenderer(data, preview, bed, signal, yieldTask,
   const staging = new THREE.Scene();
   const material = new THREE.LineBasicMaterial({ vertexColors: true });
   const batches = [];
-  let visibleSegments = 0, visibleBatches = 0;
+  let visibleSegments = 0, visibleBatches = 0, paletteRevision = 0;
+  let table = colorTable(preview.extrusionColor);
   const dispose = () => {
     group.removeFromParent();
     for (const { lines } of batches) lines.geometry.dispose();
@@ -37,7 +38,6 @@ export async function buildPackedRenderer(data, preview, bed, signal, yieldTask,
   };
 
   try {
-    const table = colorTable(preview.extrusionColor);
     for (const { positions, start, count, tools } of data.chunks) {
       signal.throwIfAborted();
       const geometry = new THREE.BufferGeometry();
@@ -73,6 +73,35 @@ export async function buildPackedRenderer(data, preview, bed, signal, yieldTask,
   return {
     group,
     bounds: data.bounds,
+    get paletteRevision() { return paletteRevision; },
+    colorForTool: tool => table[tool] ?? table[0],
+    layerRange(index) {
+      const layer = data.layers[index];
+      if (!layer) return null;
+      return { start: data.layers[index - 1]?.end ?? 0, end: layer.end };
+    },
+    depositionBatches(start, end, limit) {
+      const items = [];
+      if (start >= end || limit <= 0) return { items, end: start };
+      let lo = 0, hi = batches.length;
+      while (lo < hi) {
+        const middle = (lo + hi) >>> 1;
+        const batch = batches[middle];
+        if (batch.start + batch.count <= start) lo = middle + 1;
+        else hi = middle;
+      }
+      let reached = start;
+      for (let i = lo; i < batches.length && items.length < limit; i++) {
+        const batch = batches[i];
+        if (batch.start >= end) break;
+        const from = Math.max(start, batch.start);
+        const to = Math.min(end, batch.start + batch.count);
+        if (to <= from) continue;
+        items.push({ geometry: batch.lines.geometry, material, start: (from - batch.start) * 2, count: (to - from) * 2 });
+        reached = to;
+      }
+      return { items, end: reached };
+    },
     show(layer) {
       visibleSegments = data.layers[layer - 1]?.end || 0;
       visibleBatches = 0;
@@ -84,7 +113,8 @@ export async function buildPackedRenderer(data, preview, bed, signal, yieldTask,
       }
     },
     setPalette(palette) {
-      const table = colorTable(palette);
+      table = colorTable(palette);
+      paletteRevision++;
       for (const { lines, ids, colors } of batches) {
         fillColors(colors, ids, table);
         lines.geometry.attributes.color.needsUpdate = true;

@@ -1,19 +1,36 @@
-// The viewer uses the original parser for commands. Standalone comments
-// and blank lines have no effect on motion, layers, or modal state.
+import { MAX_LAYER_MARKER_CHARACTERS, parseToolpathLayerMarker } from './toolpath-layer-marker.js';
+
+// Preserve only the small set of standalone comments that can corroborate
+// physical layer numbering. Ordinary comments can be arbitrarily long.
 export function createToolpathFramer(maxCharacters) {
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  let pending = '', comment = false;
+  let pending = '', comment = false, oversizedComment = false;
 
   function append(fragment) {
-    if (comment) return;
-    if (!pending) {
+    if (oversizedComment) return;
+    if (!pending && !comment) {
       fragment = fragment.trimStart();
-      if (fragment.startsWith(';')) { comment = true; return; }
+      comment = fragment.startsWith(';');
+    }
+    if (comment) {
+      const remaining = MAX_LAYER_MARKER_CHARACTERS - pending.length;
+      oversizedComment = fragment.length > remaining;
+      pending += fragment.slice(0, remaining);
+      return;
     }
     if (pending.length + fragment.length > maxCharacters) {
       throw Object.assign(new Error('A G-code command is too large for the preview.'), { code: 'PREVIEW_COMPLEXITY' });
     }
     pending += fragment;
+  }
+
+  function endLine(lines) {
+    if (pending && (!comment || parseToolpathLayerMarker(pending))) {
+      lines.push(oversizedComment ? '; layer num/total_layer_count: invalid' : pending);
+    }
+    pending = '';
+    comment = false;
+    oversizedComment = false;
   }
 
   return function frame(chunk, done = false) {
@@ -26,16 +43,11 @@ export function createToolpathFramer(maxCharacters) {
     let start = 0;
     for (let end = text.indexOf('\n'); end !== -1; end = text.indexOf('\n', start)) {
       append(text.slice(start, end));
-      if (pending) lines.push(pending);
-      pending = '';
-      comment = false;
+      endLine(lines);
       start = end + 1;
     }
     append(text.slice(start));
-    if (done && pending) {
-      lines.push(pending);
-      pending = '';
-    }
+    if (done) endLine(lines);
     return lines;
   };
 }

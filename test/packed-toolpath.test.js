@@ -94,6 +94,10 @@ async function motionSample(motion, layer, fraction) {
   return path.sample(target.fraction, layer.basis);
 }
 
+function assertPose({ x, y, z, extruding }, expected) {
+  assert.deepEqual({ x, y, z, extruding }, expected);
+}
+
 test('packed lazy motion preserves modal feed, the preceding Z transition, travel arcs and retraction', async () => {
   const controller = new AbortController();
   const { packed } = await fixture({ signal: controller.signal, yieldTask });
@@ -112,18 +116,18 @@ test('packed lazy motion preserves modal feed, the preceding Z transition, trave
   assert.equal(data.motion.layer(0), null);
   const first = data.motion.layer(1);
   assert.equal(first.duration, 1);
-  assert.deepEqual(await motionSample(data.motion, first, 0.5), { x: 15, y: 10, z: Math.fround(0.2), extruding: true });
+  assertPose(await motionSample(data.motion, first, 0.5), { x: 15, y: 10, z: Math.fround(0.2), extruding: true });
   const second = data.motion.layer(2);
   assert.equal(second.basis, 'feed');
   const arcSeconds = Math.hypot(5 * Math.PI, 0.2) / 10;
   assert.ok(Math.abs(second.duration - (0.1 + arcSeconds + 1)) < 1e-8);
-  assert.deepEqual(await motionSample(data.motion, second, 0), { x: 20, y: 10, z: Math.fround(0.2), extruding: false });
+  assertPose(await motionSample(data.motion, second, 0), { x: 20, y: 10, z: Math.fround(0.2), extruding: false });
   const middleArc = await motionSample(data.motion, second, (0.1 + arcSeconds / 2) / second.duration);
   assert.ok(Math.abs(middleArc.x - 25) < 1e-6 && Math.abs(middleArc.y - 15) < 1e-6);
   assert.ok(Math.abs(middleArc.z - 0.3) < 1e-6);
   assert.equal(middleArc.extruding, false);
   const end = await motionSample(data.motion, second, 1);
-  assert.deepEqual(end, { x: 40, y: 10, z: Math.fround(0.4), extruding: true });
+  assertPose(end, { x: 40, y: 10, z: Math.fround(0.4), extruding: true });
   assert.equal(second.moves, 4);
 });
 
@@ -142,7 +146,7 @@ test('packed lazy motion exposes distance seek without inventing missing or part
   assert.equal(target.index, 1);
   const timedWindow = await data.motion.load(target.index);
   assert.equal(timedWindow.duration, 2);
-  assert.deepEqual(timedWindow.sample(target.fraction, path.basis), { x: 25, y: 10, z: Math.fround(0.2), extruding: true });
+  assertPose(timedWindow.sample(target.fraction, path.basis), { x: 25, y: 10, z: Math.fround(0.2), extruding: true });
   assert.equal(path.locate(NaN), null);
 });
 
@@ -161,7 +165,7 @@ test('packed motion replays exact line ranges across immutable source blocks and
   assert.equal((await motionSample(motion, first, 1)).x, 10);
   const second = motion.layer(2);
   assert.equal(second.moves, 2);
-  assert.deepEqual(await motionSample(motion, second, 1), { x: 12, y: 10, z: Math.fround(0.4), extruding: true });
+  assertPose(await motionSample(motion, second, 1), { x: 12, y: 10, z: Math.fround(0.4), extruding: true });
   const controller = new AbortController();
   const stop = new Error('canceled stale window');
   controller.abort(stop);
@@ -244,13 +248,19 @@ test('one layer over 250,000 moves supports bounded direct seeks across the old 
     assert.ok(Math.abs(pose.y - (fromY + toY) / 2) < 1e-6);
     assert.equal(pose.z, Math.fround(0.2));
     assert.equal(pose.extruding, false);
+    assert.equal(pose.deposited, 1);
+    assert.equal(pose.partial, null);
   }
 
   const firstWindow = await motion.load(layer.locate(0).index);
   const followingWindow = await motion.load(layer.locate(0).index + 1);
   assert.deepEqual(firstWindow.sample(1, layer.basis), followingWindow.sample(0, layer.basis));
-  assert.deepEqual(await motionSample(motion, layer, 1), { x: 30, y: lastY, z: Math.fround(0.2), extruding: true });
-  assert.equal((await motionSample(motion, motion.layer(2), 1)).x, 40);
+  const layerEnd = await motionSample(motion, layer, 1);
+  assertPose(layerEnd, { x: 30, y: lastY, z: Math.fround(0.2), extruding: true });
+  assert.equal(layerEnd.deposited, 2);
+  const jobEnd = await motionSample(motion, motion.layer(2), 1);
+  assert.equal(jobEnd.x, 40);
+  assert.equal(jobEnd.deposited, 3);
 });
 
 test('a window of only retractions holds finite feed-based time at its stationary position', async () => {
@@ -269,7 +279,7 @@ test('a window of only retractions holds finite feed-based time at its stationar
   const window = await motion.load(target.index);
   assert.equal(window.moves, retractions.length);
   assert.equal(window.distance, 0);
-  assert.deepEqual(window.sample(target.fraction, layer.basis), { x: 20, y: 10, z: Math.fround(0.2), extruding: false });
+  assertPose(window.sample(target.fraction, layer.basis), { x: 20, y: 10, z: Math.fround(0.2), extruding: false });
 });
 
 test('a direct window seek restores relative arc, coordinate reset and modal feed from before the checkpoint', async () => {
@@ -293,7 +303,7 @@ test('a direct window seek restores relative arc, coordinate reset and modal fee
   const point = window.sample(target.fraction, layer.basis);
   assert.ok(Math.abs(point.x - 25) < 1e-6 && Math.abs(point.y - 15) < 1e-6);
   assert.equal(point.extruding, true);
-  assert.deepEqual(window.sample(1, layer.basis), { x: 35, y: 10, z: Math.fround(0.2), extruding: true });
+  assertPose(window.sample(1, layer.basis), { x: 35, y: 10, z: Math.fround(0.2), extruding: true });
 });
 
 test('packed worker command fields match the pinned document parser', async () => {
@@ -341,5 +351,123 @@ test('the packed worker can transfer exact geometry and restore an independently
     for (const fraction of [1, 0, 0.5]) {
       assert.deepEqual(await motionSample(replay, track, fraction), await motionSample(expected.motion, expected.motion.layer(layer), fraction));
     }
+  }
+});
+
+test('one playhead deposits only along extrusion and carries the source filament tool', async () => {
+  const { packed } = await fixture({ yieldTask });
+  await packed.parseBatch([
+    'G90', 'M83', 'G0 X10 Y12 Z0.2 F600', 'G1 X20 E1',
+    'G1 E-1', 'G1 X25 E-0.5', 'G0 X35', 'G1 E1.5', 'T4', 'G1 X45 E1',
+  ]);
+  const { motion, segmentCount } = await packed.finish();
+  const layer = motion.layer(1);
+  const at = seconds => motionSample(motion, layer, seconds / layer.duration);
+  const z = Math.fround(0.2);
+
+  assert.equal(segmentCount, 2);
+  const initial = await at(0.5);
+  assert.ok(Math.abs(initial.x - 15) < 1e-9);
+  assert.equal(initial.deposited, 0);
+  assert.deepEqual(initial.partial, { x: 10, y: 12, z, tool: 0 });
+  for (const [seconds, x] of [[1.05, 20], [1.35, 22.5], [2.1, 30], [2.675, 35]]) {
+    const pose = await at(seconds);
+    assert.ok(Math.abs(pose.x - x) < 1e-9);
+    assert.equal(pose.extruding, false);
+    assert.equal(pose.deposited, 1);
+    assert.equal(pose.partial, null);
+  }
+  const second = await at(3.25);
+  assert.ok(Math.abs(second.x - 40) < 1e-9);
+  assert.equal(second.deposited, 1);
+  assert.equal(second.tool, 4);
+  assert.deepEqual(second.partial, { x: 35, y: 12, z, tool: 4 });
+  const last = await motionSample(motion, layer, 1);
+  assert.equal(last.deposited, 2);
+  assert.equal(last.partial, null);
+});
+
+test('arc deposition seeks keep packed chord ordinals across windows', async () => {
+  const { MOTION_WINDOW_LINES } = await import('../public/widgets/gcode-viz/packed-motion-index.js');
+  const { packed } = await fixture({ yieldTask, chunkSegments: 3 });
+  await packed.parseBatch([
+    'G90', 'M83', 'G0 X10 Y10 Z0.2 F600', 'G1 X20 E1',
+    ...Array(MOTION_WINDOW_LINES - 4).fill('G1 F600'),
+    'T6', 'G2 X30 Y10 I5 J0 E1',
+  ]);
+  const data = await packed.finish();
+  const { motion } = data;
+  const layer = motion.layer(1);
+  const arcDuration = Math.PI / 2;
+  const target = layer.locate((1 + arcDuration / 2) / layer.duration);
+  assert.equal(target.index, 1);
+  const pose = (await motion.load(target.index)).sample(target.fraction, layer.basis);
+  assert.ok(Math.abs(pose.x - 25) < 1e-8 && Math.abs(pose.y - 15) < 1e-8);
+  assert.equal(pose.deposited, 5);
+  const chord = unpack(data)[pose.deposited];
+  const [x, y, z] = chord.points;
+  assert.deepEqual(pose.partial, { x, y, z, tool: chord.tool });
+  assert.equal(pose.tool, 6);
+  assert.equal((await motionSample(motion, layer, 1)).deposited, data.segmentCount);
+  assert.equal((await motionSample(motion, layer, 0.1)).deposited, 0);
+});
+
+test('an unanchored initial extrusion never supplies a made-up moving pose', async () => {
+  const { packed } = await fixture({ yieldTask });
+  await packed.parseBatch(['G90', 'M83', 'G1 X10 Y10 Z0.2 E1 F600', 'G1 X20 E1']);
+  const { motion, segmentCount } = await packed.finish();
+  const layer = motion.layer(1);
+  assert.equal(segmentCount, 2);
+  assert.equal(layer.moves, 1);
+  assert.deepEqual(await motionSample(motion, layer, 0), {
+    x: 10, y: 10, z: Math.fround(0.2), extruding: true, tool: 0, deposited: 1, partial: null,
+  });
+});
+
+test('complete Bambu layer metadata isolates same-Z setup and keeps support Z changes within the reported layer', async () => {
+  const { packed } = await fixture({ yieldTask });
+  await packed.parseBatch([
+    'G90', 'M83', 'G0 X10 Y10 Z0.2 F600', 'G1 X11 E1',
+    '; CHANGE_LAYER', '; Z_HEIGHT: 0.2', '; layer num/total_layer_count: 1/2',
+    'G1 X20 E1', 'G0 Z0.31', 'G1 X25 E1', 'G0 Z0.44',
+    '; CHANGE_LAYER', '; Z_HEIGHT: 0.44', '; layer num/total_layer_count: 2/2',
+    'G1 X30 E1', 'G0 X100 Y100 Z20',
+  ]);
+  const { layers, segmentCount, motion } = await packed.finish();
+  assert.equal(segmentCount, 4);
+  assert.deepEqual(layers.map(({ modelLayer, end, z }) => ({ modelLayer, end, z })), [
+    { modelLayer: undefined, end: 1, z: 0 },
+    { modelLayer: 1, end: 3, z: 0.2 },
+    { modelLayer: 2, end: 4, z: 0.44 },
+  ]);
+  const first = motion.layer(1);
+  const second = motion.layer(2);
+  assert.equal(first.moves, 4);
+  assert.equal((await motionSample(motion, first, 0)).deposited, 1);
+  const firstEnd = await motionSample(motion, first, 1);
+  assert.equal(firstEnd.deposited, 3);
+  assert.equal(firstEnd.z, Math.fround(0.44));
+  const secondStart = await motionSample(motion, second, 0);
+  assert.equal(secondStart.deposited, firstEnd.deposited);
+  assert.equal(secondStart.x, firstEnd.x);
+  assert.equal(secondStart.z, firstEnd.z);
+  assert.equal(second.moves, 1);
+  assert.equal((await motionSample(motion, second, 1)).x, 30);
+});
+
+test('incomplete, inconsistent, and unconfirmed layer metadata falls back to natural Z splits', async () => {
+  for (const markers of [
+    ['; CHANGE_LAYER', '; Z_HEIGHT: 0.2', '; layer num/total_layer_count: 1/2'],
+    ['; CHANGE_LAYER', '; Z_HEIGHT: 0.99', '; layer num/total_layer_count: 1/1'],
+    ['; CHANGE_LAYER', '; Z_HEIGHT: 0.2', '; layer num/total_layer_count: 2/2'],
+  ]) {
+    const { packed } = await fixture({ yieldTask });
+    await packed.parseBatch([
+      'G90', 'M83', 'G0 X10 Y10 Z0.2 F600', ...markers, 'G1 X20 E1', 'G0 Z0.4', 'G1 X30 E1',
+    ]);
+    const { layers, motion } = await packed.finish();
+    assert.deepEqual(layers.map(layer => layer.end), [0, 1, 2]);
+    assert.ok(layers.every(layer => layer.modelLayer === undefined));
+    assert.equal((await motionSample(motion, motion.layer(2), 1)).deposited, 2);
   }
 });

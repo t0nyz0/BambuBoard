@@ -96,7 +96,9 @@ export function indexMotionWindows(ranges, spans) {
       if (end.unsupported > start.unsupported) return { unavailable: 'unsupported-arc' };
       const length = end.distance - start.distance;
       const time = end.duration - start.duration;
-      parts.push({ line: start.line, state: start.state, end: end.line, length, time });
+      parts.push({
+        line: start.line, state: start.state, deposited: start.deposited, end: end.line, length, time,
+      });
       distance += length;
       duration += time;
       moves += end.moves - start.moves;
@@ -107,12 +109,12 @@ export function indexMotionWindows(ranges, spans) {
     const basis = duration > 0 ? 'feed' : 'distance';
     const first = windows.length;
     let through = 0;
-    for (const { line, state, end, length, time } of parts) {
+    for (const { line, state, deposited, end, length, time } of parts) {
       const weight = basis === 'feed' ? time : length;
       if (!(weight > 0)) continue;
       const before = through;
       through += weight;
-      windows.push({ line, state, end, before, through, layer });
+      windows.push({ line, state, deposited, end, before, through, layer });
     }
     const last = windows.length - 1;
     return { duration, distance, moves, basis, first, last, through };
@@ -145,7 +147,7 @@ export function createWindowMoves() {
   let timed = true;
   let bytes = 0;
 
-  function add(from, to, deltaE, feed, extrusion, arc) {
+  function add({ pos: from, next: to, deltaE, feed, extrusion, tool }, arc, deposited) {
     const xyz = travelDistance(from, to, arc);
     const length = xyz || Math.abs(deltaE);
     if (!(length > 0)) return;
@@ -155,10 +157,12 @@ export function createWindowMoves() {
         points: new Float32Array(MOVE_BLOCK_SIZE * 6),
         weights: new Float64Array(MOVE_BLOCK_SIZE * 2),
         flags: new Uint8Array(MOVE_BLOCK_SIZE),
+        deposited: new Uint32Array(MOVE_BLOCK_SIZE),
         arcs: null,
+        chords: null,
       };
       blocks.push(block);
-      bytes += block.points.byteLength + block.weights.byteLength + block.flags.byteLength;
+      bytes += block.points.byteLength + block.weights.byteLength + block.flags.byteLength + block.deposited.byteLength;
     }
     const idx = count % MOVE_BLOCK_SIZE;
     const p = idx * 6;
@@ -170,15 +174,18 @@ export function createWindowMoves() {
     distance += xyz;
     block.weights[idx * 2] = time;
     block.weights[idx * 2 + 1] = distance;
-    block.flags[idx] = Number(extrusion) | (arc ? 2 : 0);
+    block.flags[idx] = Number(extrusion) | (arc ? 2 : 0) | ((tool === 255 ? 63 : tool) << 2);
+    block.deposited[idx] = deposited;
     if (arc) {
       if (!block.arcs) {
-        block.arcs = new Float32Array(MOVE_BLOCK_SIZE * 5);
-        bytes += block.arcs.byteLength;
+        block.arcs = new Float64Array(MOVE_BLOCK_SIZE * 5);
+        block.chords = new Uint16Array(MOVE_BLOCK_SIZE);
+        bytes += block.arcs.byteLength + block.chords.byteLength;
       }
       const a = idx * 5;
       block.arcs[a] = arc.x; block.arcs[a + 1] = arc.y; block.arcs[a + 2] = arc.radius;
       block.arcs[a + 3] = arc.angle; block.arcs[a + 4] = arc.sweep;
+      block.chords[idx] = arc.count;
     }
     count++;
   }
@@ -213,7 +220,7 @@ export function createWindowMoves() {
           }
           const end = weight(lo);
           const start = weight(lo - 1);
-          const portion = end > start ? (target - start) / (end - start) : 0;
+          const portion = end > start ? Math.max(0, Math.min(1, (target - start) / (end - start))) : 0;
           const block = blocks[Math.floor(lo / MOVE_BLOCK_SIZE)];
           const idx = lo % MOVE_BLOCK_SIZE;
           const p = idx * 6;
@@ -221,17 +228,39 @@ export function createWindowMoves() {
           const values = block.points;
           let x = values[p] + (values[p + 3] - values[p]) * portion;
           let y = values[p + 1] + (values[p + 4] - values[p + 1]) * portion;
+          const flags = block.flags[idx];
+          const extruding = Boolean(flags & 1);
+          const curve = flags & 2 ? block.arcs : null;
+          const tool = (flags >> 2) === 63 ? 255 : flags >> 2;
+          const dz = values[p + 5] - values[p + 2];
           // Use exact command endpoints at the boundary, with the interior
-          // using the commanded arc rather than replaying drawing chords.
-          if ((block.flags[idx] & 2) && portion > 0 && portion < 1) {
-            const curve = block.arcs;
+          // following the commanded arc rather than interpolating a chord.
+          if (curve && portion > 0 && portion < 1) {
             const angle = curve[a + 3] + curve[a + 4] * portion;
             x = curve[a] + curve[a + 2] * Math.cos(angle);
             y = curve[a + 1] + curve[a + 2] * Math.sin(angle);
           }
+          const chords = extruding ? (curve ? block.chords[idx] : 1) : 0;
+          const along = portion * chords;
+          const completed = Math.floor(along);
+          let partial = null;
+          if (along > completed) {
+            if (curve && completed > 0) {
+              const t = completed / chords;
+              const angle = curve[a + 3] + curve[a + 4] * t;
+              partial = {
+                x: Math.fround(curve[a] + curve[a + 2] * Math.cos(angle)),
+                y: Math.fround(curve[a + 1] + curve[a + 2] * Math.sin(angle)),
+                z: Math.fround(values[p + 2] + dz * t),
+                tool,
+              };
+            } else {
+              partial = { x: values[p], y: values[p + 1], z: values[p + 2], tool };
+            }
+          }
           return {
-            x, y, z: values[p + 2] + (values[p + 5] - values[p + 2]) * portion,
-            extruding: Boolean(block.flags[idx] & 1),
+            x, y, z: values[p + 2] + dz * portion,
+            extruding, tool, deposited: block.deposited[idx] + completed, partial,
           };
         },
       };

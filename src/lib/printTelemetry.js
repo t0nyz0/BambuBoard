@@ -2,6 +2,10 @@ const { randomUUID } = require('node:crypto');
 const { confirmsBareCalibration, describe, hasDifferentPrintFile, id } = require('../../public/js/gcode-job');
 const { AMS_3H_ID, number, loaded } = require('../../public/widgets/_amsActive');
 
+const LAYER_REPORT_GAP_MS = 60_000;
+const LAYER_TIMING_FIELDS = ['_bb_layer_elapsed_ms', '_bb_layer_advancing'];
+const ACTIVE_LAYER_STATES = new Set(['RUNNING', 'PAUSE', 'PAUSED']);
+const PREPARING_STATES = new Set(['PREPARE', 'SLICING']);
 const JOB_FIELDS = ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'param', 'url', 'print_type', 'plate_idx', 'plate_id', 'layer_num', 'total_layer_num', 'mc_percent', 'mc_remaining_time', 'mapping'];
 function mergeObjects(previous, delta) {
   const result = { ...previous };
@@ -66,8 +70,9 @@ function reconnectJob(previous, current, waitingForIdentity) {
 
 function mergePrint(previous = {}, delta = {}) {
   const report = { ...delta };
-  // A printer cannot publish this local corroboration marker itself.
+  // A printer cannot publish locally inferred calibration or timing.
   delete report._bb_system_calibration_job;
+  for (const key of LAYER_TIMING_FIELDS) delete report[key];
   const newLifecycle = startsNewJob(previous, report);
   const before = describe(previous);
   const next = describe(report);
@@ -90,6 +95,59 @@ function mergePrint(previous = {}, delta = {}) {
     merged._bb_system_calibration_job = merged._bb_job_id;
   }
   delete merged._bb_job_pending;
+  for (const key of LAYER_TIMING_FIELDS) delete merged[key];
   return merged;
 }
-module.exports = { mergePrint, reconnectJob, reuseJobId };
+
+// Measure how long an observed layer has been printing in this MQTT
+// session. Job-wide progress and the time a browser opens are not clocks
+// for a layer. Unknown, skipped and previously seen layers have no anchor.
+function createLayerClock() {
+  let previous = null;
+
+  function reset() {
+    previous = null;
+  }
+
+  function observe(print, delta, at) {
+    const job = print._bb_job_id;
+    const state = print.gcode_state;
+    const preparing = PREPARING_STATES.has(state);
+    if (!job || (!preparing && !ACTIVE_LAYER_STATES.has(state))) {
+      reset();
+      return null;
+    }
+    const reported = preparing ? 0 : number(print.layer_num);
+    const total = number(print.total_layer_num);
+    const layer = Number.isSafeInteger(reported) && reported >= 0 && (!(total > 0) || reported <= total) ? reported : null;
+    const gap = at - previous?.at;
+    const recent = previous?.job === job && gap >= 0 && gap <= LAYER_REPORT_GAP_MS;
+    let stage = recent ? previous.stage : null;
+    // New firmware can report stage._id instead of stg_cur. Use the
+    // newest packet carrying a stage so an older retained shape cannot win.
+    if (Object.hasOwn(delta, 'stg_cur')) stage = number(delta.stg_cur);
+    else if (delta.stage && Object.hasOwn(delta.stage, '_id')) stage = number(delta.stage._id);
+
+    const advancing = state === 'RUNNING' && layer > 0 && stage === 0;
+    let elapsed = null;
+    if (recent && layer > 0) {
+      if (layer === previous.layer && previous.elapsed !== null) {
+        elapsed = previous.elapsed + (previous.advancing ? gap : 0);
+      } else if (previous.layer !== null && layer === previous.layer + 1 && layer > previous.highest) {
+        elapsed = 0;
+      }
+    }
+    previous = {
+      job, layer, stage, at, advancing, elapsed,
+      highest: Math.max(layer ?? 0, recent ? previous.highest : 0),
+    };
+    return elapsed === null ? null : {
+      _bb_layer_elapsed_ms: Math.round(elapsed),
+      _bb_layer_advancing: advancing,
+    };
+  }
+
+  return { observe, reset };
+}
+
+module.exports = { mergePrint, reconnectJob, reuseJobId, createLayerClock };

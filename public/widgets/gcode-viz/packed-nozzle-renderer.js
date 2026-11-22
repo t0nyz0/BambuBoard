@@ -1,10 +1,11 @@
 import * as THREE from '../../vendor/three.module.js';
+import { createPackedDepositionRenderer } from './packed-deposition-renderer.js';
 
 const MAX_CACHE_PIXELS = 1920 * 1080;
 const NOZZLE_LAYER = 1;
 const CHUNKS_PER_FRAME = 2;
 
-export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extras = [] } = {}) {
+export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extras = [], packed } = {}) {
   const { renderer, scene, camera } = preview;
   const bufferSize = new THREE.Vector2();
   const createTarget = () => new THREE.WebGLRenderTarget(1, 1, {
@@ -13,10 +14,14 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
   });
   let front = createTarget();
   let back = createTarget();
+  let depositionRenderer = packed ? createPackedDepositionRenderer(renderer, packed) : null;
   const material = new THREE.ShaderMaterial({
     uniforms: {
       cachedColor: { value: front.texture },
       cachedDepth: { value: front.depthTexture },
+      showDeposition: { value: false },
+      depositedColor: { value: null },
+      depositedDepth: { value: null },
     },
     vertexShader: `
       varying vec2 screenUv;
@@ -28,11 +33,24 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
     fragmentShader: `
       uniform sampler2D cachedColor;
       uniform sampler2D cachedDepth;
+      uniform bool showDeposition;
+      uniform sampler2D depositedColor;
+      uniform sampler2D depositedDepth;
       varying vec2 screenUv;
       void main() {
-        gl_FragColor = texture2D( cachedColor, screenUv );
+        vec4 color = texture2D( cachedColor, screenUv );
+        float depth = texture2D( cachedDepth, screenUv ).r;
+        if ( showDeposition ) {
+          vec4 filament = texture2D( depositedColor, screenUv );
+          float filamentDepth = texture2D( depositedDepth, screenUv ).r;
+          if ( filament.a > 0.0 && filamentDepth <= depth ) {
+            color = filament;
+            depth = filamentDepth;
+          }
+        }
+        gl_FragColor = color;
         #include <colorspace_fragment>
-        gl_FragDepth = texture2D( cachedDepth, screenUv ).r;
+        gl_FragDepth = depth;
       }
     `,
     blending: THREE.NoBlending,
@@ -59,7 +77,7 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
 
   let dirty = true, available = true, hasFront = false;
   let building = null, pending = null, requestedSize = null;
-  let frontView = null;
+  let frontView = null, frontEnd = 0, frontPalette;
   let staticDraws = 0, compositeDraws = 0, nozzleDraws = 0, staticLines = 0;
 
   function displaySize() {
@@ -97,7 +115,7 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
       items.sort((a, b) => a.object.renderOrder - b.object.renderOrder ||
         a.object.material.id - b.object.material.id || a.depth - b.depth || a.object.id - b.object.id);
     }
-    return { size, view, group, items, lines, index: 0, processed: 0, rendered: 0 };
+    return { size, view, group, items, lines, palette: packed?.paletteRevision, index: 0, processed: 0, rendered: 0 };
   }
 
   function renderSlice(job, direct = false) {
@@ -147,6 +165,8 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
     staticDraws++;
     staticLines = job.rendered;
     frontView = job.view;
+    frontEnd = job.lines;
+    frontPalette = job.palette;
     if (!direct) [front, back] = [back, front];
     hasFront = true;
     building = null;
@@ -157,6 +177,8 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
     renderer.setRenderTarget(null);
     front.dispose();
     back.dispose();
+    depositionRenderer?.dispose();
+    depositionRenderer = null;
     hasFront = false;
     // The widget's renderer preserves its drawing buffer. In that mode a
     // device that rejects the depth target can still show exact slices.
@@ -180,8 +202,8 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
 
   return {
     get available() { return available; },
-    get building() { return Boolean(building || pending); },
-    draw({ refreshStatic = false, drawNozzle = true } = {}) {
+    get building() { return Boolean(building || pending || depositionRenderer?.building); },
+    draw({ refreshStatic = false, drawNozzle = true, deposition = null } = {}) {
       const size = displaySize();
       if (bufferSize.x < 1 || bufferSize.y < 1) return;
       const previousTarget = renderer.getRenderTarget();
@@ -226,8 +248,26 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
         // rebuilding, keep the last completed color and depth buffer on
         // screen until its replacement is fully drawn.
         const shown = hasFront ? front : back;
+        const view = hasFront ? frontView : building?.view;
+        const display = {
+          view, end: hasFront ? frontEnd : building?.lines,
+          palette: hasFront ? frontPalette : building?.palette,
+          size: [shown.width, shown.height],
+        };
+        camera.updateWorldMatrix(true, false);
+        // Draw moving geometry against the same projection and pixel
+        // dimensions that produced the displayed color and depth.
+        const matchesCurrent = view && shown.width === size[0] && shown.height === size[1] &&
+          view.projectionMatrix.equals(camera.projectionMatrix) && view.matrixWorld.equals(camera.matrixWorld);
+        if (depositionRenderer && !depositionRenderer.update(deposition, display, matchesCurrent, Boolean(building || pending))) {
+          useDirectFallback(building ?? snapshot(size));
+          return;
+        }
         material.uniforms.cachedColor.value = shown.texture;
         material.uniforms.cachedDepth.value = shown.depthTexture;
+        material.uniforms.showDeposition.value = Boolean(depositionRenderer?.visible);
+        material.uniforms.depositedColor.value = depositionRenderer?.target.texture ?? null;
+        material.uniforms.depositedDepth.value = depositionRenderer?.target.depthTexture ?? null;
         renderer.setRenderTarget(null);
         renderer.autoClear = false;
         const previousShaderError = renderer.debug.onShaderError;
@@ -244,22 +284,17 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
         }
         compositeDraws++;
 
-        const view = hasFront ? frontView : building?.view;
-        if (drawNozzle && nozzle.visible && view) {
-          camera.updateWorldMatrix(true, false);
-          // The last completed plate can still occlude the live nozzle while
-          // more layers build against the same view. Hold the nozzle only
-          // when the displayed cache uses a different projection or size.
-          if (shown.width !== size[0] || shown.height !== size[1] ||
-              !view.projectionMatrix.equals(camera.projectionMatrix) ||
-              !view.matrixWorld.equals(camera.matrixWorld)) return;
-          const oldMask = view.layers.mask;
-          try {
-            view.layers.set(NOZZLE_LAYER);
-            renderer.render(scene, view);
-            nozzleDraws++;
-          } finally {
-            view.layers.mask = oldMask;
+        if (matchesCurrent) {
+          depositionRenderer?.drawPartial(view);
+          if (drawNozzle && nozzle.visible && (depositionRenderer?.ready ?? true)) {
+            const oldMask = view.layers.mask;
+            try {
+              view.layers.set(NOZZLE_LAYER);
+              renderer.render(scene, view);
+              nozzleDraws++;
+            } finally {
+              view.layers.mask = oldMask;
+            }
           }
         }
       } finally {
@@ -270,20 +305,26 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
     invalidate() { dirty = true; },
     stats() {
       const current = hasFront ? front : back;
+      const deposition = depositionRenderer?.stats();
       return {
+        ...deposition,
         staticDraws, compositeDraws, nozzleDraws, staticLines,
         staticReady: hasFront && !building && !pending,
         staticBuiltLines: building?.processed ?? staticLines,
         staticPendingLines: building?.lines ?? pending?.lines ?? staticLines,
         cacheWidth: current.width, cacheHeight: current.height,
         cacheBytes: available ? current.width * current.height * 8 : 0,
-        totalCacheBytes: available ? (front.width * front.height + back.width * back.height) * 8 : 0,
+        totalCacheBytes: available
+          ? (front.width * front.height + back.width * back.height) * 8 + (deposition?.depositionCacheBytes ?? 0)
+          : 0,
       };
     },
     dispose() {
       building = null;
       pending = null;
       frontView = null;
+      depositionRenderer?.dispose();
+      depositionRenderer = null;
       for (const [object, layers] of savedLayers) object.layers.mask = layers;
       savedLayers.clear();
       geometry.dispose();

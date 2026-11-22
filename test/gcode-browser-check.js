@@ -92,6 +92,19 @@ function* windowToolpath() {
   }
 }
 
+// A same-Z setup line is followed by two authored layers. The first spans
+// a source block boundary between red deposition and travel, then deposits
+// green after a retract and prime. F60 makes distance in mm equal seconds.
+const depositionToolpath = Buffer.from(
+  compactHeader + motionless.repeat(200_001) +
+  'G0 X20 Y70 Z0.2 F60\nG1 X30 E1\n' +
+  '; CHANGE_LAYER\n; Z_HEIGHT: 0.2\n; layer num/total_layer_count: 1/2\n' +
+  'T0\nG1 X100 E1\n' + 'G1 F60\n'.repeat(2048) +
+  'G0 X160\nG1 E-1\nG1 E1\nT1\nG1 X230 E1\n' +
+  '; CHANGE_LAYER\n; Z_HEIGHT: 0.4\n; layer num/total_layer_count: 2/2\n' +
+  'G0 Z0.4\nG1 Y160 E1\n'
+);
+
 function compactTiming(plate) {
   const layers = [];
   let elapsed = 0, previous = [0, 0, 0];
@@ -153,9 +166,10 @@ function onRasterMotion(plate, layer, position) {
   let clock = Date.now(), mode = 'normal', count = 0, releaseSlow = null, telemetryBroken = false, telemetryStale = false;
   let printerConnection = 'online';
   let printerType = 'H2D';
-  let print, responseBody, pendingPrinter, packedFixture, packedHold;
+  let print, responseBody, pendingPrinter, packedFixture, packedHold, receivedAt = 0;
   const writePacket = async packet => {
     print = packet;
+    receivedAt = Math.max(Date.now(), receivedAt + 1);
     const temp = path.join(data, 'data.json.tmp');
     await fs.writeFile(temp, JSON.stringify({ print }));
     await fs.rename(temp, path.join(data, 'data.json'));
@@ -201,12 +215,12 @@ function onRasterMotion(plate, layer, position) {
   app.get('/data.json', (_req, res) => {
     res.set('X-BambuBoard-Printer-Connection', printerConnection);
     if (telemetryBroken) return res.status(503).json({ error: 'fixture failure' });
-    res.json({ print, _bb_received_at: Date.now() - (telemetryStale ? 65000 : 0) });
+    res.json({ print, _bb_received_at: telemetryStale ? Date.now() - 65000 : receivedAt });
   });
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&mode=preview&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (!['packed', 'packed-held', 'packed-window'].includes(mode)) return next();
+    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
@@ -218,11 +232,13 @@ function onRasterMotion(plate, layer, position) {
       controller.abort();
     });
     const windowed = mode === 'packed-window';
-    const length = windowed ? windowByteLength() : compactByteLength(packedFixture);
+    const deposition = mode === 'packed-deposition';
+    const length = deposition ? depositionToolpath.length : windowed ? windowByteLength() : compactByteLength(packedFixture);
     res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(length), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
       let chunks = 0;
-      for (const chunk of windowed ? windowToolpath() : compactToolpath(packedFixture)) {
+      const toolpath = deposition ? [depositionToolpath] : windowed ? windowToolpath() : compactToolpath(packedFixture);
+      for (const chunk of toolpath) {
         signal.throwIfAborted();
         if (!res.write(chunk)) await once(res, 'drain', { signal });
         if (hold && ++chunks === 88) {
@@ -820,7 +836,7 @@ function onRasterMotion(plate, layer, position) {
       const waitForVisible = (visible, limit = timeout) => densePage.waitForFunction(expected => {
         const packed = window.__diag?.().compact;
         return packed?.visibleSegments === expected && packed.staticReady &&
-          packed.staticLines >= expected && window.__preview.renderer.info.render.calls > 0;
+          packed.staticLines >= expected && getComputedStyle(document.getElementById('gcodeCanvas')).visibility === 'visible';
       }, visible, { timeout: limit });
       const motionSample = target => target.evaluate(() => window.__diag?.().motion);
       async function waitForMotion(target, layer, previous) {
@@ -842,8 +858,9 @@ function onRasterMotion(plate, layer, position) {
         return motion;
       }
       const reportLayer = async layer => {
-        await writePacket({ ...print, gcode_state: 'RUNNING', layer_num: layer, mc_percent: timing.progress(layer) });
-        await waitForVisible(sumThrough(layer));
+        await writePacket({ ...print, gcode_state: 'RUNNING', layer_num: layer, mc_percent: timing.progress(layer),
+          _bb_layer_elapsed_ms: 500, _bb_layer_advancing: true });
+        await waitForVisible(sumThrough(layer - 1));
       };
       const startLayer = async layer => {
         await reportLayer(layer);
@@ -854,7 +871,7 @@ function onRasterMotion(plate, layer, position) {
         mode = 'packed';
         await write(name, 'PAUSED', { layer_num: 1, total_layer_num: plate.layers, mc_percent: timing.progress(1) });
         await densePage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
-        await waitForVisible(sumThrough(1));
+        await waitForVisible(0);
         const first = await densePage.evaluate(() => ({
           ...window.__diag().compact, nozzle: window.__diag().motion?.visible, startup: window.__diag().startup,
         }));
@@ -865,7 +882,7 @@ function onRasterMotion(plate, layer, position) {
         assert.equal(first.segments, plate.segments);
         assert.equal(first.layers, plate.layers + 1, 'The model layers and parser preamble are all counted');
         assert.equal(first.nozzle, false, 'Opening on a paused print must not animate the nozzle');
-        assert.ok(first.drawCalls > 0 && first.drawCalls < plate.layers, `Visible batches should not scale one per layer: ${first.drawCalls}`);
+        assert.equal(first.drawCalls, 0, 'A cold first-layer viewer cannot show an unconfirmed deposition');
         assert.ok(first.bytes >= plate.segments * 24 && first.bytes <= plate.segments * 36 + mebibyte, JSON.stringify(first));
 
         const firstMotion = await startLayer(1);
@@ -873,8 +890,7 @@ function onRasterMotion(plate, layer, position) {
         const afterFirst = await waitForMotion(densePage, 1, firstMotion.position);
         assert.ok(afterFirst.animationDraws > firstMotion.animationDraws);
         const startup = await densePage.evaluate(() => window.__diag().startup);
-        assert.ok(startup.geometryReadyMs <= startup.firstGeometryMs && startup.firstGeometryMs <= startup.firstNozzleMs,
-          JSON.stringify(startup));
+        assert.ok(startup.geometryReadyMs <= startup.firstNozzleMs, JSON.stringify(startup));
         const staticBefore = await densePage.evaluate(() => {
           const preview = window.__preview;
           const renderer = preview.renderer;
@@ -941,7 +957,7 @@ function onRasterMotion(plate, layer, position) {
               return window.__packedLayerGate.blocked && diag?.compact?.visibleSegments === expected &&
                 diag.compact.staticBuiltLines > 0 && diag.motion?.state === 'buffering' && !diag.motion.visible &&
                 getComputedStyle(document.getElementById('gcodeCanvas')).visibility === 'visible';
-            }, sumThrough(middle), { timeout });
+            }, sumThrough(middle - 1), { timeout });
             await latePage.evaluate(() => window.__packedLayerGate.release());
             const joined = await waitForMotion(latePage, middle);
             lateJoin = await waitForMotion(latePage, middle, joined.position);
@@ -951,7 +967,7 @@ function onRasterMotion(plate, layer, position) {
             await densePage.bringToFront();
           }
         }
-        await writePacket({ ...print, gcode_state: 'PAUSED' });
+        await writePacket({ ...print, gcode_state: 'PAUSED', _bb_layer_advancing: false });
         await densePage.waitForFunction(layer => {
           const motion = window.__diag?.().motion;
           return motion?.layer === layer && ['paused', 'hidden'].includes(motion.state) && !motion.visible;
@@ -1099,6 +1115,146 @@ function onRasterMotion(plate, layer, position) {
         await densePage.close();
       }
     }
+    async function checkMarkedDeposition() {
+      await page.goto('about:blank');
+      mode = 'packed-deposition';
+      const before = count;
+      const target = await context.newPage();
+      const view = base + '/widgets/gcode-viz/?debug=1&view=top';
+      const timeout = 45_000;
+      const setLayer = async (layer, elapsedMs, advancing = true, state = 'RUNNING') => {
+        await writePacket({ ...print, layer_num: layer, gcode_state: state, mc_percent: layer * 25,
+          _bb_layer_elapsed_ms: elapsedMs, _bb_layer_advancing: advancing });
+      };
+      const waitForMotion = async expected => {
+        const handle = await target.waitForFunction(expected => {
+          const motion = window.__diag?.().motion;
+          if (!motion || !motion.depositionReady || motion.markerLayerCount !== 2) return false;
+          if (Object.entries(expected).some(([key, value]) => {
+            if (key !== 'x') return motion[key] !== value;
+            return !(motion.position?.[0] >= value[0] && motion.position[0] < value[1]);
+          })) return false;
+          return motion;
+        }, expected, { timeout }).catch(async error => {
+          const snapshot = await target.evaluate(() => ({
+            motion: window.__diag?.().motion, log: window.__log?.().slice(-8),
+          }));
+          error.message += `\nExpected ${JSON.stringify(expected)}; observed ${JSON.stringify(snapshot)}`;
+          throw error;
+        });
+        const result = await handle.jsonValue();
+        await handle.dispose();
+        return result;
+      };
+      const checkDetail = async () => {
+        const detail = await target.locator('#gcodeDetail').evaluate(element => {
+          const own = element.getBoundingClientRect();
+          const canvas = document.getElementById('gcodeCanvas').getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return { align: style.textAlign, outsideCanvas: own.bottom <= canvas.top,
+            insideViewport: own.left >= 0 && own.right <= innerWidth, acceptsEvents: style.pointerEvents !== 'none' };
+        });
+        assert.deepEqual(detail, { align: 'left', outsideCanvas: true, insideViewport: true, acceptsEvents: false });
+      };
+      const checkPixels = async (name, checks) => {
+        const png = await target.locator('#gcodeCanvas').screenshot({ path: path.join(artifacts, name + '.png'), timeout });
+        const result = await target.evaluate(async ({ png, checks }) => {
+          const image = new Image();
+          image.src = 'data:image/png;base64,' + png;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(image, 0, 0);
+          const { camera, buildVolume } = window.__preview;
+          return checks.map(({ x, y, red, green }) => {
+            const point = new camera.position.constructor(x - buildVolume.x / 2, 0.2, buildVolume.y / 2 - y).project(camera);
+            const px = Math.round((point.x + 1) * canvas.width / 2);
+            const py = Math.round((1 - point.y) * canvas.height / 2);
+            const { data } = ctx.getImageData(px - 3, py - 3, 7, 7);
+            let hasRed = false, hasGreen = false;
+            for (let i = 0; i < data.length; i += 4) {
+              const [r, g, b] = data.subarray(i, i + 3);
+              hasRed ||= r > 100 && r > 1.45 * g && r > 1.25 * b;
+              hasGreen ||= g > 100 && g > 1.45 * r && g > 1.25 * b;
+            }
+            return { x, y, red: hasRed, green: hasGreen };
+          });
+        }, { png: png.toString('base64'), checks });
+        assert.deepEqual(result, checks, 'Projected real pixels must contain only deposited filament');
+      };
+      try {
+        await write('Marked deposition and travel', 'RUNNING', {
+          layer_num: 1, total_layer_num: 2, mc_percent: 25,
+          ams: { ams: [{ id: '0', tray: [{ id: '0', tray_color: 'FF2244FF' }, { id: '1', tray_color: '00E040FF' }] }] },
+        });
+        await target.goto(view);
+        await waitForMotion({ visible: false, state: 'waiting', depositionStart: 1, depositedEnd: 1,
+          depositedSegments: 0, partialDeposited: false, reportedLayer: 1 });
+        await target.getByText('Waiting for layer timing', { exact: true }).waitFor();
+        await checkDetail();
+
+        await setLayer(1, 25_000);
+        const red = await waitForMotion({ visible: true, state: 'ready', x: [55, 62], depositionStart: 1, depositedEnd: 1,
+          depositedSegments: 0, partialDeposited: true, reportedLayer: 1 });
+        await target.getByText('Estimated nozzle position', { exact: true }).waitFor();
+        await checkPixels('gcode-deposition-red-partial', [
+          { x: 42, y: 70, red: true, green: false },
+          { x: 82, y: 70, red: false, green: false },
+        ]);
+        await target.setViewportSize({ width: 236, height: 248 });
+        await checkDetail();
+        await target.screenshot({ path: path.join(artifacts, 'gcode-deposition-label-narrow.png'), timeout });
+        await target.setViewportSize({ width: 640, height: 640 });
+
+        await setLayer(1, 90_000);
+        const travel = await waitForMotion({ visible: true, state: 'ready', x: [120, 130], depositionStart: 1, depositedEnd: 2,
+          depositedSegments: 1, partialDeposited: false, reportedLayer: 1 });
+        assert.ok(travel.window > red.window, 'Travel crossed a real replay source-window boundary');
+        await checkPixels('gcode-deposition-travel', [
+          { x: 72, y: 70, red: true, green: false },
+          { x: 110, y: 70, red: false, green: false },
+        ]);
+
+        await setLayer(1, 155_000);
+        const green = await waitForMotion({ visible: true, state: 'ready', x: [183, 190], depositionStart: 1, depositedEnd: 2,
+          depositedSegments: 1, partialDeposited: true, reportedLayer: 1 });
+        await checkPixels('gcode-deposition-green-partial', [
+          { x: 72, y: 70, red: true, green: false },
+          { x: 137, y: 70, red: false, green: false },
+          { x: 173, y: 70, red: false, green: true },
+          { x: 209, y: 70, red: false, green: false },
+        ]);
+        await setLayer(1, 156_000, false, 'PAUSED');
+        await waitForMotion({ visible: false, state: 'paused', depositedEnd: 2, partialDeposited: true });
+        await setLayer(1, 160_000);
+        const resumed = await waitForMotion({ visible: true, state: 'ready', x: [188, 196], depositedEnd: 2, partialDeposited: true });
+        assert.ok(resumed.position[0] > green.position[0]);
+
+        await setLayer(1, 210_000);
+        const ended = await waitForMotion({ visible: false, state: 'awaiting-layer', depositionStart: 1, depositedEnd: 3,
+          depositedSegments: 2, partialDeposited: false });
+        await target.getByText('Waiting for printer progress', { exact: true }).waitFor();
+        await target.waitForResponse(response => new URL(response.url()).pathname === '/data.json' && response.ok(), { timeout });
+        await target.waitForResponse(response => new URL(response.url()).pathname === '/data.json' && response.ok(), { timeout });
+        assert.equal((await waitForMotion({ state: 'awaiting-layer', visible: false })).animationDraws, ended.animationDraws);
+
+        await setLayer(2, 14_000);
+        await waitForMotion({ visible: true, state: 'ready', x: [229.99, 230.01], depositionStart: 3, depositedEnd: 3,
+          partialDeposited: true, reportedLayer: 2 });
+        await setLayer(1, 9_000);
+        await waitForMotion({ visible: false, state: 'waiting', depositedEnd: 3, reportedLayer: 2 });
+        await setLayer(2, 18_000);
+        await waitForMotion({ visible: true, state: 'ready', depositedEnd: 3, partialDeposited: true, reportedLayer: 2 });
+        assert.equal(count, before + 1, 'Live marker progression, layer timing and viewport reuse one G-code download');
+      } finally {
+        await target.close();
+      }
+    }
+    await checkMarkedDeposition();
+    passed.push('Exact model-layer markers separate same-Z setup and keep two-color partial deposition, travel, pause and late telemetry synchronized');
+
     await checkPackedPlate(compactPlate, 'gcode-compact-plate', 45000);
     passed.push('Packed preview animates the estimated nozzle through first, middle and final layers, honors pause and resume, and preserves static geometry over one HTTP transfer');
     if (process.env.BAMBUBOARD_TEST_DENSE_PLATE === '1') {
@@ -1111,7 +1267,8 @@ function onRasterMotion(plate, layer, position) {
     // pipeline must still render exact geometry and decode the chosen path.
     mode = 'packed';
     packedFixture = compactPlate;
-    await write('Packed worker unavailable', 'RUNNING', { layer_num: 50, total_layer_num: compactPlate.layers });
+    await write('Packed worker unavailable', 'RUNNING', { layer_num: 50, total_layer_num: compactPlate.layers,
+      _bb_layer_elapsed_ms: 0, _bb_layer_advancing: true });
     const packedFallback = await context.newPage();
     try {
       await packedFallback.addInitScript(() => {
@@ -1127,7 +1284,7 @@ function onRasterMotion(plate, layer, position) {
           }
         };
       });
-      const expected = Math.floor(compactPlate.segments / compactPlate.layers) * 50 + Math.min(50, compactPlate.segments % compactPlate.layers);
+      const expected = Math.floor(compactPlate.segments / compactPlate.layers) * 49 + Math.min(49, compactPlate.segments % compactPlate.layers);
       await packedFallback.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
       await packedFallback.waitForFunction(expected => {
         const diag = window.__diag?.();
@@ -1158,7 +1315,7 @@ function onRasterMotion(plate, layer, position) {
         const waitForPlate = target => target.waitForFunction(segments => {
           const packed = window.__diag?.().compact;
           return packed?.visibleSegments === segments && packed.staticReady && packed.staticLines >= segments;
-        }, windowLayerSegments, { timeout });
+        }, 0, { timeout });
         const waitForPose = async (target, move, exact = false) => {
           const handle = await target.waitForFunction(({ point, exact }) => {
             const motion = window.__diag?.().motion;
@@ -1208,7 +1365,7 @@ function onRasterMotion(plate, layer, position) {
         });
         assert.deepEqual({ visible: liveStatic.visible, layers: liveStatic.layers }, { visible: false, layers: 2 });
 
-        await writePacket({ ...print, gcode_state: 'RUNNING' });
+        await writePacket({ ...print, gcode_state: 'RUNNING', _bb_layer_elapsed_ms: 0, _bb_layer_advancing: true });
         await waitForPose(livePage, 5);
         const initialHeartbeat = await livePage.evaluate(() => window.__packedHeartbeat);
         assert.ok(initialHeartbeat.loading > 0 && initialHeartbeat.maximumGapMs < 5000, JSON.stringify(initialHeartbeat));
@@ -1246,7 +1403,7 @@ function onRasterMotion(plate, layer, position) {
 
         // A new paused viewer jumps directly to a late window. Its first
         // decode should read only a few source blocks, not walk from zero.
-        await writePacket({ ...print, gcode_state: 'PAUSED' });
+        await writePacket({ ...print, gcode_state: 'PAUSED', _bb_layer_elapsed_ms: undefined, _bb_layer_advancing: false });
         latePage = await context.newPage();
         await attachPackedBrowserProbes(latePage);
         await latePage.goto(viewer);

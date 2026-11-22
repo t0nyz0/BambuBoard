@@ -2,7 +2,7 @@ const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
 const { printerTypeFromMqtt } = require('./lib/caps');
-const { mergePrint, reconnectJob, reuseJobId } = require('./lib/printTelemetry');
+const { mergePrint, reconnectJob, reuseJobId, createLayerClock } = require('./lib/printTelemetry');
 const { publicTelemetry } = require('./lib/cameraTelemetry');
 const { describe: describeGcodeJob } = require('../public/js/gcode-job');
 
@@ -37,6 +37,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
   let telemetryPublished = false;
   let lastUpdate = null;
   let printSnapshot = {};
+  const layerClock = createLayerClock();
   let previousJobSnapshot = null;
   let cameraTelemetry;
   let writeQueue = Promise.resolve();
@@ -63,6 +64,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
       if (job.available || job.calibration) previousJobSnapshot = printSnapshot;
     }
     printSnapshot = {};
+    layerClock.reset();
   }
 
   const state = {
@@ -169,6 +171,8 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
         }
 
         if (json.print) {
+          const receivedAt = Date.now();
+          const layerSampleAt = performance.now();
           // MQTT reports are deltas. Preserve job metadata through temperature,
           // layer and AMS updates, and publish complete snapshots atomically.
           const { _bb_job_id: previousJob, gcode_state: previousState } = printSnapshot;
@@ -196,8 +200,15 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
             // a read-only full snapshot once, rather than waiting five minutes.
             requestFullState();
           }
-          const print = jobPending ? { ...printSnapshot, _bb_job_pending: true } : printSnapshot;
-          const snapshot = JSON.stringify(publicTelemetry({ ...json, print, _bb_received_at: Date.now() }));
+          let print = printSnapshot;
+          if (jobPending) print = { ...print, _bb_job_pending: true };
+          if (job.available && !job.calibration && !jobPending) {
+            const timing = layerClock.observe(printSnapshot, json.print, layerSampleAt);
+            if (timing) print = { ...print, ...timing };
+          } else {
+            layerClock.reset();
+          }
+          const snapshot = JSON.stringify(publicTelemetry({ ...json, print, _bb_received_at: receivedAt }));
           writeQueue = writeQueue.then(async () => {
             if (client !== connection || status !== 'online') return;
             const temp = `${dataPath}.${clientId}.tmp`;
@@ -224,6 +235,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
       log(`MQTT ${label}${err ? ': ' + err.message : ''}. Reconnecting in 3s...`);
       status = 'offline';
       telemetryPublished = false;
+      layerClock.reset();
       clearInterval(refreshTimer);
       refreshTimer = null;
       if (reconnectTimer) return;

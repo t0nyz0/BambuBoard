@@ -64,6 +64,7 @@ const pathEl = document.getElementById('gcodePath');
 const pathLabelEl = document.getElementById('gcodePathLabel');
 const logEl = document.getElementById('gcodeLog');
 const detailEl = document.getElementById('gcodeDetail');
+const stageEl = detailEl.parentElement;
 
 // Rolling debug log. Always captured into a ring buffer (cheap, ~240 lines)
 // so it can be inspected from the console anytime via window.__log(); mirrored
@@ -463,14 +464,15 @@ let packedPlayback = null;
 let packedCompositor = null;
 let packedViewDirty = true;
 let packedFrame = null;
+let packedModelLayerCount = 0;
 let startupReport = null;
 const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
-function fullRebuild() {
+function fullRebuild(packedPrefix = preview.endLayer) {
   if (packedPreview) {
-    packedPreview.show(preview.endLayer);
+    packedPreview.show(packedPrefix);
     if (packedPreview.group.parent !== preview.scene) preview.scene.add(packedPreview.group);
-    lastRenderedEndLayer = preview.endLayer;
+    lastRenderedEndLayer = packedPrefix;
     return;
   }
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
@@ -597,8 +599,13 @@ function findModelLayerOffset(layers, fallback) {
 // Firmware counts slicer model layers. Parsed previews can include additional
 // layers for supports and startup, so keep the same mapping on first load and
 // on subsequent live updates.
-function modelToParsed(layer, mqttTotal, count = totalLayers, offset = modelLayerOffset) {
+function hasExactModelLayers(layers) {
+  return layers[1]?.modelLayer === 1 && layers.at(-1)?.modelLayer === layers.length - 1;
+}
+
+function modelToParsed(layer, mqttTotal, count = totalLayers, offset = modelLayerOffset, marked = packedModelLayerCount) {
   if (layer <= 0) return 0;
+  if (marked && (!mqttTotal || mqttTotal === marked) && layer <= marked) return layer + 1;
   if (mqttTotal > 0 && count > 0) {
     return Math.min(count, Math.round((layer / mqttTotal) * (count - offset) + offset));
   }
@@ -962,6 +969,11 @@ function clearPackedPreview() {
   packedCompositor?.dispose();
   packedCompositor = null;
   packedFrame = null;
+  packedModelLayerCount = 0;
+  if (stageEl.classList.contains('packed-preview')) {
+    stageEl.classList.remove('packed-preview');
+    preview.resize?.();
+  }
   packedViewDirty = true;
   pathEl.disabled = false;
   playEl.disabled = false;
@@ -1144,7 +1156,7 @@ function adaptivePreview(parser, signal) {
       prefix.push(lines);
       if (commands <= 200_000 && characters <= 12 * 1024 * 1024) {
         try {
-          native.parseBatch(lines);
+          native.parseBatch(lines.filter(line => line[0] !== ';'));
           return;
         } catch (error) {
           if (!error.canPack) throw error;
@@ -1322,10 +1334,10 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       controller.signal.throwIfAborted();
       stage = 'render';
       provisionalPlayback = createPackedNozzlePlayback(packed.motion, yieldTask);
-      if (lastGcodeState === 'RUNNING' && lastSubStage === 0 && !wantedJob?.effectivelyDone) {
+      if (lastGcodeState === 'RUNNING' && wantedJob?.layerTiming?.advancing && !wantedJob.effectivelyDone) {
         const first = modelToParsed(Number(wantedJob?.layer) || 0, Number(wantedJob?.totalLayers) || 0,
-          layers.length, findModelLayerOffset(layers, 1));
-        if (first > 0) provisionalPlayback.prime(first - 1);
+          layers.length, findModelLayerOffset(layers, 1), hasExactModelLayers(layers) ? layers.length - 1 : 0);
+        if (first > 0) provisionalPlayback.prime(first - 1, wantedJob?.layerTiming);
       }
       const packingPalette = preview.extrusionColor;
       const stageStart = performance.now();
@@ -1338,13 +1350,16 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
         return;
       }
       packedPreview = renderer;
+      packedModelLayerCount = hasExactModelLayers(layers) ? layers.length - 1 : 0;
+      stageEl.classList.add('packed-preview');
+      preview.resize?.();
       if (preview.extrusionColor !== packingPalette) renderer.setPalette(preview.extrusionColor);
       parser.preamble = layers[0];
       parser.layers = layers.slice(1);
       packedPlayback = provisionalPlayback;
       provisionalPlayback = null;
       packedCompositor = createPackedNozzleRenderer(preview, nozzleGroup, {
-        lights: [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim],
+        lights: [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim], packed: packedPreview,
       });
       layerPaths = [];
     } else {
@@ -1379,8 +1394,12 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       const showWhole = ['FINISH', 'PREPARE', 'SLICING'].includes(lastGcodeState) ||
         (packed && (!reportedLayer || wantedJob?.effectivelyDone));
       const initial = modelToParsed(reportedLayer, Number(wantedJob?.totalLayers) || 0);
-      if (packedPlayback && !showWhole && lastGcodeState === 'RUNNING' && lastSubStage === 0 && initial > 0) {
-        packedPlayback.live(initial - 1);
+      if (packedPlayback && !showWhole && initial > 0) {
+        if (lastGcodeState === 'RUNNING' && (wantedJob?.layerTiming?.advancing ?? lastSubStage === 0)) {
+          packedPlayback.live(initial - 1, wantedJob?.layerTiming);
+        } else {
+          packedPlayback.pause(initial - 1, wantedJob?.layerTiming);
+        }
       }
       advanceTo(showWhole ? totalLayers : Math.max(1, initial));
     }
@@ -1551,6 +1570,8 @@ function autoFitCamera() {
 
 function packedStatus(frame) {
   if (frame.state === 'buffering') return 'Buffering nozzle preview…';
+  if (frame.state === 'awaiting-layer') return 'Waiting for printer progress';
+  if (frame.state === 'waiting') return 'Waiting for layer timing';
   if (frame.unavailable === 'unsupported-arc') return 'Nozzle playback cannot follow an arc in this layer';
   if (frame.unavailable === 'decode') return 'Could not decode nozzle movement for this layer';
   if (frame.state === 'unavailable') return 'Nozzle path unavailable for this layer';
@@ -1574,25 +1595,47 @@ function drawPackedFrame() {
     preview.camera.lookAt(orbitTarget);
     packedViewDirty = false;
   }
-  const rebuild = preview.endLayer !== lastRenderedEndLayer;
-  if (rebuild) fullRebuild();
   const frame = packedPlayback.frame();
+  const active = packedCompositor.available && frame.layer >= 0 ? packedPreview.layerRange(frame.layer) : null;
+  const prefix = active ? frame.layer : preview.endLayer;
+  const rebuild = prefix !== lastRenderedEndLayer;
+  if (rebuild) fullRebuild(prefix);
+
   const point = packedCompositor.available ? frame.position : null;
+  const pose = frame.deposition;
+  const deposition = active ? {
+    start: active.start,
+    end: Math.max(active.start, Math.min(active.end, pose?.deposited ?? active.start)),
+    partial: pose?.partial && pose.deposited >= active.start && pose.deposited < active.end ? {
+      from: [pose.partial.x, pose.partial.y, pose.partial.z],
+      to: [pose.x, pose.y, pose.z],
+      tool: pose.partial.tool,
+    } : null,
+  } : null;
   const previous = packedFrame?.position;
   const moved = Boolean(point) !== Boolean(previous) ||
     (point && (point.x !== previous.x || point.y !== previous.y || point.z !== previous.z || point.extruding !== previous.extruding));
-  if (dirty || rebuild || !packedFrame || packedCompositor.building || (moved && (Boolean(point) !== Boolean(previous) || timing - lastDrawAt >= 33))) {
+  const former = packedFrame?.deposition;
+  const deposited = deposition?.start !== former?.start || deposition?.end !== former?.end ||
+    Boolean(deposition?.partial) !== Boolean(former?.partial) ||
+    (deposition?.partial && (deposition.partial.tool !== former.partial.tool ||
+      deposition.partial.from.some((value, axis) => value !== former.partial.from[axis]) ||
+      deposition.partial.to.some((value, axis) => value !== former.partial.to[axis])));
+  if (dirty || rebuild || !packedFrame || packedCompositor.building ||
+      ((moved || deposited) && (Boolean(point) !== Boolean(previous) || timing - lastDrawAt >= 33))) {
     if (point) {
       nozzleGroup.position.set(point.x - buildCenter.x, point.z, buildCenter.y - point.y);
       glowGroup.visible = point.extruding;
     }
     nozzleGroup.visible = Boolean(point);
-    packedCompositor.draw({ refreshStatic: dirty || rebuild, drawNozzle: nozzleGroup.visible });
+    packedCompositor.draw({ refreshStatic: dirty || rebuild, drawNozzle: nozzleGroup.visible, deposition });
     if (startupReport && (startupReport.fullGeometryMs === undefined || startupReport.firstNozzleMs === undefined)) {
-      const { staticLines, staticBuiltLines, staticReady, nozzleDraws } = packedCompositor.stats();
+      const { staticLines, staticBuiltLines, staticReady, nozzleDraws, depositedSegments,
+        partialDeposited, depositionReady } = packedCompositor.stats();
       const elapsed = performance.now() - startupReport.startedAt;
-      if (staticLines > 0 || staticBuiltLines > 0) startupReport.firstGeometryMs ??= elapsed;
-      if (staticReady && staticLines > 0) startupReport.fullGeometryMs ??= elapsed;
+      const drawnGeometry = staticLines > 0 || staticBuiltLines > 0 || depositedSegments > 0 || partialDeposited;
+      if (drawnGeometry) startupReport.firstGeometryMs ??= elapsed;
+      if (staticReady && drawnGeometry && (depositionReady ?? true)) startupReport.fullGeometryMs ??= elapsed;
       if (nozzleDraws > 0) startupReport.firstNozzleMs ??= elapsed;
     }
     if (!packedCompositor.available) {
@@ -1600,8 +1643,9 @@ function drawPackedFrame() {
       nozzleGroup.visible = false;
       pathEl.disabled = true;
       playEl.disabled = true;
+      if (active) lastRenderedEndLayer = -1;
     }
-    packedFrame = { position: nozzleGroup.visible ? point : null };
+    packedFrame = { position: nozzleGroup.visible ? point : null, deposition };
     lastDrawAt = timing;
   }
   let status = packedCompositor.available ? packedStatus(frame) : 'Nozzle playback unavailable on this graphics device';
@@ -1800,12 +1844,22 @@ async function tick() {
       return;
     }
     const taskId = job.task;
-    wantedJob = { ...job, layer: print.layer_num, totalLayers: print.total_layer_num };
+    const reportedLayer = Number(print.layer_num) || 0;
+    const sameJob = wantedJob && wantedJob.key === job.key;
+    const regressedLayer = sameJob && reportedLayer > 0 && reportedLayer < Number(wantedJob.layer) &&
+      (state === 'RUNNING' || state === 'PAUSED');
+    const layerTiming = !regressedLayer && Number.isFinite(print._bb_layer_elapsed_ms) && print._bb_layer_elapsed_ms >= 0 &&
+      Number.isFinite(data._bb_received_at) && typeof print._bb_layer_advancing === 'boolean'
+      ? { elapsedMs: print._bb_layer_elapsed_ms, advancing: print._bb_layer_advancing,
+          receivedAt: data._bb_received_at, observedAt: performance.now() }
+      : null;
+    wantedJob = { ...job, layer: regressedLayer ? wantedJob.layer : reportedLayer,
+      totalLayers: regressedLayer ? wantedJob.totalLayers : print.total_layer_num, layerTiming };
     canRequestToolpath = job.available && !['IDLE', 'FAILED'].includes(state);
     window.BBGcodeUI.allowFile(canRequestToolpath);
-    const layerNum = Number(print.layer_num) || 0;
+    const layerNum = wantedJob.layer;
     const printStage = Number(print.mc_print_stage) || 0;
-    const subStage = Number(print.stg_cur) || 0;
+    const subStage = Number(print.stage?._id ?? print.stg_cur) || 0;
     // Capture previous tick's state BEFORE overwriting, so we can detect
     // print lifecycle transitions (FINISH→RUNNING, progress resets).
     const _prevState = prevTickState;
@@ -1982,14 +2036,13 @@ async function tick() {
       if (state === 'FINISH' || isEffectivelyDone) {
         packedPlayback.hide();
         advanceTo(totalLayers);
-      } else if (state !== 'RUNNING' || subStage !== 0 || layerNum <= 0) {
-        packedPlayback.pause();
       } else {
-        const target = modelToParsed(layerNum, Number(print.total_layer_num) || 0);
-        if (target > 0) {
-          if (packedCompositor.available) packedPlayback.live(target - 1);
-          advanceTo(target);
+        const target = modelToParsed(layerNum, Number(wantedJob.totalLayers) || 0);
+        if (target > 0 && packedCompositor.available) {
+          if (state === 'RUNNING' && (layerTiming?.advancing ?? subStage === 0)) packedPlayback.live(target - 1, layerTiming);
+          else packedPlayback.pause(target - 1, layerTiming);
         }
+        if (target > 0) advanceTo(target);
       }
       return;
     }
@@ -2087,11 +2140,13 @@ function packedMotionDiagnostics() {
   if (!packedPlayback) return null;
   const { state, layer, window, windowMoves, layerMoves } = packedPlayback.frame();
   const point = packedFrame?.position;
-  const { staticDraws, nozzleDraws } = packedCompositor.stats();
+  const { staticDraws, nozzleDraws, depositionStart, depositedSegments, depositedEnd,
+    depositionReady, partialDeposited } = packedCompositor.stats();
   return {
     ...packedPlayback.stats(), state, layer, window, windowMoves, layerMoves, visible: nozzleGroup.visible,
     position: point ? [point.x, point.y, point.z] : null,
-    staticDraws, animationDraws: nozzleDraws,
+    staticDraws, animationDraws: nozzleDraws, depositionStart, depositedSegments, depositedEnd,
+    depositionReady, partialDeposited, reportedLayer: wantedJob?.layer, markerLayerCount: packedModelLayerCount,
   };
 }
 
@@ -2210,7 +2265,7 @@ if (debug && debugBar) {
         setPlay(false);
         verifyManualHold = true;
         const layer = packedPlayback.frame().layer;
-        packedPlayback.seek(Math.max(0, layer), frac);
+        packedPlayback.seek(layer >= 0 ? layer : Math.max(0, scrubLayer - 1), frac);
         pathLabelEl.textContent = `${Math.round(frac * 100)}%`;
         return;
       }

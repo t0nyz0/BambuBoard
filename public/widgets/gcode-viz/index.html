@@ -15,8 +15,10 @@
          the OBS browser-source / dashboard iframe. !important needed because
          widgets/styles.css applies a dark body color by default. */
       html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent !important; }
-      .gcode-stage { position: relative; width: 100vw; height: 100vh; background: transparent; }
-      .gcode-stage canvas { display: block; width: 100% !important; height: 100% !important; background: transparent; }
+      .gcode-stage { --detail-height: 0px; position: relative; width: 100vw; height: 100vh; background: transparent; }
+      .gcode-stage.packed-preview { --detail-height: 22px; }
+      .gcode-stage canvas { display: block; width: 100% !important; height: calc(100% - var(--detail-height)) !important;
+        position: absolute; top: var(--detail-height); left: 0; background: transparent; }
       /* Centered loading/error message — large enough to read at a glance
          when the user is checking in on a new print. Default state is the
          small bottom-of-canvas hint; .loading promotes it to a centered
@@ -67,9 +69,11 @@
         border-radius: 10px; opacity: 1; font-size: clamp(12px, 2.5vw, 17px); line-height: 1.5;
       }
       .gcode-detail {
-        position: absolute; top: 8px; right: 8px; max-width: calc(100% - 16px);
-        background: rgba(10,15,19,.9); color: #edf3f6; border-radius: 6px;
-        padding: 4px 8px; font-size: 11px; pointer-events: none;
+        position: absolute; inset: 0 auto auto 0; box-sizing: border-box;
+        height: var(--detail-height); max-width: 100%; padding: 3px 16px 3px 8px;
+        background: linear-gradient(90deg, rgba(20,24,30,.88) calc(100% - 12px), transparent);
+        color: #e1e7ed; font-size: 11px; line-height: 16px; text-align: left; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; pointer-events: none;
       }
       .gcode-recovery {
         position: absolute; left: 6%; right: 6%; bottom: 8%; display: flex;
@@ -97,7 +101,7 @@
          scrollable, semi-transparent so the scene stays visible behind it. */
       .gcode-log {
         display: none;
-        position: absolute; left: 12px; top: 12px;
+        position: absolute; left: 12px; top: calc(var(--detail-height) + 12px);
         width: 46%; max-width: 560px; max-height: 55%;
         margin: 0; padding: 8px 10px;
         overflow-y: auto; white-space: pre-wrap; word-break: break-word;
