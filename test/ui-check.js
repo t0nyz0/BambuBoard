@@ -376,7 +376,12 @@ async function runEngine(name, artifactDir) {
       main(removalFixture).push(item(label, 550, 100));
     }
     const mediaFixture = url => url.origin === base && ['/widgets/camera/', '/widgets/gcode-viz/'].includes(url.pathname);
-    await page.route(mediaFixture, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Local widget fixture</title>' }));
+    await page.route(mediaFixture, route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Local widget fixture</title>
+      <script>
+        window.fixtureFrameId = Math.random();
+        window.addEventListener('message', event => { if (event.data?.type === 'bambuboard:gcode-view') window.fixtureView = event.data; });
+        if (location.pathname.includes('gcode-viz')) parent.postMessage({ type: 'bambuboard:gcode-view-ready' }, location.origin);
+      </script>` }));
     await fs.writeFile(path.join(data, 'scenes', removalSlug + '.json'), JSON.stringify(removalFixture));
     const readRemovalDraft = () => request('/api/obs/scenes/' + encodeURIComponent(removalSlug));
     const liveBeforeRemoval = await request('/api/obs/published');
@@ -519,8 +524,76 @@ async function runEngine(name, artifactDir) {
     await undoRemoval();
     await undoRemoval();
     assert.equal(await page.locator('#draft-state').innerText(), 'Draft saved · Live');
-    await page.unroute(mediaFixture);
     passed.push('Removing the last widget leaves a usable empty scene and adding again works through two Undo/Redo steps');
+
+    const toolpathFixture = structuredClone(removalFixture);
+    const toolpathSlug = 'Toolpath camera fixture';
+    const toolpathUrl = collection => new URL(collection.sources.find(source => source.name === 'Toolpath preview').settings.url);
+    toolpathFixture.sources.find(source => source.name === 'Toolpath preview').settings.url += '?view=front&zoom=125&fixture=keep#toolpath';
+    second(toolpathFixture).push({ ...item('Toolpath preview', 200, 200), locked: true });
+    await fs.writeFile(path.join(data, 'scenes', toolpathSlug + '.json'), JSON.stringify(toolpathFixture));
+    await openEditor();
+    await page.locator('#loader').selectOption('scn:' + toolpathSlug);
+    await select('First AMS');
+    assert.equal(await page.locator('#gcode-view-block').isVisible(), false);
+    await select('Toolpath preview');
+    const viewControl = page.getByRole('combobox', { name: 'Camera angle' });
+    const zoomControl = page.getByRole('slider', { name: 'Toolpath zoom' });
+    assert.equal(await viewControl.inputValue(), 'front');
+    assert.equal(await zoomControl.inputValue(), '125');
+    assert.equal(await viewControl.isDisabled(), true, 'A locked copy in another scene protects the shared camera');
+    await page.locator('#scene-picker').selectOption('Second scene');
+    await page.getByRole('button', { name: 'Unlock Toolpath preview' }).click();
+    await page.locator('#scene-picker').selectOption('Main');
+    await select('Toolpath preview');
+    const frame = page.locator('iframe[title="Toolpath preview"]');
+    const waitForView = (view, zoom) => page.waitForFunction(({ view, zoom }) => {
+      const settings = document.querySelector('iframe[title="Toolpath preview"]')?.contentWindow?.fixtureView;
+      return !!settings && settings.view === view && settings.zoom === zoom;
+    }, { view, zoom });
+    await waitForView('front', '125');
+    const frameId = await frame.evaluate(node => node.contentWindow.fixtureFrameId);
+    await viewControl.selectOption('side');
+    await zoomControl.evaluate(input => {
+      input.value = '150';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await waitForView('side', '150');
+    assert.equal(await frame.evaluate(node => node.contentWindow.fixtureFrameId), frameId, 'Camera changes keep the current renderer');
+    assert.equal(await zoomControl.getAttribute('aria-valuetext'), '150%');
+    await audit('Toolpath view controls');
+    assert.deepEqual(accessibility.at(-1).violations, []);
+
+    await undoRemoval();
+    await waitForView('side', '125');
+    await redoRemoval();
+    await waitForView('side', '150');
+    await page.getByRole('button', { name: 'Reset toolpath view' }).click();
+    await waitForView(undefined, undefined);
+    assert.equal(await viewControl.inputValue(), 'angled');
+    assert.equal(await zoomControl.inputValue(), '100');
+    await undoRemoval();
+    await waitForView('side', '150');
+
+    const readToolpathDraft = () => request('/api/obs/scenes/' + encodeURIComponent(toolpathSlug));
+    assert.equal(toolpathUrl(await readToolpathDraft()).searchParams.get('view'), 'front');
+    assert.deepEqual(await request('/api/obs/published'), publishedRemoval);
+    await save();
+    const savedToolpath = toolpathUrl(await readToolpathDraft());
+    assert.equal(savedToolpath.searchParams.get('view'), 'side');
+    assert.equal(savedToolpath.searchParams.get('zoom'), '150');
+    assert.equal(savedToolpath.searchParams.get('fixture'), 'keep');
+    assert.equal(savedToolpath.hash, '#toolpath');
+    assert.deepEqual(await request('/api/obs/published'), publishedRemoval);
+    await page.locator('#golive-btn').click();
+    await page.waitForFunction(() => document.querySelector('#draft-state').textContent === 'Draft saved · Live');
+    await page.goto(base + '/live');
+    const outputToolpath = new URL(await frame.getAttribute('src'), base);
+    assert.equal(outputToolpath.searchParams.get('view'), 'side');
+    assert.equal(outputToolpath.searchParams.get('zoom'), '150');
+    await page.unroute(mediaFixture);
+    passed.push('Toolpath camera previews without loading a new iframe; shared locks, Undo, Reset, Save and Apply preserve the source settings');
 
     await page.goto(base + '/setup');
     await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');

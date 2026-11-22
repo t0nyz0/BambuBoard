@@ -99,6 +99,8 @@ Have your printer's **IP address, serial number and LAN access code** ready. The
 
 If a widget's details are cut off, select it and choose **Fit to content**. **Width** and **Height** change how much room its content has. **Advanced → Scale on canvas** changes how large it appears.
 
+Select **Gcode Toolpath**. Under **Toolpath view**, choose an **Angled**, **Top**, **Front**, or **Side** camera angle. Set **Toolpath zoom** to 100% to fit the print, or increase it for a closer view. The angle and zoom are saved with the draft and appear in OBS after **Apply to Live**.
+
 **`/live` is the broadcast output; `/` is the management page.** The broadcast renders the published snapshot, falling back to a matching default template before the first publication. Re-publish to update it automatically. If OBS runs on another machine, use the BambuBoard host's address rather than `localhost`.
 
 Match the Browser Source dimensions and OBS **Settings → Video → Base (Canvas) Resolution** to the published scene size shown under Live preview. The OBS download includes that size, including custom resolutions. A differently sized browser viewport scales the scene to fit and may letterbox. Use `/live?transparent=1` to make the page background transparent; individual widget and scene backgrounds still apply.
@@ -245,6 +247,8 @@ The shared customizer accepts these parameters. Appearance depends on the widget
 | `pad=8` | Body padding in pixels, clamped to 0–64 |
 
 Combine parameters with `&`, for example `/widgets/ams/?ams=0&theme=dark&accent=51a34f`. Widget-specific parameters are listed in the catalog. Saved widget themes are independent of the management app's theme.
+
+For a standalone G-code browser source, add `view=angled`, `top`, `front`, or `side`, plus an optional `zoom` value from 50 to 200. For example, `/widgets/gcode-viz/?view=top&zoom=125`.
 
 ## Bambu Cloud (optional)
 

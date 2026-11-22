@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file. The format foll
 
 - Guide Bambu Cloud sign-in one step at a time, with email resend and optional authenticator verification. Move manual MakerWorld token import into Troubleshooting.
 - Add a no-SSH Synology quickstart and document how to use the Compose example with QNAP, Portainer, and TrueNAS.
+- Add camera angle and zoom controls to the G-code toolpath inspector. Save the chosen view with the draft.
 
 ### Fixed
 

@@ -134,6 +134,21 @@
       <label for="insp-locked"><input id="insp-locked" type="checkbox" aria-describedby="locked-help"> Locked</label>
     </div>
     <p id="locked-help" class="text-dim" hidden>Unlock this layer to edit it.</p>
+    <fieldset id="gcode-view-block" class="inspector-section" hidden>
+      <legend>Toolpath view</legend>
+      <label class="field" for="gcode-view"><span>Camera angle</span><select id="gcode-view" class="select input">
+        <option value="angled">Angled (default)</option>
+        <option value="top">Top</option>
+        <option value="front">Front</option>
+        <option value="side">Side</option>
+      </select></label>
+      <label class="field" for="gcode-zoom"><span>Toolpath zoom <span id="gcode-zoom-value" aria-hidden="true">100%</span></span>
+        <input id="gcode-zoom" type="range" min="50" max="200" value="100" aria-valuetext="100%" aria-describedby="gcode-zoom-help">
+      </label>
+      <p id="gcode-zoom-help" class="text-dim">100% fits the print. Higher zoom crops the view.</p>
+      <p id="gcode-view-lock-help" class="text-dim" hidden>Unlock all layers that share this widget to change its view.</p>
+      <button id="gcode-view-reset" class="btn btn-ghost" type="button">Reset toolpath view</button>
+    </fieldset>
     <div id="cust-block" class="inspector-section" style="display:none">
       <h3>Appearance</h3>
       <div class="inspector-grid">
@@ -226,6 +241,7 @@
   <script src="/js/nav.js"></script>
   <script src="/assets/js/jsmpeg.min.js" defer></script>
   <script src="/js/browser-source-url.js"></script>
+  <script src="/js/gcode-view.js"></script>
   <script src="/js/scene-editor.js"></script>
 </body>
 </html>

@@ -378,11 +378,18 @@ function updateUndoButtons () {
   state.measuredFrames = new WeakSet();
   window.addEventListener('message', (event) => {
     const message = event.data;
-    if (event.origin !== location.origin || message?.type !== 'bambuboard:size') return;
+    if (event.origin !== location.origin || !['bambuboard:size', 'bambuboard:gcode-view-ready'].includes(message?.type)) return;
+    const frame = Array.from(els.canvas().querySelectorAll('.scene-item iframe')).find(iframe => iframe.contentWindow === event.source);
+    if (!frame) return;
+    if (message.type === 'bambuboard:gcode-view-ready') {
+      const item = state.items[Number(frame.closest('.scene-item').dataset.idx)];
+      const source = state.sources[item?.name];
+      if (isWidgetSrc(source) && widgetSlugOf(source) === 'gcode-viz') sendGcodeView(frame, source);
+      return;
+    }
     const { slug, w, h } = message;
     if (!slug || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
-    const frame = Array.from(els.canvas().querySelectorAll('.scene-item iframe')).find(iframe => iframe.contentWindow === event.source);
-    if (!frame || !frame.getAttribute('src')?.startsWith(`/widgets/${slug}/`)) return;
+    if (!frame.getAttribute('src')?.startsWith(`/widgets/${slug}/`)) return;
     state.measuredFrames.add(frame);
     const item = state.items[state.selectedIndex];
     const source = state.sources[item?.name];
@@ -605,9 +612,10 @@ function customizationsFrom (json) {
     const url = (src.settings && src.settings.url) || '';
     if (!url.includes('?')) continue;
     const params = new URLSearchParams(queryOf(url));
+    const keys = customizationParams(widgetSlugOf(src));
     const cust = customizations[key] = customizations[key] || {};
     params.forEach((val, key) => {
-      if (CUST_KEYS.includes(key)) {
+      if (keys.includes(key)) {
         cust[key] = val;
       } else if (key.indexOf('bind.') === 0) {
         const id = key.slice(5);
@@ -1063,6 +1071,8 @@ function redrawPreviewItem(idx) {
 }
 
 const CUST_KEYS = ['theme', 'accent', 'fontSize', 'title', 'pad'];
+const GCODE_CUST_KEYS = [...CUST_KEYS, 'view', 'zoom'];
+function customizationParams(slug) { return slug === 'gcode-viz' ? GCODE_CUST_KEYS : CUST_KEYS; }
 function customizationKeyOf(source) { return source?.uuid || source?.name || widgetSlugOf(source); }
 
 function queryOf(url) {
@@ -1076,7 +1086,7 @@ function widgetParams(slug, source) {
   const params = new URLSearchParams(queryOf(url));
   const cust = state.customizations[customizationKeyOf(source)];
   if (cust) {
-    for (const key of CUST_KEYS) {
+    for (const key of customizationParams(slug)) {
       if (cust[key] != null && cust[key] !== '') params.set(key, cust[key]); else params.delete(key);
     }
     for (const key of [...params.keys()]) if (key.startsWith('bind.')) params.delete(key);
@@ -1169,6 +1179,42 @@ function refreshWidgetPreview(source) {
     }
   }
   refreshAutoSizeButton(state.items[state.selectedIndex], source);
+}
+
+function sendGcodeView(frame, source) {
+  const { view, zoom } = state.customizations[customizationKeyOf(source)] || {};
+  frame.contentWindow?.postMessage({ type: 'bambuboard:gcode-view', view, zoom }, location.origin);
+}
+
+function updateGcodeZoomLabel() {
+  const zoom = document.getElementById('gcode-zoom');
+  const text = zoom.value + '%';
+  document.getElementById('gcode-zoom-value').textContent = text;
+  zoom.setAttribute('aria-valuetext', text);
+}
+
+function changeGcodeView(view, zoom) {
+  const item = state.items[state.selectedIndex];
+  const source = item && state.sources[item.name];
+  if (!item || item.locked || !isWidgetSrc(source) || widgetSlugOf(source) !== 'gcode-viz') return;
+  const layers = widgetLayers(source);
+  if (layers.some(layer => layer.locked)) return;
+  const settings = BBGcodeView.normalize(view, zoom);
+  const nextView = settings.view === BBGcodeView.defaultView ? '' : settings.view;
+  const nextZoom = settings.zoom === BBGcodeView.defaultZoom ? '' : String(settings.zoom);
+  const key = customizationKeyOf(source);
+  const previous = state.customizations[key];
+  if ((previous?.view || '') === nextView && (previous?.zoom || '') === nextZoom) return;
+  snapshot(layers.length === 1 ? state.sceneName : null);
+  const cust = state.customizations[key] ||= {};
+  if (nextView) cust.view = nextView; else delete cust.view;
+  if (nextZoom) cust.zoom = nextZoom; else delete cust.zoom;
+  for (const frame of els.canvas().querySelectorAll('.scene-item iframe')) {
+    const frameItem = state.items[Number(frame.closest('.scene-item').dataset.idx)];
+    if (state.sources[frameItem?.name] === source) sendGcodeView(frame, source);
+  }
+  updateDiff();
+  refreshInspector();
 }
 
 // Tiny JSONPath resolver — same logic as the one in _customizer.js, kept in
@@ -1668,6 +1714,18 @@ function refreshInspector () {
   resetStretch.hidden = !widget || !stretched;
   resetStretch.disabled = item.locked;
   const cust = widget ? (state.customizations[customizationKeyOf(src)] || {}) : null;
+  const slug = widget ? widgetSlugOf(src) : null;
+  const gcodeView = document.getElementById('gcode-view-block');
+  gcodeView.hidden = slug !== 'gcode-viz';
+  gcodeView.disabled = viewportLocked;
+  if (!gcodeView.hidden) {
+    const view = BBGcodeView.normalize(cust.view, cust.zoom);
+    setValue('gcode-view', view.view);
+    setValue('gcode-zoom', view.zoom);
+    updateGcodeZoomLabel();
+    document.getElementById('gcode-view-lock-help').hidden = !viewportLocked || item.locked;
+    document.getElementById('gcode-view-reset').disabled = !cust.view && !cust.zoom;
+  }
   document.getElementById('cust-block').style.display = cust ? '' : 'none';
   if (cust !== null) {
     setValue('cust-title', cust.title || '');
@@ -1675,7 +1733,6 @@ function refreshInspector () {
     setValue('cust-accent', cust.accent ? '#' + cust.accent : '#51a34f');
     setValue('cust-font', cust.fontSize || '');
     setValue('cust-pad', cust.pad || '');
-    const slug = widgetSlugOf(src);
     refreshAutoSizeButton(item, src, layers);
     renderBindings(slug);
   } else {
@@ -1765,6 +1822,13 @@ document.addEventListener('DOMContentLoaded', () => {
       updateDiff();
     });
   });
+  const gcodeView = document.getElementById('gcode-view');
+  const gcodeZoom = document.getElementById('gcode-zoom');
+  const updateGcodeView = () => changeGcodeView(gcodeView.value, gcodeZoom.value);
+  gcodeView.addEventListener('change', updateGcodeView);
+  gcodeZoom.addEventListener('input', updateGcodeZoomLabel);
+  gcodeZoom.addEventListener('change', updateGcodeView);
+  document.getElementById('gcode-view-reset').addEventListener('click', () => changeGcodeView(BBGcodeView.defaultView, BBGcodeView.defaultZoom));
 
   // Visible / locked toggles.
   document.getElementById('insp-visible').addEventListener('change', (e) => {

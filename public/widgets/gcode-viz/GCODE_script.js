@@ -10,21 +10,10 @@
 import * as GCodePreview from '../../vendor/gcode-preview.esm.js';
 import * as THREE from '../../vendor/three.module.js';
 import '../../js/gcode-limits.js';
+import '../../js/gcode-view.js';
 
 const POLL_MS = 800;
 const PLAY_LAYERS_PER_SEC = 8;
-// Fixed view angle around the print (radians). Aimed to match the direction
-// the H2D's chamber camera looks at the bed — same prints, same left/right
-// orientation across both views.
-const ORBIT_THETA_FIXED = Math.PI * 1.7;        // ~306° / -54° — looks from the opposite side of the bed vs the previous take
-// Elevation angle (degrees above the bed plane) for the orbiting camera.
-// Derived directly here so orbitHeight stays proportional to orbitRadius
-// regardless of print height — the previous formula tied orbitHeight to
-// total print height (sz), which pushed the angle to ~65° (effectively
-// top-down) on tall prints. ~30° gives a stable side-ish view that matches
-// what the chamber camera shows.
-const ORBIT_ELEVATION_DEG = 30;
-const ORBIT_ELEVATION_TAN = Math.tan(ORBIT_ELEVATION_DEG * Math.PI / 180);
 // Nozzle simulation speed multiplier vs gcode feedrate. Self-calibrates
 // based on observed mc_percent advancement rate so it tracks the real
 // printer including filament-swap delays, accel/decel overhead, and any
@@ -120,6 +109,7 @@ const preview = GCodePreview.init({
 // Our camera/nozzle loop below owns drawing. The library's default loop would
 // otherwise draw the same large geometry a second time every animation frame.
 preview.cancelAnimation();
+preview.controls.enabled = false;
 
 // Make the canvas transparent so the widget composites over whatever sits
 // underneath it (camera feed in OBS, dashboard background on the web). The
@@ -937,7 +927,7 @@ function clearScene() {
   lastMcPctChangeValue = null;
   calibrationSamples = 0;
   nozzleSpeedFactor = 0.5;                 // reset to initial guess for new print
-  orbitRadius = 0;                          // re-fit on next orbit tick
+  cameraDistance = 0;                       // re-fit on next camera tick
   modelCorners.length = 0;
   fastTick();                               // commit the empty state to the GPU
 }
@@ -1078,7 +1068,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       throw Object.assign(new Error('The file has no printable extrusion toolpath. Choose the exact sliced .3mf or .gcode.'), { retryable: false });
     }
     stage = 'render';
-    orbitRadius = 0; trailBuf.length = 0; lastTrailPos = null; lastEndLayer = -1;
+    cameraDistance = 0; trailBuf.length = 0; lastTrailPos = null; lastEndLayer = -1;
     const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
     if (scrubEl) { scrubEl.max = String(renderCap); scrubEl.value = String(renderCap); scrubLayer = renderCap; }
     if (verifyLayers) {
@@ -1117,45 +1107,72 @@ function advanceTo(layerNum) {
   setLabel(layerNum, totalLayers);
 }
 
-// Slow camera orbit — runs continuously while a job is loaded. Radius/height
-// auto-fit to the loaded print's bounding box so small prints fill the frame
-// and big prints don't get clipped. orbitTarget is smoothed each frame: the
-// camera lazily pursues the nozzle so it stays visually centered, falling
-// back to the print bbox center when the printer isn't extruding. The view
-// angle around the print is fixed (no orbit rotation) — the smooth follow
-// supplies all the visual interest.
-let orbitRadius = 0;
-let orbitHeight = 0;
-let orbitRadiusBase = 0;  // radius computed by autoFit (before finish zoom)
+// Fit the print at the chosen angle and smoothly follow the visible nozzle.
+const defaultDistance = 100 / Math.cos(THREE.MathUtils.degToRad(30));
+const defaultFarPlane = preview.camera.far;
+const bedDiagonal = Math.hypot(bed.x, bed.y, bed.z);
+let cameraDistance = 0;
 let orbitTarget    = new THREE.Vector3(0, 0, 0); // current (smoothed) lookAt
 let bboxCenter     = new THREE.Vector3(0, 0, 0); // print bbox center anchor
 let smoothedNozzle = new THREE.Vector3(0, 0, 0); // EMA of nozzle position
 let smoothedNozzleInit = false;
 const modelCorners = [];
-const elevation = ORBIT_ELEVATION_DEG * Math.PI / 180;
-const cameraOut = new THREE.Vector3(Math.sin(ORBIT_THETA_FIXED) * Math.cos(elevation), Math.sin(elevation), Math.cos(ORBIT_THETA_FIXED) * Math.cos(elevation));
-const cameraRight = new THREE.Vector3(Math.cos(ORBIT_THETA_FIXED), 0, -Math.sin(ORBIT_THETA_FIXED));
-const cameraUp = new THREE.Vector3().crossVectors(cameraOut, cameraRight);
+const cameraOut = new THREE.Vector3();
+const cameraRight = new THREE.Vector3();
+const cameraUp = new THREE.Vector3();
+let cameraView, cameraZoom;
 const cornerOffset = new THREE.Vector3();
 const NOZZLE_FOLLOW_BIAS = 1.0;
 const NOZZLE_SMOOTH_LERP = 0.015;
 const TARGET_LERP        = 0.045;
 const _scratchDesired    = new THREE.Vector3();
 
-function fittedRadius(target) {
+function fittedDistance(target) {
   // Fit every model corner into the actual perspective frustum. A guessed
   // footprint radius clips long/tall prints and portrait widget canvases.
   const tanY = Math.tan(THREE.MathUtils.degToRad(preview.camera.fov / 2)) * 0.85;
   const tanX = tanY * Math.max(0.01, preview.camera.aspect);
-  let distance = 50 / Math.cos(elevation);
+  // Use the unzoomed frustum so 100% fits and larger zooms can crop in.
+  let distance = defaultDistance / 2;
   for (const corner of modelCorners) {
     cornerOffset.copy(corner).sub(target);
     const depth = cornerOffset.dot(cameraOut);
     distance = Math.max(distance,
+      depth + preview.camera.near * 1.1,
       depth + Math.abs(cornerOffset.dot(cameraRight)) / tanX,
       depth + Math.abs(cornerOffset.dot(cameraUp)) / tanY);
   }
-  return distance * Math.cos(elevation);
+  return distance;
+}
+
+function setCameraView(view, zoom) {
+  const settings = BBGcodeView.normalize(view, zoom);
+  if (settings.view !== cameraView) {
+    cameraView = settings.view;
+    const preset = BBGcodeView.presets[cameraView];
+    const azimuth = THREE.MathUtils.degToRad(preset.azimuth);
+    const elevation = THREE.MathUtils.degToRad(preset.elevation);
+    cameraOut.set(Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), Math.cos(azimuth) * Math.cos(elevation));
+    cameraRight.set(Math.cos(azimuth), 0, -Math.sin(azimuth));
+    cameraUp.crossVectors(cameraOut, cameraRight);
+    // A top-down camera needs an up vector in the plane of the bed.
+    preview.camera.up.copy(cameraUp);
+    if (modelCorners.length) cameraDistance = fittedDistance(orbitTarget);
+  }
+  if (settings.zoom !== cameraZoom) {
+    cameraZoom = settings.zoom;
+    preview.camera.zoom = cameraZoom / 100;
+    preview.camera.updateProjectionMatrix();
+  }
+}
+
+setCameraView(params.get('view'), params.get('zoom'));
+if (window.parent !== window) {
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.origin !== location.origin || event.data?.type !== 'bambuboard:gcode-view') return;
+    setCameraView(event.data.view, event.data.zoom);
+  });
+  window.parent.postMessage({ type: 'bambuboard:gcode-view-ready' }, location.origin);
 }
 
 function autoFitCamera() {
@@ -1194,9 +1211,7 @@ function autoFitCamera() {
   for (const x of [minX, maxX]) for (const y of [0, sz]) for (const z of [minY, maxY]) {
     modelCorners.push(new THREE.Vector3(x - buildCenter.x, y, buildCenter.y - z));
   }
-  orbitRadiusBase = fittedRadius(orbitTarget);
-  orbitRadius = orbitRadiusBase;
-  orbitHeight = orbitRadius * ORBIT_ELEVATION_TAN;
+  cameraDistance = fittedDistance(orbitTarget);
 }
 
 function orbitTick() {
@@ -1209,11 +1224,10 @@ function orbitTick() {
     return;
   }
   if (preview.camera) {
-    if (orbitRadius === 0) {
+    if (cameraDistance === 0) {
       autoFitCamera();
-      if (orbitRadius === 0) { orbitRadius = 100; orbitHeight = 45; }
+      cameraDistance ||= defaultDistance;
     }
-    const theta = ORBIT_THETA_FIXED;
 
     // Viewport-aware framing: project the nozzle into NDC (-1..1) using
     // the *previous* frame's camera so we know where it currently appears
@@ -1233,12 +1247,8 @@ function orbitTick() {
       } else {
         smoothedNozzle.lerp(nozzleGroup.position, NOZZLE_SMOOTH_LERP);
       }
-      // Follow the nozzle (in all three axes) so the camera centers on
-      // where material is actually being deposited. The elevation angle
-      // is now set by ORBIT_ELEVATION_DEG (orbitHeight is a function of
-      // orbitRadius, not print height), so the view stays at a stable
-      // side angle whether the nozzle is on layer 1 or layer 1500 — the
-      // lookAt just rises with the active layer.
+      // Follow the nozzle across the bed and up the active layer while
+      // preserving the selected camera angle.
       _scratchDesired.copy(bboxCenter).lerp(smoothedNozzle, NOZZLE_FOLLOW_BIAS);
     } else {
       _scratchDesired.copy(bboxCenter);
@@ -1259,14 +1269,15 @@ function orbitTick() {
     // Refit after nozzle following and viewport resizing. Grow immediately
     // to avoid clipping; ease back in when less space is needed. Keep the
     // elevation angle stable for tall prints as well as finished models.
-    const goalRadius = modelCorners.length ? fittedRadius(orbitTarget) : orbitRadiusBase || 100;
-    orbitRadius = Math.max(goalRadius, orbitRadius + (goalRadius - orbitRadius) * 0.02);
-    orbitHeight = orbitRadius * ORBIT_ELEVATION_TAN;
-    preview.camera.position.set(
-      orbitTarget.x + Math.sin(theta) * orbitRadius,
-      orbitTarget.y + orbitHeight,
-      orbitTarget.z + Math.cos(theta) * orbitRadius,
-    );
+    const goalDistance = modelCorners.length ? fittedDistance(orbitTarget) : defaultDistance;
+    cameraDistance = Math.max(goalDistance, cameraDistance + (goalDistance - cameraDistance) * 0.02);
+    // Very narrow canvases can push the fitted view beyond the default far plane.
+    const farPlane = Math.max(defaultFarPlane, Math.ceil((cameraDistance + bedDiagonal) / 1000) * 1000);
+    if (farPlane !== preview.camera.far) {
+      preview.camera.far = farPlane;
+      preview.camera.updateProjectionMatrix();
+    }
+    preview.camera.position.copy(orbitTarget).addScaledVector(cameraOut, cameraDistance);
     preview.camera.lookAt(orbitTarget);
     verifyAdvanceTick();
     // fastTick: skips the heavy gcode-preview geometry rebuild unless the
@@ -1600,7 +1611,7 @@ if (debug && debugBar) {
     totalForActive: layerPaths[activeLayerIdx]?.total,
     segCount: layerPaths[activeLayerIdx]?.segs?.length,
     extCount: (layerPaths[activeLayerIdx]?.segs || []).filter(s => s.ext).length,
-    orbit: { radius: orbitRadius, height: orbitHeight, target: orbitTarget?.toArray()?.map(n => +n.toFixed(1)) },
+    orbit: { view: cameraView, zoom: cameraZoom, radius: Math.hypot(cameraOut.x, cameraOut.z) * cameraDistance, height: cameraOut.y * cameraDistance, target: orbitTarget.toArray().map(n => +n.toFixed(1)) },
   });
 
   scrubEl.addEventListener('input', () => {

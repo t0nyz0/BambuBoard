@@ -133,6 +133,8 @@
 .inspector-section { min-width: 0; margin: 12px 0 0; padding: 0; border: 0; }
 .inspector-section h3, .inspector-section legend, .inspector-section summary { font-size: 13px; font-weight: 600; margin: 0 0 8px; padding: 0; }
 .inspector-section summary { cursor: pointer; }
+#gcode-view, #gcode-zoom { width: 100%; }
+#gcode-zoom { margin: 0; accent-color: var(--color-accent); }
 .inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
 .inspector-grid .field { min-width: 0; }
 .inspector-grid .input, .inspector .row .input { min-width: 0; width: 100%; }

@@ -36,6 +36,7 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     } });
   app.get('/data.json', (_req, res) => telemetryBroken ? res.status(503).json({ error: 'fixture failure' }) : res.json({ print, _bb_received_at: Date.now() - (telemetryStale ? 65000 : 0) }));
   app.get('/api/status', (_req, res) => res.json({ printer: { type: 'H2D' } }));
+  app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.use('/api/gcode', routes.router);
   app.use(express.static(path.join(root, 'public')));
   const base = await listen(t, app);
@@ -54,7 +55,7 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     context.on('request', req => { if (!req.url().startsWith(base) && !req.url().startsWith('blob:') && !req.url().startsWith('data:')) external.add(req.url()); });
     const page = await context.newPage();
-    const open = () => page.goto(base + '/widgets/gcode-viz/?debug=1');
+    const open = settings => page.goto(base + '/widgets/gcode-viz/?' + new URLSearchParams({ debug: '1', ...settings }));
     const rendered = async () => {
       await page.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')));
       assert.ok(await page.evaluate(() => window.__preview.layers.length > 0 && window.__preview.renderer.info.render.calls > 0));
@@ -149,15 +150,19 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
       return lines.join('\n') + '\n';
     };
     const framing = [];
-    for (const [name, toolpath, state, overrides] of [
-      ['Long narrow', rectangle(10, 160, 330, 166, 3), 'FINISH', { layer_num: 2, total_layer_num: 2, mc_percent: 100, mc_remaining_time: 0, stg_cur: -1 }],
-      ['Tall model', rectangle(100, 100, 140, 140, 1500), 'RUNNING', { layer_num: 1500, total_layer_num: 1500 }]
+    const standardViewports = [{ width: 640, height: 640 }, { width: 320, height: 640 }, { width: 1000, height: 240 }];
+    const finished = { mc_percent: 100, mc_remaining_time: 0, stg_cur: -1 };
+    for (const [name, toolpath, state, overrides, view, viewports] of [
+      ['Long narrow', rectangle(10, 160, 330, 166, 3), 'FINISH', finished, 'angled', standardViewports],
+      ['Tall model', rectangle(100, 100, 140, 140, 1500), 'RUNNING', { layer_num: 1500, total_layer_num: 1500 }, 'angled', standardViewports],
+      ['Thin tower seen from above', rectangle(170, 160, 172, 162, 1250), 'FINISH', finished, 'top', [{ width: 640, height: 640 }]],
+      ['Wide part in a narrow canvas', rectangle(10, 100, 280, 120, 10), 'FINISH', finished, 'front', [{ width: 130, height: 1000 }]],
     ]) {
       files[`/${name}.gcode.3mf`] = archive({ 'Metadata/plate_1.gcode': toolpath });
-      await write(name, state, overrides); await open(); await rendered();
+      await write(name, state, overrides); await open(view === 'angled' ? {} : { view }); await rendered();
       await page.waitForFunction(() => window.__preview.endLayer === window.__preview.layers.length);
       if (state === 'FINISH') assert.equal(await page.evaluate(() => window.__nozzle.visible), false);
-      for (const viewport of [{ width: 640, height: 640 }, { width: 320, height: 640 }, { width: 1000, height: 240 }]) {
+      for (const viewport of viewports) {
         await page.setViewportSize(viewport);
         await page.waitForFunction(aspect => Math.abs(window.__preview.camera.aspect - aspect) < 0.001, viewport.width / viewport.height);
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -176,12 +181,45 @@ const sample = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X
           return { vertices, maxX, maxY, minZ, maxZ, layers: preview.layers.length, renderedLayers: preview.endLayer };
         });
         assert.ok(bounds.vertices > 0 && bounds.maxX < 0.93 && bounds.maxY < 0.93 && bounds.minZ > -1 && bounds.maxZ < 1, JSON.stringify({ name, viewport, bounds }));
-        framing.push({ name, viewport, bounds });
+        framing.push({ name, view, viewport, bounds });
       }
     }
     await fs.writeFile(path.join(artifacts, 'gcode-framing-results.json'), JSON.stringify(framing, null, 2));
     await page.setViewportSize({ width: 640, height: 640 });
-    passed.push('Long/narrow and 300mm tall models fit square, portrait and wide canvases; FINISH stage -1 shows every parsed layer');
+    passed.push('Default and custom angles fit long, tall and narrow models, including near and far clip planes');
+
+    await page.goto(base + '/toolpath-view-fixture');
+    const frame = page.frame({ url: /\/widgets\/gcode-viz\// });
+    const frameView = (view, zoom) => frame.waitForFunction(({ view, zoom }) => {
+      const camera = window.__preview?.camera;
+      return window.__log?.().some(line => line.includes('loadGcode OK')) && window.__diag().orbit.view === view && camera?.zoom === zoom;
+    }, { view, zoom });
+    await frameView('front', 1.25);
+    const framePose = () => frame.evaluate(async () => {
+      const { Vector3 } = await import('/vendor/three.module.js');
+      const camera = window.__preview.camera;
+      return { direction: camera.getWorldDirection(new Vector3()).negate().toArray(), zoom: camera.zoom, distance: Math.hypot(window.__diag().orbit.radius, window.__diag().orbit.height) };
+    });
+    const front = await framePose();
+    assert.ok(Math.abs(front.direction[0]) < 0.001 && front.direction[2] > 0.98);
+    const postView = (view, zoom) => page.locator('iframe[title="Toolpath test"]').evaluate((iframe, settings) => {
+      iframe.contentWindow.postMessage({ type: 'bambuboard:gcode-view', ...settings }, location.origin);
+    }, { view, zoom });
+    const beforeViewChanges = count;
+    await postView('side', 100); await frameView('side', 1);
+    await frame.waitForFunction(() => window.__preview.camera.matrixWorld.elements[8] > 0.98);
+    const side = await framePose();
+    assert.ok(side.direction[0] > 0.98 && Math.abs(side.direction[2]) < 0.001);
+    await postView('side', 200); await frameView('side', 2);
+    assert.ok(Math.abs(side.distance - (await framePose()).distance) < 0.01, 'Zoom adjusts the projection while preserving the auto-fitted distance');
+    await postView('top', 999); await frameView('top', 2);
+    await frame.waitForFunction(() => window.__preview.camera.matrixWorld.elements[9] > 0.999);
+    const top = await framePose();
+    assert.ok(top.direction[1] > 0.999, JSON.stringify(top));
+    await postView('invalid', 'invalid'); await frameView('angled', 1);
+    assert.equal(count, beforeViewChanges);
+    assert.equal(await frame.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length), 1);
+    passed.push('Widget URL presets and editor updates change the actual camera and zoom without reloading the toolpath');
 
     mode = 'large'; await write('Large printable job', 'FINISH'); await open(); await rendered();
     const loading = await page.evaluate(() => window.__loadingMessages);
