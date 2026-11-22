@@ -4,6 +4,10 @@ node_modules
 data
 config.json
 config.json.*.bak
+accessToken.json
+note.json
+public/data.json
+public/data_*.json
 screenshots
 test
 scripts/*

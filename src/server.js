@@ -1,7 +1,6 @@
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const cors = require('cors');
 
 const configMod = require('./config');
 const { createPrinterClient } = require('./mqtt');
@@ -12,6 +11,7 @@ const { buildObsSceneRouter } = require('./routes/obsScene');
 const { buildVideoRouter } = require('./routes/video');
 const { buildStreamRouter } = require('./routes/stream');
 const { buildGcodeRouter } = require('./routes/gcode');
+const { sameOrigin } = require('./lib/requestOrigin');
 
 const ROOT = path.resolve(__dirname, '..');
 const paths = {
@@ -76,7 +76,11 @@ function getStatus() {
 }
 
 const app = express();
-app.use(cors({ origin: '*' }));
+app.use((req, res, next) => {
+  // WebSocket handlers close policy violations with a WebSocket status code.
+  if (req.ws || sameOrigin(req)) return next();
+  res.status(403).json({ error: { code: 'ORIGIN', message: 'Open BambuBoard from its configured address.' } });
+});
 app.use(express.json({ limit: '5mb' }));
 process.env.UV_THREADPOOL_SIZE = 128;
 
@@ -148,12 +152,7 @@ app.get('/settings', (req, res) => {
   // Migration: older configs saved "C" / "F"; widgets check for the spelled-
   // out strings. Normalize on read so stale configs don't silently fall
   // through to "Both" behavior.
-  const c = { ...getConfig() };
-  const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
-  if (legacyTempMap[c.BambuBoard_tempSetting]) {
-    c.BambuBoard_tempSetting = legacyTempMap[c.BambuBoard_tempSetting];
-  }
-  res.json(c);
+  res.json(configMod.publicSnapshot(getConfig()));
 });
 
 app.get('/preference-fan-icons', (req, res) => {

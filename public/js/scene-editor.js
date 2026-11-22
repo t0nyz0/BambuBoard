@@ -65,10 +65,10 @@ const els = {
 
 const widgetSlugRe = /\/widgets\/([a-zA-Z0-9_\-]+)\//;
 const isWidgetSrc = (src) =>
-  src && src.id === 'browser_source' && src.settings && typeof src.settings.url === 'string'
-  && widgetSlugRe.test(src.settings.url);
+  src?.id === 'browser_source'
+  && widgetSlugRe.test(parseBrowserSourceUrl(src.settings?.url)?.pathname || '');
 const widgetSlugOf = (src) => {
-  const m = src.settings.url.match(widgetSlugRe);
+  const m = parseBrowserSourceUrl(src.settings?.url)?.pathname.match(widgetSlugRe);
   return m ? m[1] : null;
 };
 
@@ -922,8 +922,11 @@ function renderItem (item, idx, replacing) {
       // need an <iframe> so the page actually executes. Customize panel is
       // suppressed downstream since these aren't ours to theme.
       applyObsCssApprox(body, src.settings?.css);
-      const url = src.settings.url;
-      if (looksLikeImageUrl(url)) {
+      const url = parseBrowserSourceUrl(src.settings.url)?.href;
+      if (!url) {
+        node.classList.add('placeholder');
+        body.textContent = 'Unsupported browser source URL';
+      } else if (looksLikeImageUrl(url)) {
         const img = document.createElement('img');
         img.src = url;
         img.alt = item.name;

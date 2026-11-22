@@ -22,6 +22,7 @@
 const path = require('path');
 const fs = require('fs');
 const { capsFor } = require('../lib/caps');
+const { sameOrigin } = require('../lib/requestOrigin');
 
 function buildVideoRouter({ app, getConfig, dataPath }) {
   // Grace window: keep a stream (ffmpeg / chamber socket) alive this long after
@@ -106,6 +107,7 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     res.writeHead(200, {
       'Content-Type': `multipart/x-mixed-replace; boundary=${BOUNDARY}`,
       'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Cross-Origin-Resource-Policy': 'same-origin',
       Pragma: 'no-cache',
       Connection: 'close',
     });
@@ -207,6 +209,7 @@ function buildVideoRouter({ app, getConfig, dataPath }) {
     }
 
     app.ws('/api/printer/video', (ws, req) => {
+      if (!sameOrigin(req)) { ws.close(1008); return; }
       const url = buildStreamUrl();
       const proxy = getProxyFor(url);
       const ka = keepalive[url] || (keepalive[url] = { count: 0, timer: null, holder: null });

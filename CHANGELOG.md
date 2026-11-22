@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file. The format foll
 - Separate **Save draft** from **Apply to Live** so layout edits stay off the broadcast until they are ready. Restore the previous live layout when needed.
 - Make widget width and height control the content area. Use **Fit to content** to make room for clipped content, scale proportionally when needed, or use **Remove stretching** on imported widgets.
 - Clarify printer connection and layout setup so first-time users can see what to do next.
+- Remove unlocked widgets from Layers or with Delete or Backspace. Undo restores the widget to its original position in the draft.
 
 ### Fixed
 
@@ -22,7 +23,10 @@ All notable changes to this project are documented in this file. The format foll
 - Show a retry action when the widget catalog is unavailable.
 - Use the same browser source URL for OBS copy and download, including when a public URL is configured.
 - Keep YouTube setup and validation messages visible while stream status refreshes.
+- Block requests and camera connections from unrelated browser origins. Remove the saved printer access code from the legacy widget settings response.
+- Render only HTTP and HTTPS browser sources from OBS imports. Exclude legacy credentials and telemetry from Docker builds.
 - Update basic-ftp, body-parser, ip-address, and qs to versions with the reported security fixes.
+- Refresh the app, browser libraries, test tools, and GitHub Actions to their current compatible releases.
 
 ---
 

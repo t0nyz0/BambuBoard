@@ -1,7 +1,7 @@
 {
   "versions": {
-    "jquery": "4.0.0",
-    "three": "0.186.1",
+    "jquery": "4.1.0",
+    "three": "0.187.0",
     "lil-gui": "0.21.0",
     "gcode-preview": "2.18.0"
   },
@@ -14,10 +14,10 @@
     "gcode-preview: BatchedMesh addInstance for current Three.js"
   ],
   "sha256": {
-    "public/assets/js/jquery.min.js": "39a546ea9ad97f8bfaf5d3e0e8f8556adb415e470e59007ada9759dce472adaa",
+    "public/assets/js/jquery.min.js": "86346f3e414b3b52466453171abcdda46e9396c1c3ca3a783d07aa2d645c3339",
     "public/assets/js/jsmpeg.min.js": "c0286ac82193fc9c9d5490ade425db04c446d9115bfe6823bf9bc0b0703c7760",
-    "public/vendor/three.module.js": "9052042d676cb0fdc1ddfefe193053f34b7ac0513a616fdac4535d49987812ea",
-    "public/vendor/three.core.js": "9edde002b066a9a05676a6127f67735b62baf399bdea529f2f7e31657da769e6",
+    "public/vendor/three.module.js": "104f56145899722094556490d787aae0617cc2fc3382f31df02d724ea1aee341",
+    "public/vendor/three.core.js": "613e370f76638fdef83926642bf256dc9615684922de1ce1f63a8583e5d78578",
     "public/vendor/lil-gui.esm.js": "5b5a58e43dd6690f4a7b9bb3dd3caf7c58430a793855c9be8f3323bed94cc5a7",
     "public/vendor/gcode-preview.esm.js": "ab1bb6d4596748c3a5b79e1b33fa8e6d2e5aea1bc13e950458304060b9d7c157"
   }

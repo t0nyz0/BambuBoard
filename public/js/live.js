@@ -197,7 +197,11 @@
       iframe.style.height = '100%';
       wrap.appendChild(iframe);
     } else if (id === 'browser_source' && typeof settings.url === 'string') {
-      const url = settings.url.replace(/^https?:\/\/[^/]+(?=\/(widgets|assets)\/)/, location.origin);
+      const parsed = parseBrowserSourceUrl(settings.url);
+      if (!parsed) return null;
+      const url = /^\/(widgets|assets)\//.test(parsed.pathname)
+        ? location.origin + parsed.pathname + parsed.search + parsed.hash
+        : parsed.href;
       if (looksLikeImageUrl(url)) {
         // Back-compat shim: the old default H2D logo was an external
         // black-on-white JPEG (eu-trademark.s3.amazonaws.com/019117180) with

@@ -30,6 +30,7 @@ test('legacy root config and runtime files migrate with recoverable H2D credenti
   assert.equal(result.firstRun, false); assert.equal(result.loaded.printer.type, 'H2D');
   assert.equal(result.loaded.printer.accessCode, 'fixture-only'); assert.equal(result.public.printer.accessCode, '');
   assert.equal(result.public.printer.accessCodeSet, true);
+  assert.equal(result.public.BambuBoard_tempSetting, 'Celsius');
   const backups = (await fs.readdir(path.join(dir, 'data'))).filter(file => file.endsWith('.bak'));
   assert.equal(backups.length, 1); assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'data', backups[0]))), legacy);
   assert.equal(JSON.parse(await fs.readFile(path.join(dir, 'data', 'note.json'))).content, 'Fixture note');
@@ -43,12 +44,14 @@ test('explicit runtime directory excludes root migrations and applies only expli
   const legacy = '{"BambuBoard_printerURL":"root-fixture.invalid"}';
   await fs.writeFile(path.join(dir, 'config.json'), legacy);
   await fs.writeFile(path.join(dir, 'note.json'), '{"content":"Root fixture"}');
-  const saved = { printer: { name: 'Saved H2D', type: 'H2D', url: '127.0.0.1', port: '8883', serialNumber: 'FIXTURE', accessCode: 'fixture-only' }, cloudAuth: { enabled: true } };
+  const saved = { printer: { name: 'Saved H2D', type: 'H2D', url: '127.0.0.1', port: '8883', serialNumber: 'FIXTURE', accessCode: 'fixture-only' }, cloudAuth: { enabled: true, legacyToken: 'fixture-only' }, BambuBoard_printerAccessCode: 'fixture-only' };
   await fs.writeFile(path.join(data, 'config.json'), JSON.stringify(saved));
   const result = load(dir, { BAMBUBOARD_DATA_DIR: data, BAMBUBOARD_HTTP_PORT: '8099', BAMBUBOARD_FAN_PERCENTAGES: 'true' });
   assert.equal(result.data, data); assert.equal(result.loaded.BambuBoard_httpPort, 8099);
   assert.equal(result.loaded.BambuBoard_displayFanPercentages, true); assert.deepEqual(result.loaded.printer, saved.printer);
   assert.equal(result.loaded.cloudAuth.enabled, true); assert.equal(await fs.readFile(path.join(dir, 'config.json'), 'utf8'), legacy);
+  assert.deepEqual(result.public.cloudAuth, { enabled: true });
+  assert.equal(Object.hasOwn(result.public, 'BambuBoard_printerAccessCode'), false);
   await assert.rejects(fs.stat(path.join(data, 'note.json')), { code: 'ENOENT' });
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(data, 'config.json'))), saved, 'Environment overrides do not rewrite the saved config');
 });

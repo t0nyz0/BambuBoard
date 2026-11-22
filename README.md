@@ -209,6 +209,8 @@ Allow the BambuBoard host to reach the printer on the ports used by your feature
 
 The viewer/OBS connects to BambuBoard on **8080** by default. MQTT success alone does not verify camera or file access. The Synology examples use host networking; the standard Docker example uses a bridge with port 8080 published. Cloud widgets need internet access; YouTube streaming uses outbound encrypted RTMPS on **443**. App assets have no CDN dependency, though custom remote sources and cloud content can still make external requests.
 
+Keep BambuBoard on a trusted network or behind an authenticated reverse proxy. BambuBoard accepts browser controls from its own address. If the proxy rewrites the request Host header, set `BAMBUBOARD_PUBLIC_URL` to the public browser address.
+
 ## Troubleshooting
 
 - **Connection test fails or widgets have no data:** check the IP, MQTT port, serial number and LAN access code in Setup. Confirm network reachability from the BambuBoard host and look at the Connect panel's telemetry status. Enable **Verbose logging** in Setup and inspect `docker logs bambuboard` (or the source server's terminal) for connection errors.

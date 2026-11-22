@@ -6,20 +6,8 @@ const { randomUUID } = require('node:crypto');
 const { StreamEncoder, StreamError, settings, PROFILES, LIMITS } = require('../services/streamEncoder');
 const { captureScene, browserPath } = require('../services/streamCapture');
 const { checkSetup } = require('../services/streamCheck');
+const { sameOrigin } = require('../lib/requestOrigin');
 
-function sameOrigin(req) {
-  if (!req.headers.origin) return true; // CLI clients do not send Origin.
-  try {
-    const origin = new URL(req.headers.origin);
-    // The app's general CORS policy permits custom request headers, so an
-    // untrusted client can forge X-Forwarded-Host. Trust the actual Host or an
-    // explicitly configured public origin, never a supplied proxy header.
-    const host = String(req.headers.host || '').toLowerCase();
-    if (!/^https?:$/.test(origin.protocol)) return false;
-    if (origin.host === host) return true;
-    return !!process.env.BAMBUBOARD_PUBLIC_URL && origin.origin === new URL(process.env.BAMBUBOARD_PUBLIC_URL).origin;
-  } catch (_) { return false; }
-}
 function buildStreamRouter({ app, paths, allowLocal = false, createEncoder, createCapture = captureScene, preflight = checkSetup, retryDelays = [1000, 3000, 10000] }) {
   let active = null, latest = null, persistQueue = Promise.resolve(), persistedState = '', persistedAt = 0;
   const diagnosticPath = paths?.data ? path.join(paths.data, 'stream-diagnostics.json') : null;
@@ -195,4 +183,4 @@ function buildStreamRouter({ app, paths, allowLocal = false, createEncoder, crea
     status: () => snapshot(active || latest),
   };
 }
-module.exports = { buildStreamRouter, sameOrigin };
+module.exports = { buildStreamRouter };

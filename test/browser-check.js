@@ -6,6 +6,7 @@ const os = require('node:os');
 const net = require('node:net');
 const { spawn, execFileSync } = require('node:child_process');
 const { chromium } = require('playwright');
+const { devDependencies } = require('../package.json');
 const root = path.resolve(__dirname, '..');
 const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 X80 Y80 E3\nG1 X10 Y80 E4\nG1 X10 Y10 E5\n;LAYER:1\nG1 Z0.4\nG1 X80 Y10 E6\nG1 X80 Y80 E7\nG1 X10 Y80 E8\n';
 (async () => {
@@ -30,6 +31,24 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
       try { if ((await fetch(base + '/api/status')).ok) break; } catch (_) {}
       await new Promise(r => setTimeout(r, 100));
     }
+    // Setup can read saved credentials locally, while other sites cannot send
+    // requests to the management API. The widget settings carry no access code.
+    const localCredentials = await fetch(base + '/api/printer-credentials', { headers: { Origin: base } });
+    assert.equal(localCredentials.headers.get('Cache-Control'), 'no-store');
+    assert.equal((await localCredentials.json()).accessCode, 'fixture-only');
+    for (const pathname of ['/settings', '/api/settings']) {
+      const settings = await fetch(base + pathname).then(res => res.json());
+      assert.equal(settings.printer.accessCode, '');
+      assert.equal(settings.printer.accessCodeSet, true);
+    }
+    const unrelatedOrigin = { Origin: 'https://unrelated.example.test' };
+    for (const pathname of ['/api/printer-credentials', '/auth/token']) {
+      const result = await fetch(base + pathname, { headers: unrelatedOrigin });
+      assert.equal(result.status, 403);
+      assert.equal(result.headers.get('Access-Control-Allow-Origin'), null);
+    }
+    const unrelatedNote = await fetch(base + '/api/note', { method: 'PUT', headers: unrelatedOrigin });
+    assert.equal(unrelatedNote.status, 403);
     browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, colorScheme: 'dark' });
     // Toolpath data is a sample, never a request to a physical printer.
@@ -208,7 +227,7 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
         assert.ok(rendered.every(result => result.layers > 0 && result.extrusionVertices > 0 && result.calls > 0 && result.alpha), JSON.stringify(rendered));
         await page.screenshot({ path: path.join(artifactDir, 'gcode-widget.png') });
       }
-      if (widget.slug !== 'camera' && widget.slug !== 'gcode-viz') assert.equal(await page.evaluate(() => window.jQuery?.fn.jquery), '4.0.0');
+      if (widget.slug !== 'camera' && widget.slug !== 'gcode-viz') assert.equal(await page.evaluate(() => window.jQuery?.fn.jquery), devDependencies.jquery);
     }
     // Old hosts, AMS/nozzle selection, custom themes and bindings survive an editor round-trip.
     const parameters = structuredClone(published);
@@ -228,6 +247,26 @@ const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 
     for (const [key, value] of Object.entries({ ams: '2', nozzle: '1', theme: 'light', accent: '8c7ae6', 'bind.temp': '$.print.bed_temper' })) assert.equal(query.get(key), value);
     const duplicateQuery = new URL(roundTrip.sources.find(source => source.name === 'AMS duplicate').settings.url).searchParams;
     assert.equal(duplicateQuery.get('ams'), '3'); assert.equal(duplicateQuery.get('theme'), 'dark'); assert.equal(duplicateQuery.get('accent'), '51a34f');
+    const browserSources = structuredClone(parameters);
+    const browserSourceItems = browserSources.sources.find(source => source.id === 'scene').settings.items;
+    for (const [name, url] of [['Local browser fixture', '/version'], ['Unsupported browser fixture', 'about:blank']]) {
+      browserSources.sources.push({ name, id: 'browser_source', settings: { url, width: 200, height: 200 } });
+      browserSourceItems.push({ name, pos: { x: 200, y: 200 }, scale: { x: 1, y: 1 }, align: 5 });
+    }
+    const browserSourceDraft = await fetch(base + '/api/obs/scenes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Browser source fixture', json: browserSources }) }).then(res => res.json());
+    await page.locator('#loader').selectOption(`scn:${parameterDraft.slug}`);
+    await page.reload();
+    await page.locator('#loader').selectOption(`scn:${browserSourceDraft.slug}`);
+    await page.getByText('Unsupported browser source URL').waitFor();
+    await page.locator('iframe[title="Local browser fixture"]').waitFor();
+    assert.equal(await page.locator('iframe[title="Unsupported browser fixture"]').count(), 0);
+    await page.locator('#golive-btn').click();
+    await page.waitForFunction(() => document.getElementById('draft-state').textContent === 'Draft saved · Live');
+    const livePage = await context.newPage();
+    await livePage.goto(base + '/live');
+    await livePage.locator('iframe[title="Local browser fixture"]').waitFor();
+    assert.equal(await livePage.locator('iframe[title="Unsupported browser fixture"]').count(), 0);
+    await livePage.close();
     // Inspect the docked controls and expanded optional settings on a narrow screen.
     await page.setViewportSize({ width: 320, height: 1100 });
     await page.locator('.layer-row .lr-name').first().click();

@@ -4,7 +4,7 @@ const fsp = fs.promises;
 const path = require('path');
 const { PRINTER_TYPES, PRINTER_CAPS, capsFor } = require('../lib/caps');
 const { testConnection } = require('../mqtt');
-const { isFirstRun } = require('../config');
+const { isFirstRun, publicSnapshot } = require('../config');
 
 function readTokenSync(paths) {
   try {
@@ -19,18 +19,7 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
 
   router.get('/settings', (req, res) => {
     const c = getConfig();
-    const safe = JSON.parse(JSON.stringify(c));
-    if (safe.printer) {
-      safe.printer.accessCodeSet = !!c.printer.accessCode && c.printer.accessCode !== 'FILL_THIS_OUT';
-      safe.printer.accessCode = '';
-    }
-    // Legacy "C" / "F" → "Celsius" / "Fahrenheit" so widgets that match on
-    // the spelled-out strings work for users with old saved configs.
-    const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
-    if (legacyTempMap[safe.BambuBoard_tempSetting]) {
-      safe.BambuBoard_tempSetting = legacyTempMap[safe.BambuBoard_tempSetting];
-    }
-    res.json({ ...safe, _meta: { firstRun: !c.printer || c.printer.serialNumber === 'FILL_THIS_OUT' } });
+    res.json({ ...publicSnapshot(c), _meta: { firstRun: !c.printer || c.printer.serialNumber === 'FILL_THIS_OUT' } });
   });
 
   // Return the actual saved LAN access code so the setup page can pre-fill
@@ -39,7 +28,7 @@ function buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths
   router.get('/printer-credentials', (req, res) => {
     const c = getConfig();
     const ac = c.printer?.accessCode;
-    res.json({
+    res.set('Cache-Control', 'no-store').json({
       accessCode: (ac && ac !== 'FILL_THIS_OUT') ? ac : '',
     });
   });

@@ -172,11 +172,18 @@ function isFirstRun(config) {
 }
 
 function publicSnapshot(config) {
-  // Strip secrets before sending to clients
-  const c = JSON.parse(JSON.stringify(config));
-  if (c.printer && c.printer.accessCode) {
-    c.printer.accessCodeSet = !!c.printer.accessCode && c.printer.accessCode !== 'FILL_THIS_OUT';
-    c.printer.accessCode = '';
+  // Include only settings clients use. Old files may keep other credential fields.
+  const c = Object.fromEntries(Object.keys(DEFAULTS).map(key => [key, config[key]]));
+  const p = config.printer;
+  c.printer = {
+    name: p.name, url: p.url, port: p.port, serialNumber: p.serialNumber, type: p.type,
+    model: p.model, detectedFrom: p.detectedFrom, accessCode: '',
+    accessCodeSet: !!p.accessCode && p.accessCode !== 'FILL_THIS_OUT',
+  };
+  c.cloudAuth = { enabled: config.cloudAuth.enabled };
+  const legacyTempMap = { C: 'Celsius', F: 'Fahrenheit' };
+  if (Object.hasOwn(legacyTempMap, c.BambuBoard_tempSetting)) {
+    c.BambuBoard_tempSetting = legacyTempMap[c.BambuBoard_tempSetting];
   }
   return c;
 }
