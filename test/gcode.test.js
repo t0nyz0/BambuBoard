@@ -10,13 +10,15 @@ const { archive, ftpsFixture } = require('./ftps-fixture');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode, extractPlateGcode, GcodeError, LIMITS, describe } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
-const { mergePrint, reconnectJob } = require('../src/lib/printTelemetry');
+const { mergePrint, reconnectJob, reuseJobId } = require('../src/lib/printTelemetry');
 const { calibrationStatus } = require('../public/js/gcode-job');
 const gcode = Buffer.from('G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X40 Y10 E1\nG1 X40 Y40 E1\n');
 const options = { host: '127.0.0.1', accessCode: 'fixture-only', subtaskName: 'Fixture', plateIdx: 1, model: 'H2D' };
 const telemetry = (name = 'Fixture', extra = {}) => ({ gcode_state: 'RUNNING', task_id: '0', subtask_id: '0', subtask_name: name, gcode_file: '/data/Metadata/plate_1.gcode', _bb_job_id: name, mc_percent: 47, ...extra });
 const calibrationName = 'auto_cali_for_user_param.gcode';
 const calibrationPath = '/usr/etc/print/' + calibrationName;
+const systemCalibration = { gcode_state: 'RUNNING', task_id: '0', subtask_id: '0',
+  subtask_name: calibrationName, gcode_file: calibrationName, print_type: 'system', stg_cur: 25, mc_percent: 16 };
 async function routeFixture(t, fetchGcode, extra = {}) {
   let routes;
   t.after(() => routes?.flushDiagnostics());
@@ -147,6 +149,87 @@ test('only the reserved firmware path identifies the built-in calibration', asyn
   await assert.rejects(fetchPlateGcode({ ...options, port: fixture.port, job: describe({ gcode_file: calibrationPath }) }),
     { code: 'CALIBRATING', retryable: false, stage: 'telemetry' });
   assert.equal(fixture.connections, 0);
+});
+test('bare firmware calibration needs an exact identity and corroborating system report for this job', () => {
+  const confirmed = mergePrint({}, systemCalibration);
+  assert.equal(describe(confirmed).bareCalibration, true);
+  assert.equal(describe(confirmed).available, false);
+  assert.equal(calibrationStatus(confirmed), 'Calibrating');
+  assert.equal(calibrationStatus(mergePrint(confirmed, { gcode_state: 'FINISH' })), 'Calibration complete');
+
+  const { print_type: _omitted, ...bareJob } = systemCalibration;
+  for (const variant of [bareJob, { ...bareJob, print_type: 'local' }, { ...bareJob, print_type: 'cloud' },
+    { ...bareJob, print_type: 'SYSTEM' }, { ...bareJob, print_type: '' }, { ...bareJob, print_type: null },
+    { ...systemCalibration, subtask_name: 'A different job' }, { ...systemCalibration, subtask_name: ' ' + calibrationName },
+    { ...systemCalibration, gcode_file: '/cache/' + calibrationName }, { ...systemCalibration, gcode_file: './' + calibrationName },
+    { ...systemCalibration, param: '/cache/' + calibrationName }, { ...systemCalibration, url: 'file:///cache/Bench.3mf' },
+    { ...systemCalibration, url: 'https://example.invalid/jobs/Bench.gcode?fixture=placeholder' },
+    { ...systemCalibration, gcode_file: '/cache/Bench.gcode', subtask_name: 'Bench' }]) {
+    const ordinary = mergePrint({}, variant);
+    assert.equal(describe(ordinary).calibration, false, JSON.stringify(variant));
+    assert.equal(describe(ordinary).available, true, JSON.stringify(variant));
+  }
+  assert.equal(describe({ ...systemCalibration, _bb_job_id: 'legacy-snapshot' }).calibration, false);
+  assert.equal(describe({ ...confirmed, _bb_job_id: 'different-job' }).calibration, false);
+  const spoofed = mergePrint({}, { ...bareJob, _bb_job_id: 'printer-controlled', _bb_system_calibration_job: 'printer-controlled' });
+  assert.equal(spoofed._bb_system_calibration_job, undefined);
+  assert.equal(describe(spoofed).calibration, false);
+  const pathWithOtherLocator = mergePrint({}, { ...systemCalibration, param: calibrationPath, url: 'file:///cache/Bench.3mf' });
+  assert.equal(describe(pathWithOtherLocator).calibration, true, 'Reserved absolute path still identifies the built-in job');
+});
+test('isolated type and names deltas cannot establish calibration and lifecycle changes revoke it', () => {
+  const bareNames = { gcode_file: calibrationName, subtask_name: calibrationName };
+  const earlierSystemJob = mergePrint({}, telemetry('Maintenance', { gcode_file: '/cache/Maintenance.gcode', print_type: 'system' }));
+  const inherited = mergePrint(earlierSystemJob, bareNames);
+  assert.equal(inherited.print_type, undefined);
+  assert.equal(describe(inherited).calibration, false);
+
+  const typeOnly = mergePrint({}, { gcode_state: 'RUNNING', print_type: 'system' });
+  const namesAfterType = mergePrint(typeOnly, bareNames);
+  const typeAfterNames = mergePrint(mergePrint({}, { ...bareNames, gcode_state: 'RUNNING' }), { print_type: 'system' });
+  const splitNames = mergePrint(mergePrint({}, { gcode_state: 'RUNNING', gcode_file: calibrationName }), { subtask_name: calibrationName, print_type: 'system' });
+  for (const partial of [namesAfterType, typeAfterNames, splitNames]) {
+    assert.equal(partial.print_type, 'system');
+    assert.equal(describe(partial).available, true);
+    assert.equal(describe(partial).calibration, false);
+    assert.equal(partial._bb_system_calibration_job, undefined);
+  }
+
+  const confirmed = mergePrint(typeAfterNames, systemCalibration);
+  assert.notEqual(confirmed._bb_job_id, typeAfterNames._bb_job_id);
+  const partial = mergePrint(confirmed, { mc_percent: 20, gcode_file: calibrationName });
+  assert.equal(partial._bb_job_id, confirmed._bb_job_id);
+  assert.equal(describe(partial).bareCalibration, true);
+  for (const takeover of [{ ...bareNames, print_type: 'local' }, { print_type: 'local' },
+    { gcode_file: '/cache/' + calibrationName }, { param: '/cache/' + calibrationName },
+    { url: 'https://example.invalid/jobs/Bench.gcode' }, { gcode_file: '' }]) {
+    const switched = mergePrint(partial, takeover);
+    assert.equal(switched._bb_system_calibration_job, undefined);
+    assert.equal(describe(switched).calibration, false);
+    assert.notEqual(switched._bb_job_id, partial._bb_job_id);
+  }
+  const completed = mergePrint(partial, { gcode_state: 'FINISH', mc_percent: 100 });
+  const restart = mergePrint(completed, { ...bareNames, gcode_state: 'PREPARE', mc_percent: 0 });
+  assert.equal(describe(restart).calibration, false);
+  assert.equal(restart.print_type, undefined);
+  assert.notEqual(restart._bb_job_id, completed._bb_job_id);
+});
+test('reconnection must corroborate calibration again even with identical zero-ID filenames', () => {
+  const confirmed = mergePrint({}, systemCalibration);
+  const newSession = mergePrint({}, systemCalibration);
+  const newLocal = mergePrint({}, { ...systemCalibration, print_type: 'local' });
+  const newUnconfirmed = mergePrint(mergePrint({}, { print_type: 'system' }), {
+    gcode_file: calibrationName, subtask_name: calibrationName, gcode_state: 'RUNNING', task_id: '0', subtask_id: '0',
+  });
+  assert.equal(reconnectJob(confirmed, newSession, true), 'same');
+  const rebound = reuseJobId(newSession, confirmed._bb_job_id);
+  assert.equal(rebound._bb_system_calibration_job, confirmed._bb_job_id);
+  assert.equal(describe(rebound).calibration, true);
+  for (const ordinary of [newLocal, newUnconfirmed]) {
+    assert.equal(reconnectJob(confirmed, ordinary, true), 'different');
+    assert.equal(reconnectJob(ordinary, newSession, true), 'different');
+    assert.equal(describe(reuseJobId(ordinary, confirmed._bb_job_id)).calibration, false);
+  }
 });
 test('partial calibration telemetry replaces print metadata and resumes an ordinary job', () => {
   const previous = mergePrint({}, telemetry('Previous', { layer_num: 22, total_layer_num: 30, mc_remaining_time: 44, bed_temper: 55, mapping: [8192] }));
@@ -370,6 +453,30 @@ test('direct G-code requests during calibration cancel an obsolete download with
   assert.equal(next.status, 200);
   assert.deepEqual(Buffer.from(await next.arrayBuffer()), gcode);
   assert.equal(calls, 2);
+});
+test('direct G-code routes block a corroborated bare system job and resume a same-name local job', async t => {
+  const downloads = [];
+  const fixture = await routeFixture(t, async options => { downloads.push(options.job); return gcode; });
+  await fixture.write({ ...systemCalibration, _bb_job_id: 'unverified-old-snapshot' });
+  assert.equal((await fixture.get()).status, 200);
+  const ordinaryDiagnostic = await fixture.diagnostics();
+  const confirmed = mergePrint({}, systemCalibration);
+  await fixture.write(confirmed);
+  for (const reply of [await fixture.get('?nocache=1&retry=1'), await fixture.post(gcode)]) {
+    assert.equal(reply.status, 409);
+    const error = await reply.json();
+    assert.equal(error.code, 'CALIBRATING');
+    assert.equal(error.retryable, false);
+  }
+  assert.equal((await fixture.progress()).status, 204);
+  assert.deepEqual(await fixture.diagnostics(), ordinaryDiagnostic);
+  assert.equal(downloads.length, 1);
+  const sameNameLocal = mergePrint(confirmed, { ...systemCalibration, print_type: 'local' });
+  await fixture.write(sameNameLocal);
+  assert.deepEqual(Buffer.from(await (await fixture.get()).arrayBuffer()), gcode);
+  assert.equal(downloads.length, 2);
+  assert.equal(downloads.at(-1).file, calibrationName);
+  assert.equal(downloads.at(-1).calibration, false);
 });
 test('missing telemetry/configuration produce explicit errors, not generic waiting responses', async t => {
   const fixture = await routeFixture(t, async () => gcode);

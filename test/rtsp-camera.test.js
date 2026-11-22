@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter, once } = require('node:events');
+const net = require('node:net');
 const { PassThrough } = require('node:stream');
 const { setTimeout: sleep } = require('node:timers/promises');
 const express = require('express');
@@ -12,6 +13,16 @@ function packet(marker) {
   const bytes = Buffer.alloc(188, marker);
   bytes[0] = 0x47;
   return bytes;
+}
+
+function splitSequenceHeader(width, height) {
+  const bytes = Buffer.from([0, 0, 1, 0xb3, width >> 4, ((width & 0x0f) << 4) | (height >> 8), height & 0xff]);
+  return [bytes.subarray(0, 5), bytes.subarray(5)].map(payload => {
+    const ts = Buffer.alloc(188, 0xff);
+    ts.set([0x47, 0x01, 0x00, 0x30, 183 - payload.length, 0]);
+    payload.copy(ts, 188 - payload.length);
+    return ts;
+  });
 }
 
 async function fixture(t, { timing, onSpawn } = {}) {
@@ -61,10 +72,11 @@ async function fixture(t, { timing, onSpawn } = {}) {
   });
   const base = await listen(t, app);
   return {
-    printer, report, children, routes,
+    base, printer, report, children, routes,
     status: async () => (await fetch(base + '/api/printer/video/status')).json(),
-    async connect() {
-      const socket = new WebSocket(base.replace('http:', 'ws:') + '/api/printer/video');
+    async connect(matchFormat = false) {
+      const query = matchFormat ? '?formatReset=1' : '';
+      const socket = new WebSocket(base.replace('http:', 'ws:') + '/api/printer/video' + query);
       sockets.add(socket);
       socket.binaryType = 'arraybuffer';
       const messages = [];
@@ -178,4 +190,60 @@ test('a brief viewer gap reuses the camera child, then the grace timer releases 
   assert.deepEqual(camera.children[0].signals, ['SIGTERM']);
   assert.equal((await camera.status()).state, 'idle');
   assert.equal(camera.children.length, 1);
+});
+
+test('a changed, split MPEG sequence header retires matching old decoders before delivering video', async t => {
+  const camera = await fixture(t, { timing: { frameGapMs: 1000 } });
+  const guarded = await camera.connect(true);
+  const legacy = await camera.connect();
+  const initial = Buffer.concat(splitSequenceHeader(320, 180));
+  camera.children[0].writeFrame(1, initial);
+  await until(() => guarded.messages.length === 2 && legacy.messages.length === 2);
+  assert.deepEqual((await camera.status()).format, { width: 320, height: 180 });
+  camera.children[0].close();
+  await until(() => camera.children.length === 2);
+
+  const departed = once(guarded.socket, 'close');
+  const [prefix, remainder] = splitSequenceHeader(160, 120);
+  camera.children[1].stdout.write(prefix);
+  await until(() => legacy.messages.length === 3);
+  assert.equal((await camera.status()).format, null);
+  assert.deepEqual(guarded.messages, [header, initial]);
+  camera.children[1].writeFrame(1, remainder);
+  const [event] = await departed;
+  assert.equal(event.code, 1012);
+  assert.deepEqual(guarded.messages, [header, initial]);
+  assert.deepEqual((await camera.status()).format, { width: 160, height: 120 });
+  await until(() => legacy.messages.length === 4);
+
+  const refreshed = await camera.connect(true);
+  const replacement = Buffer.concat([prefix, remainder]);
+  camera.children[1].writeFrame(2, replacement);
+  await until(() => refreshed.messages.length === 2);
+  assert.deepEqual(refreshed.messages, [header, replacement]);
+  assert.equal(refreshed.socket.readyState, WebSocket.OPEN);
+  assert.equal(legacy.socket.readyState, WebSocket.OPEN);
+  assert.equal(camera.children.length, 2, 'a decoder restart reuses the recovered relay process');
+});
+
+test('a viewer that stops replying to WebSocket pings releases the idle relay', async t => {
+  const camera = await fixture(t, { timing: { firstFrameMs: 700, refreshMs: 20, pingMs: 25, pongMs: 80, graceMs: 30 } });
+  const { port, hostname, host } = new URL(camera.base);
+  const socket = net.createConnection({ port: Number(port), host: hostname });
+  t.after(() => socket.destroy());
+  let bytes = Buffer.alloc(0);
+  socket.on('data', chunk => { bytes = Buffer.concat([bytes, chunk]); });
+  const disconnected = once(socket, 'close');
+  await once(socket, 'connect');
+  socket.write([
+    'GET /api/printer/video HTTP/1.1', `Host: ${host}`, 'Upgrade: websocket', 'Connection: Upgrade',
+    'Sec-WebSocket-Version: 13', 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==', '', '',
+  ].join('\r\n'));
+  await until(() => bytes.includes(header) && camera.children.length === 1);
+  await disconnected;
+  const framing = bytes.subarray(bytes.indexOf(header) + header.length);
+  assert.equal(framing[0], 0x89, 'a WebSocket ping was sent before the dead viewer was removed');
+  await until(() => camera.children[0].signals.length > 0);
+  assert.deepEqual(camera.children[0].signals, ['SIGTERM']);
+  assert.equal((await camera.status()).state, 'idle');
 });

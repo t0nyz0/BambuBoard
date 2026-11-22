@@ -28,6 +28,7 @@
 
   let player = null;       // active JSMpeg.Player instance, or null
   let decodedFrame = false;
+  let decodedFormat = null;
   let relayState = 'idle';
   let lastHint = null;
   let img = null;          // <img> element for MJPEG (image-camera printers)
@@ -46,7 +47,7 @@
 
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${location.host}/api/printer/video`;
+    return `${proto}//${location.host}/api/printer/video?formatReset=1`;
   }
 
   function destroyPlayer() {
@@ -55,6 +56,7 @@
       player = null;
     }
     decodedFrame = false;
+    decodedFormat = null;
   }
 
   // ---- MJPEG (image-camera printers) ----
@@ -89,10 +91,11 @@
         canvas,
         autoplay: true,
         audio: false,
-        // JSMpeg's WebSocket source auto-reconnects on this interval (seconds)
-        // if the relay drops, so transient blips recover without our help.
-        reconnectInterval: 4,
+        // The status loop recreates the player if its socket drops. JSMpeg
+        // cannot reconfigure decoder dimensions within an existing player.
+        reconnectInterval: 0,
         onVideoDecode: () => {
+          decodedFormat ??= `${canvas.width}x${canvas.height}`;
           if (decodedFrame) return;
           decodedFrame = true;
           if (relayState !== 'reconnecting' && relayState !== 'unavailable') setOverlay(false);
@@ -112,8 +115,8 @@
       if (!res.ok) throw new Error('Camera status unavailable');
       status = await res.json();
     } catch (_) {
-      // Server unreachable — show a soft error, keep any running player as-is
-      // (it has its own reconnect), and try again next tick.
+      // Keep the current view through a transient status failure. The next
+      // poll will replace a closed socket once the server is reachable.
       if (!decodedFrame) setOverlay(true, 'Waiting for server…', 'loading');
       return;
     }
@@ -138,6 +141,14 @@
       if (typeof JSMpeg === 'undefined') {
         setOverlay(true, 'Video decoder failed to load', 'error');
         return;
+      }
+      const format = status.format && `${status.format.width}x${status.format.height}`;
+      const socketClosed = player?.source?.socket?.readyState === WebSocket.CLOSED;
+      if (socketClosed || (decodedFormat && format && decodedFormat !== format)) {
+        // JSMpeg only sizes its renderer when it sees its first sequence
+        // header. A replacement with different dimensions needs a new decoder.
+        destroyPlayer();
+        canvas.width = canvas.width;
       }
       if (!player) connect();
       const recovering = status.state === 'reconnecting' || status.state === 'unavailable';

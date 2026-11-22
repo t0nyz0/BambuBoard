@@ -61,6 +61,7 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayO
     return {
       available,
       state,
+      format: relay.format(),
       cameraType: 'rtsp',
       relayReady: rtspReady,
       rtspEnabled: enabled,
@@ -198,7 +199,9 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayO
       ws.close(1013, 'Printer Liveview is unavailable');
       return;
     }
-    relay.subscribe(ws);
+    // The built-in widget reopens on a format reset. Leave the legacy raw
+    // playback endpoint unchanged for clients that own their own decoder.
+    relay.subscribe(ws, req.query.formatReset === '1');
   });
 
   console.log('[bambuboard] RTSP video relay ready at ws://*/api/printer/video');

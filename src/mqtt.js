@@ -2,7 +2,7 @@ const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
 const { printerTypeFromMqtt } = require('./lib/caps');
-const { mergePrint, reconnectJob } = require('./lib/printTelemetry');
+const { mergePrint, reconnectJob, reuseJobId } = require('./lib/printTelemetry');
 const { publicTelemetry } = require('./lib/cameraTelemetry');
 const { describe: describeGcodeJob } = require('../public/js/gcode-job');
 
@@ -185,7 +185,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
           if (previousJobSnapshot) {
             const recovery = reconnectJob(previousJobSnapshot, printSnapshot, Date.now() < jobRecoveryUntil);
             jobPending = recovery === 'waiting';
-            if (recovery === 'same') printSnapshot._bb_job_id = previousJobSnapshot._bb_job_id;
+            if (recovery === 'same') printSnapshot = reuseJobId(printSnapshot, previousJobSnapshot._bb_job_id);
             if (!jobPending) previousJobSnapshot = null;
           }
           const job = describeGcodeJob(printSnapshot);

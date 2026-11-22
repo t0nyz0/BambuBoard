@@ -9,6 +9,7 @@ const { archive, ftpsFixture } = require('./ftps-fixture');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode, LIMITS } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
+const { mergePrint } = require('../src/lib/printTelemetry');
 const { toolpathMiB } = require('../public/js/gcode-limits');
 const root = path.resolve(__dirname, '..');
 const firstLayer = 'G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X70 Y10 E1\nG1 X70 Y70 E1\nG1 X10 Y70 E1\nG1 X10 Y10 E1\n';
@@ -186,6 +187,47 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     assert.equal(await page.locator('#gcodeRecovery').isVisible(), false);
     await page.screenshot({ path: path.join(artifacts, 'gcode-live-calibrating.png') });
     passed.push('The default browser source shows a concise public error and calibration status without operator controls');
+
+    printerType = 'P1S';
+    const localPrint = {
+      gcode_state: 'RUNNING', print_type: 'local', task_id: '0', subtask_id: '0',
+      gcode_file: '/cache/P1S inline calibration.gcode', subtask_name: 'P1S inline calibration',
+      layer_num: 0, total_layer_num: 2, mc_percent: 0, stg_cur: 25, ams: { ams: [] },
+    };
+    const beforeP1S = count;
+    files[localPrint.gcode_file] = sampleBytes;
+    await writePacket(mergePrint({}, localPrint));
+    await open(); await rendered();
+    await page.getByText('Preparing print…', { exact: true }).waitFor();
+    assert.equal(await page.locator('#gcodeCanvas').isVisible(), true, 'Inline calibration preserves the real print preview');
+    assert.equal(count, beforeP1S + 1);
+    passed.push('Ordinary P1S print with an inline calibration stage still fetches and renders its real toolpath');
+
+    await writePacket(mergePrint(print, {
+      ...localPrint, print_type: 'system', gcode_file: calibrationName, subtask_name: calibrationName,
+    }));
+    await page.getByText('Calibrating', { exact: true }).waitFor();
+    assert.equal(await page.locator('#gcodeCanvas').isVisible(), false);
+    assert.equal(await page.locator('#gcodeRecovery').isVisible(), false);
+    assert.ok(await page.evaluate(() => window.__preview.layers.every(layer => layer.commands.length === 0)));
+    const p1sCalibration = await fetch(base + '/api/gcode/current');
+    assert.equal(p1sCalibration.status, 409);
+    assert.equal((await p1sCalibration.json()).code, 'CALIBRATING');
+    await writePacket(mergePrint(print, { gcode_state: 'RUNNING', mc_percent: 16 }));
+    await page.waitForTimeout(1800);
+    assert.equal(await page.locator('#gcodeOverlay').textContent(), 'Calibrating');
+    assert.equal(count, beforeP1S + 1, 'Partial P1S system updates do not start a download');
+
+    files['/' + calibrationName] = sampleBytes;
+    await writePacket(mergePrint(print, {
+      ...localPrint, gcode_file: calibrationName, subtask_name: calibrationName,
+      gcode_state: 'FINISH', layer_num: 2, mc_percent: 100, stg_cur: -1,
+    }));
+    await page.locator('#gcodeOverlay').waitFor({ state: 'hidden' });
+    await page.waitForFunction(() => window.__log().filter(line => line.includes('loadGcode OK')).length === 2);
+    assert.equal(count, beforeP1S + 2, 'The same bare basename from a local user print is still previewable');
+    passed.push('P1S confirmed bare system calibration clears the old preview, survives partial telemetry, and resumes on an identically named local print');
+    printerType = 'H2D';
 
     await write('Missing file'); await open();
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('cannot expose'));

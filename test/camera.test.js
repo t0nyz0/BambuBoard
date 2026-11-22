@@ -173,6 +173,7 @@ test('H3C Liveview redacts its endpoint and recovers when an authenticated RTSPS
   t.after(() => ws.close());
   await until(() => frames.some(frame => frame.length >= 188 && frame[0] === 0x47), 10000);
   await until(async () => (await status()).state === 'streaming');
+  assert.deepEqual((await status()).format, { width: 96, height: 64 });
   assert.ok(verifiedStream, 'the relay uses the reported port and path, the configured host, and its own authenticated session');
   assert.equal(frames[0].subarray(0, 4).toString(), 'jsmp');
   await until(() => firstFeedSilent);

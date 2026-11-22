@@ -107,7 +107,10 @@ async function checkLiveWidgetReuse(context, base) {
 }
 
 async function checkCalibrationWidgets(context, base, data, telemetry) {
-  const [info, progress, notes, model, live] = await Promise.all(Array.from({ length: 5 }, () => context.newPage()));
+  const pages = await Promise.all(Array.from({ length: 7 }, () => context.newPage()));
+  const [info, progress, notes, model, live, obs, operator] = pages;
+  const previewPages = [live, obs, operator];
+  const url = base + '/widgets/gcode-viz/?debug=1';
   const dataPath = path.join(data, 'data.json'), notePath = path.join(data, 'note.json');
   const originalTelemetry = await fs.readFile(dataPath);
   const originalNote = await fs.readFile(notePath).catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
@@ -121,55 +124,91 @@ async function checkCalibrationWidgets(context, base, data, telemetry) {
   };
   const matches = (page, selector, hasText) => page.locator(selector).filter({ hasText }).waitFor();
   const routeData = route => route.fulfill({ headers: { 'X-BambuBoard-Printer-Connection': 'online' }, json: snapshot });
-  const toolpathSource = { name: 'Calibration preview', id: 'browser_source', settings: { url: `${base}/widgets/gcode-viz/?mode=preview&debug=1`, width: 400, height: 360 } };
+  const toolpathSource = { name: 'Calibration preview', id: 'browser_source', settings: { url: url + '&mode=preview', width: 400, height: 360 } };
   const scene = { id: 'scene', name: 'Calibration fixture', settings: { items: [{ name: toolpathSource.name, pos: { x: 0, y: 0 }, align: 5 }] } };
-  let publicFetches = 0;
+  const liveWidget = live.frameLocator('iframe[title="Calibration preview"]');
+  const widgetViewers = [liveWidget, obs, operator];
+  const publicViewers = [liveWidget, obs];
+  const fetchCounts = new Map(previewPages.map(page => [page, 0]));
+  const waitForCanvas = () => Promise.all(widgetViewers.map(async viewer => {
+    await viewer.locator('#gcodeOverlay').waitFor({ state: 'hidden' });
+    await viewer.locator('#gcodeCanvas').waitFor();
+  }));
+  const assertFetches = (expected, message) => assert.deepEqual([...fetchCounts.values()], [expected, expected, expected], message);
+
+  async function showCalibration(print, fetches) {
+    await seed(print);
+    await Promise.all([matches(info, '#printModelName', /^Calibrating$/), matches(progress, '#printStatus', /^Calibrating$/),
+      matches(notes, '#noteDisplay', /^Calibrating$/), model.locator('#modelImage').waitFor({ state: 'hidden' }),
+      ...widgetViewers.map(viewer => viewer.getByText('Calibrating', { exact: true }).waitFor())]);
+    for (const selector of ['#printCurrentLayer', '#printRemaining', '#printETA']) assert.equal(await info.locator(selector).textContent(), '—');
+    for (const viewer of widgetViewers) {
+      assert.equal(await viewer.locator('#gcodeCanvas').isVisible(), false);
+      assert.equal(await viewer.locator('#gcodeRecovery').isVisible(), false);
+    }
+    assert.equal(await model.locator('#modelImage').getAttribute('src'), null);
+    assert.equal(await fs.readFile(notePath, 'utf8'), autoNote, 'Calibration is a transient footer label');
+    assertFetches(fetches, 'Neither public nor operator viewers fetch built-in calibration jobs');
+  }
+
   try {
     await seed(telemetry.print);
     await fs.writeFile(notePath, autoNote);
-    await Promise.all([info, progress, model, live].map(page => page.route(base + '/data.json', routeData)));
+    await Promise.all([info, progress, model, ...previewPages].map(page => page.route(base + '/data.json', routeData)));
     await model.route(base + '/login-and-fetch-image', route => route.fulfill({ json: { imageUrl: base + '/assets/logo-h2d.png' } }));
     await live.route(base + '/api/obs/active', route => route.fulfill({ json: { slug: 'calibration-fixture', updatedAt: 1 } }));
     await live.route(base + '/api/obs/published', route => route.fulfill({ json: { resolution: { x: 640, y: 480 }, sources: [toolpathSource, scene] } }));
-    live.on('request', request => { if (new URL(request.url()).pathname === '/api/gcode/current') publicFetches++; });
+    for (const page of previewPages) page.on('request', request => {
+      if (new URL(request.url()).pathname === '/api/gcode/current') fetchCounts.set(page, fetchCounts.get(page) + 1);
+    });
     await Promise.all([info.goto(base + '/widgets/print-info/'), progress.goto(base + '/widgets/progress-info/'),
-      notes.goto(base + '/widgets/notes/'), model.goto(base + '/widgets/model-image/'), live.goto(base + '/live')]);
-    const player = live.frameLocator('iframe[title="Calibration preview"]');
+      notes.goto(base + '/widgets/notes/'), model.goto(base + '/widgets/model-image/'), live.goto(base + '/live'),
+      obs.goto(url), operator.goto(url + '&mode=preview')]);
     await matches(info, '#printModelName', /^Fixture print$/);
     await matches(progress, '#printStatus', /47%/);
     await matches(notes, '#noteDisplay', /^Ordinary fixture footer$/);
     await model.locator('#modelImage[src$="/assets/logo-h2d.png"]').waitFor();
-    await player.locator('#gcodeCanvas').waitFor();
-    assert.equal(publicFetches, 1);
+    await waitForCanvas();
+    assertFetches(1);
+
+    await seed({ ...telemetry.print, stg_cur: 25 });
+    await matches(progress, '#printStatus', /^Calibrating motor noise.*47%$/);
+    await matches(info, '#printModelName', /^Fixture print$/);
+    await waitForCanvas();
+    assertFetches(1, 'A normal print keeps its existing toolpath while it calibrates inline');
 
     const name = 'auto_cali_for_user_param.gcode';
-    const calibration = { ...telemetry.print, _bb_job_id: 'heater calibration fixture', subtask_name: name,
-      gcode_file: '/usr/etc/print/' + name, layer_num: 0, stg_cur: 25, mc_percent: 16 };
-    await seed(calibration);
-    await Promise.all([matches(info, '#printModelName', /^Calibrating$/), matches(progress, '#printStatus', /^Calibrating$/),
-      matches(notes, '#noteDisplay', /^Calibrating$/), model.locator('#modelImage').waitFor({ state: 'hidden' }),
-      player.getByText('Calibrating', { exact: true }).waitFor()]);
-    for (const selector of ['#printCurrentLayer', '#printRemaining', '#printETA']) assert.equal(await info.locator(selector).textContent(), '—');
-    assert.equal(await player.locator('#gcodeRecovery').isVisible(), false);
-    assert.equal(await model.locator('#modelImage').getAttribute('src'), null);
-    assert.equal(await fs.readFile(notePath, 'utf8'), autoNote, 'Calibration is a transient footer label');
-    assert.equal(publicFetches, 1, 'Live does not fetch the calibration job');
+    const calibration = { ...telemetry.print, subtask_name: name, layer_num: 0, stg_cur: 25, mc_percent: 16 };
+    await showCalibration({ ...calibration, _bb_job_id: 'H2D built-in fixture', gcode_file: '/usr/etc/print/' + name }, 1);
+    await seed({ ...telemetry.print, _bb_job_id: 'ordinary after H2D calibration' });
+    await waitForCanvas();
+    await model.locator('#modelImage[src$="/assets/logo-h2d.png"]').waitFor();
+    assertFetches(2);
+    await showCalibration(mergePrint({}, { ...calibration, print_type: 'system', gcode_file: name }), 2);
 
     await fs.writeFile(notePath, JSON.stringify({ text: 'My manual footer', manual: true }));
     await matches(notes, '#noteDisplay', /^My manual footer$/);
-    await live.route('**/api/gcode/current*', route => route.fulfill({ status: 502, json: { code: 'FILE_NOT_FOUND', detail: 'Use Retry now or load a sliced file.', retryable: false } }));
-    await seed({ ...telemetry.print, _bb_job_id: 'ordinary print from cache', subtask_name: name,
-      gcode_file: '/cache/' + name, gcode_state: 'FINISH', mc_percent: 100 });
+    await Promise.all(previewPages.map(page => page.route('**/api/gcode/current*', route => route.fulfill({
+      status: 502, json: { code: 'FILE_NOT_FOUND', retryable: false },
+    }))));
+    await seed(mergePrint(snapshot.print, { ...telemetry.print, subtask_name: name,
+      print_type: 'local', gcode_file: name, gcode_state: 'FINISH', mc_percent: 100 }));
     await matches(info, '#printModelName', /^auto_cali_for_user_param\.gcode$/);
     await matches(progress, '#printStatus', /Print Complete/);
     await model.locator('#modelImage[src$="/assets/logo-h2d.png"]').waitFor();
-    await player.getByText('Print preview unavailable.', { exact: true }).waitFor();
-    assert.equal(await player.locator('#gcodeRecovery').isVisible(), false);
-    assert.equal(await player.locator('#gcodeLog').isVisible(), false);
-    assert.equal(publicFetches, 2, 'An identically named user job still follows the ordinary transfer path');
+    await Promise.all(publicViewers.map(viewer => viewer.getByText('Print preview unavailable.', { exact: true }).waitFor()));
+    for (const viewer of publicViewers) {
+      assert.equal(await viewer.locator('#gcodeRecovery').isVisible(), false);
+      assert.equal(await viewer.locator('#gcodeLog').isVisible(), false);
+      assert.equal(await viewer.locator('#gcodeDebug').isVisible(), false);
+    }
+    await operator.getByRole('button', { name: 'Retry now', exact: true }).waitFor();
+    assert.equal(await operator.getByRole('button', { name: 'Download diagnostics', exact: true }).isVisible(), true);
+    assert.equal(await operator.getByRole('button', { name: 'Load sliced file', exact: true }).isEnabled(), true);
+    assertFetches(3, 'An identically named bare user file still follows the ordinary transfer path');
     await matches(notes, '#noteDisplay', /^My manual footer$/);
   } finally {
-    await Promise.all([info, progress, notes, model, live].map(page => page.close()));
+    await Promise.all(pages.map(page => page.close()));
     await fs.writeFile(dataPath, originalTelemetry);
     if (originalNote) await fs.writeFile(notePath, originalNote);
     else await fs.rm(notePath, { force: true });

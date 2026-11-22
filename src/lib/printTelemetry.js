@@ -1,8 +1,8 @@
 const { randomUUID } = require('node:crypto');
-const { describe, id } = require('../../public/js/gcode-job');
+const { confirmsBareCalibration, describe, hasDifferentPrintFile, id } = require('../../public/js/gcode-job');
 const { AMS_3H_ID, number, loaded } = require('../../public/widgets/_amsActive');
 
-const JOB_FIELDS = ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'param', 'url', 'plate_idx', 'plate_id', 'layer_num', 'total_layer_num', 'mc_percent', 'mc_remaining_time', 'mapping'];
+const JOB_FIELDS = ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'param', 'url', 'print_type', 'plate_idx', 'plate_id', 'layer_num', 'total_layer_num', 'mc_percent', 'mc_remaining_time', 'mapping'];
 function mergeObjects(previous, delta) {
   const result = { ...previous };
   for (const [key, value] of Object.entries(delta)) {
@@ -39,11 +39,18 @@ function startsNewJob(previous, delta) {
     || (Number(previous.mc_percent) >= 90 && delta.mc_percent != null && Number(delta.mc_percent) < 50));
 }
 
+function reuseJobId(print, generation) {
+  const rebound = { ...print, _bb_job_id: generation };
+  if (describe(print).bareCalibration) rebound._bb_system_calibration_job = generation;
+  else delete rebound._bb_system_calibration_job;
+  return rebound;
+}
+
 function reconnectJob(previous, current, waitingForIdentity) {
   if (['IDLE', 'FAILED'].includes(current.gcode_state) || startsNewJob(previous, current)) return 'different';
   const before = describe(previous);
-  const after = describe({ ...current, _bb_job_id: previous._bb_job_id });
-  if ((after.available || after.calibration) && before.key === after.key) return 'same';
+  const after = describe(reuseJobId(current, previous._bb_job_id));
+  if ((after.available || after.calibration) && before.calibration === after.calibration && before.key === after.key) return 'same';
   // This reserved path is conclusive even when an MQTT reconnect supplies it
   // in a different field or arrives before the rest of the identity.
   if (after.calibration) return before.calibration ? 'same' : 'different';
@@ -58,20 +65,31 @@ function reconnectJob(previous, current, waitingForIdentity) {
 }
 
 function mergePrint(previous = {}, delta = {}) {
-  const newLifecycle = startsNewJob(previous, delta);
+  const report = { ...delta };
+  // A printer cannot publish this local corroboration marker itself.
+  delete report._bb_system_calibration_job;
+  const newLifecycle = startsNewJob(previous, report);
   const before = describe(previous);
-  const next = describe(delta);
-  const calibrationChanged = before.calibration !== next.calibration
-    && (next.calibration || (before.calibration
-      && [next.file, next.param, next.url].some(locator => /\.(?:gcode|3mf)$/i.test(locator))));
-  const changed = calibrationChanged || ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'url'].some(key =>
-    Object.hasOwn(delta, key) && id(previous[key]) && id(delta[key]) && id(previous[key]) !== id(delta[key]));
+  const next = describe(report);
+  // Only a coherent report can establish the bare system identity. In
+  // particular, a type-only report can arrive late from the preceding job.
+  const confirmedBare = confirmsBareCalibration(report);
+  const nextCalibration = next.calibration || confirmedBare;
+  const calibrationChanged = before.calibration ? !nextCalibration && hasDifferentPrintFile(report, [before.file, before.param, before.url]) : nextCalibration;
+  const bareRevoked = before.bareCalibration && ['print_type', 'subtask_name', 'gcode_file'].some(key =>
+    Object.hasOwn(report, key) && report[key] !== previous[key]);
+  const changed = calibrationChanged || bareRevoked || ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'url'].some(key =>
+    Object.hasOwn(report, key) && id(previous[key]) && id(report[key]) && id(previous[key]) !== id(report[key]));
   const base = { ...previous };
   if (newLifecycle || changed) for (const key of JOB_FIELDS) delete base[key];
-  const merged = mergeObjects(base, delta);
+  const merged = mergeObjects(base, report);
   // Printer-supplied fields cannot override our locally generated lifecycle ID.
   merged._bb_job_id = newLifecycle || changed || !previous._bb_job_id ? randomUUID() : previous._bb_job_id;
+  delete merged._bb_system_calibration_job;
+  if ((confirmedBare || (!newLifecycle && !changed && before.bareCalibration)) && confirmsBareCalibration(merged)) {
+    merged._bb_system_calibration_job = merged._bb_job_id;
+  }
   delete merged._bb_job_pending;
   return merged;
 }
-module.exports = { mergePrint, reconnectJob };
+module.exports = { mergePrint, reconnectJob, reuseJobId };
