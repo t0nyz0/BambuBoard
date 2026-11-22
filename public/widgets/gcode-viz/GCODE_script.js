@@ -38,13 +38,15 @@ const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer cha
 const REPLAY_DELAY_S = 0;
 
 const params = new URLSearchParams(location.search);
-const debug = params.has('debug');
+const operator = window.BBGcodeUI.operator;
+const diagnostics = params.has('debug');
+const debug = operator && diagnostics;
 // Verification mode: render only the first N layers and walk the nozzle through
 // them sequentially so you can compare the nozzle's path against the visible
 // gcode lines. Append `?layers=4` (or any small N) to enable.
 const verifyLayers = (() => {
   const v = parseInt(params.get('layers') || '', 10);
-  return Number.isFinite(v) && v > 0 ? v : 0;
+  return operator && Number.isFinite(v) && v > 0 ? v : 0;
 })();
 
 const canvas = document.getElementById('gcodeCanvas');
@@ -789,6 +791,7 @@ let rendererUnavailable = false;
 let telemetryFailures = 0;
 let lastEndLayer = -1;
 let inFlight = false;
+let showingCalibration = false;
 let forceNocache = false;  // set by lifecycle detection to bust server cache
 
 let totalLayers = 0;
@@ -911,7 +914,7 @@ function setOverlay(text, kind = 'hint') {
   if (text === _lastOverlayText && kind === _lastOverlayKind) return;
   _lastOverlayText = text;
   _lastOverlayKind = kind;
-  window.BBGcodeUI.message(text, kind);
+  window.BBGcodeUI.message(text, kind, kind === 'loading' && inFlight);
 }
 
 function setLabel(layer, total) {
@@ -983,6 +986,10 @@ function invalidateLoad() {
 }
 function showFailure() {
   if (!failure) return;
+  if (!operator) {
+    setOverlay('Print preview unavailable.', 'error');
+    return;
+  }
   const seconds = Math.max(0, Math.ceil((failure.nextAt - Date.now()) / 1000));
   const automatic = failure.retryable && failure.attempts < MAX_AUTO_ATTEMPTS && lastGcodeState !== 'FINISH';
   const recovery = failure.recovery !== false;
@@ -1163,6 +1170,13 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       let report = {};
       try { report = await res.json(); } catch (_) {}
       dbg(`loadGcode HTTP ${res.status} code=${report.code || 'unknown'} stage=${report.stage || 'unknown'} — ${report.detail || report.error || ''}`);
+      if (report.code === 'CALIBRATING') {
+        if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
+        canRequestToolpath = false;
+        window.BBGcodeUI.allowFile(false);
+        setOverlay('Calibrating', 'calibration');
+        return;
+      }
       const friendly = report.code === 'FILE_NOT_FOUND'
         ? 'The printer cannot expose this print file. It may be in internal storage. Diagnostics show the paths checked.'
         : report.detail || `File request failed (HTTP ${res.status}).`;
@@ -1491,6 +1505,31 @@ async function tick() {
     const print = data.print;
     const job = window.BBGcodeJob.describe(print);
     const state = print.gcode_state === 'PAUSE' ? 'PAUSED' : print.gcode_state;
+    if (job.calibration) {
+      if (!showingCalibration) {
+        showingCalibration = true;
+        invalidateLoad();
+        wantedJob = null;
+        wantedTaskKey = null;
+        currentTaskKey = null;
+        prevTickState = null;
+        prevTickMcPct = -1;
+        forceNocache = false;
+        scrubActive = false;
+        playing = false;
+        if (playTimer) clearInterval(playTimer);
+        playTimer = null;
+        playEl.textContent = '▶';
+        pauseLiveMotion();
+        clearScene();
+        canvas.style.visibility = 'hidden';
+      }
+      canRequestToolpath = false;
+      window.BBGcodeUI.allowFile(false);
+      setOverlay(window.BBGcodeJob.calibrationStatus(print, job), 'calibration');
+      return;
+    }
+    showingCalibration = false;
     // An active/finished state can arrive before its job metadata. Keep the
     // prior render and lifecycle counters until the printer confirms the job.
     if (print._bb_job_pending === true || (!job.available && ['RUNNING', 'PREPARE', 'SLICING', 'PAUSED', 'FINISH'].includes(state))) {
@@ -1778,8 +1817,7 @@ if (debug && logEl) {
   dbg(`gcode-viz debug log ready — bed ${bed.x}×${bed.y}×${bed.z}, poll ${POLL_MS}ms`);
 }
 
-if (debug && debugBar) {
-  debugBar.classList.add('show');
+if (diagnostics) {
   window.__preview = preview;
   window.__nozzle = nozzleGroup;
   window.__diag = () => ({
@@ -1790,6 +1828,10 @@ if (debug && debugBar) {
     extCount: (layerPaths[activeLayerIdx]?.segs || []).filter(s => s.ext).length,
     orbit: { view: cameraView, zoom: cameraZoom, radius: Math.hypot(cameraOut.x, cameraOut.z) * cameraDistance, height: cameraOut.y * cameraDistance, target: orbitTarget.toArray().map(n => +n.toFixed(1)) },
   });
+}
+
+if (debug && debugBar) {
+  debugBar.classList.add('show');
 
   scrubEl.addEventListener('input', () => {
     scrubActive = true;

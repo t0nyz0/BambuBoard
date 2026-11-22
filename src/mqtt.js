@@ -58,9 +58,9 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
     try { retiringClient?.end(true); } catch (_) {}
     status = 'offline';
     telemetryPublished = false;
-    if (!previousJobSnapshot && !['IDLE', 'FAILED'].includes(printSnapshot.gcode_state)
-        && describeGcodeJob(printSnapshot).available) {
-      previousJobSnapshot = printSnapshot;
+    if (!previousJobSnapshot && !['IDLE', 'FAILED'].includes(printSnapshot.gcode_state)) {
+      const job = describeGcodeJob(printSnapshot);
+      if (job.available || job.calibration) previousJobSnapshot = printSnapshot;
     }
     printSnapshot = {};
   }
@@ -188,8 +188,9 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
             if (recovery === 'same') printSnapshot._bb_job_id = previousJobSnapshot._bb_job_id;
             if (!jobPending) previousJobSnapshot = null;
           }
+          const job = describeGcodeJob(printSnapshot);
           if ((!previousState || previousJob !== printSnapshot._bb_job_id)
-              && (jobPending || (!describeGcodeJob(printSnapshot).available
+              && (jobPending || (!job.available && !job.calibration
                 && ['RUNNING', 'PREPARE', 'SLICING'].includes(printSnapshot.gcode_state)))) {
             // A new job's first packet may contain only its state/ID. Request
             // a read-only full snapshot once, rather than waiting five minutes.
@@ -211,7 +212,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
               if (!committed) await fs.promises.rm(temp, { force: true });
             }
           }).catch(err => log(`Error writing data.json: ${err.code || 'unknown'}`));
-          if (!jobPending) autoUpdateNote(printSnapshot, dataPath);
+          if (!jobPending && !job.calibration) autoUpdateNote(printSnapshot, dataPath);
         } else if (['X1', 'X1C'].includes(detectedType || printer.type)) requestFullState();
       } catch (err) {
         log(`Parse error: ${err.message}`);

@@ -5,8 +5,8 @@ const { createHash, randomUUID } = require('node:crypto');
 const { fetchPlateGcode, extractPlateGcode, GcodeError, LIMITS, describe } = require('../services/printerFiles');
 const { toolpathMiB } = require('../../public/js/gcode-limits');
 
-function isUnconfirmedJob(code) {
-  return code === 'JOB_CHANGED' || code === 'JOB_PENDING';
+function excludesDiagnostic(code) {
+  return code === 'JOB_CHANGED' || code === 'JOB_PENDING' || code === 'CALIBRATING';
 }
 
 function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log = message => console.warn(message), now = Date.now }) {
@@ -30,16 +30,27 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
       await fs.writeFile(diagnosticPath + '.tmp', serialized, { mode: 0o600 });
       await fs.rename(diagnosticPath + '.tmp', diagnosticPath);
     }).catch(err => log(`[gcode] diagnostic write failed (${err.code || 'unknown'})`));
-    if (latest.error && !isUnconfirmedJob(latest.error.code)) log(`[gcode] ${JSON.stringify(latest)}`);
+    if (latest.error && !excludesDiagnostic(latest.error.code)) log(`[gcode] ${JSON.stringify(latest)}`);
   }
   async function context(req) {
+    const priorTransfer = active;
     let print;
     try { print = JSON.parse(await fs.readFile(path.join(paths.data, 'data.json'), 'utf8')).print || {}; }
     catch (_) { throw new GcodeError('TELEMETRY_UNAVAILABLE', 'Printer telemetry is unavailable. Check the printer connection in Setup.', { status: 503, retryable: true, stage: 'telemetry' }); }
+    const job = describe(print);
+    if (job.calibration) {
+      // A direct request can outlive the browser's cancellation and arrive
+      // while a previous transfer is still running.
+      if (priorTransfer && active === priorTransfer) {
+        active = null;
+        priorTransfer.controller.abort();
+      }
+      previous = { state: print.gcode_state === 'FINISH' ? 'FINISH' : 'IDLE', percent: 0 };
+      throw new GcodeError('CALIBRATING', 'The printer’s built-in calibration has no toolpath preview.', { status: 409, stage: 'telemetry' });
+    }
     if (print._bb_job_pending === true) {
       throw new GcodeError('JOB_PENDING', 'Waiting for the printer to confirm the current print. Try again when print details appear.', { status: 503, retryable: true, stage: 'telemetry' });
     }
-    const job = describe(print);
     if (!job.available || print.gcode_state === 'IDLE' || print.gcode_state === 'FAILED') {
       throw new GcodeError('NO_ACTIVE_PRINT', 'Waiting for a print with a filename.', { status: 404, retryable: true, stage: 'telemetry' });
     }
@@ -78,7 +89,7 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
   }
   function fail(res, err, retryAfter = 0) {
     const error = err instanceof GcodeError ? err : new GcodeError('GCODE_INTERNAL', 'BambuBoard could not save or read the toolpath. Check its data directory and diagnostic log.', { status: 500, stage: 'cache' });
-    if (!isUnconfirmedJob(error.code) && latest?.error?.code !== error.code) record({ schema: 1, startedAt: new Date(now()).toISOString(), result: 'failed', events: [], error: { code: error.code, detail: error.message, stage: error.stage, retryable: error.retryable } });
+    if (!excludesDiagnostic(error.code) && latest?.error?.code !== error.code) record({ schema: 1, startedAt: new Date(now()).toISOString(), result: 'failed', events: [], error: { code: error.code, detail: error.message, stage: error.stage, retryable: error.retryable } });
     if (retryAfter) res.setHeader('Retry-After', String(Math.ceil(retryAfter / 1000)));
     res.setHeader('Cache-Control', 'no-store');
     res.status(error.status).json(redact({ error: error.code, code: error.code, detail: error.message, stage: error.stage, retryable: error.retryable, retryAfterMs: retryAfter, diagnostics: '/api/gcode/diagnostics' }));
@@ -114,7 +125,7 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
       } catch (err) {
         const error = err instanceof GcodeError ? err : new GcodeError('GCODE_INTERNAL', 'The toolpath could not be downloaded or cached. Check the diagnostic log.', { status: 500, stage: 'cache' });
         Object.assign(report, { result: 'failed', durationMs: now() - started, error: { code: error.code, detail: error.message, stage: error.stage, retryable: error.retryable } });
-        if (!isUnconfirmedJob(error.code)) {
+        if (!excludesDiagnostic(error.code)) {
           if (active === work) record(report);
           const count = (failures.get(ctx.key)?.count || 0) + 1;
           failures.set(ctx.key, { error, count, until: now() + (error.retryable ? Math.min(120000, 15000 * 2 ** (count - 1)) : 300000) });
@@ -187,7 +198,14 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
   });
   // Raw G-code can be larger than a 3MF. The extractor applies the smaller
   // archive limit based on the file contents.
-  router.post('/current', express.raw({ type: 'application/octet-stream', limit: LIMITS.gcode }), async (req, res) => {
+  router.post('/current', async (req, res, next) => {
+    try {
+      res.locals.gcodeContext = await context(req);
+      next();
+    } catch (err) {
+      if (!res.destroyed) fail(res, err);
+    }
+  }, express.raw({ type: 'application/octet-stream', limit: LIMITS.gcode }), async (req, res) => {
     const started = now();
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -195,7 +213,8 @@ function buildGcodeRouter({ getConfig, paths, fetchGcode = fetchPlateGcode, log 
     res.once('close', abort);
     if (res.destroyed) abort();
     try {
-      const ctx = await context(req);
+      const ctx = res.locals.gcodeContext;
+      await stillCurrent(ctx, signal);
       if (!Buffer.isBuffer(req.body) || !req.body.length) throw new GcodeError('FILE_REQUIRED', 'Choose the exact sliced .3mf or .gcode for this print.', { status: 400 });
       const report = { schema: 1, startedAt: new Date(started).toISOString(), source: 'manual', job: { name: ctx.job.name, plate: ctx.job.plate }, events: [] };
       const data = await extractPlateGcode(req.body, { plate: ctx.job.plate, plateKnown: ctx.job.plateKnown, signal,

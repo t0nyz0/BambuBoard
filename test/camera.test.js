@@ -44,7 +44,7 @@ test('chamber camera authenticates, assembles split JPEG frames and reconnects',
   assert.equal(connections, 2, 'stopping the camera cancels reconnects');
 });
 
-test('H3C Liveview relays RTSPS video from the configured printer and redacts its endpoint', async t => {
+test('H3C Liveview redacts its endpoint and recovers when an authenticated RTSPS feed goes silent', async t => {
   const dir = await temporary(t);
   const dataPath = path.join(dir, 'data.json');
   const code = 'fixture@only';
@@ -56,6 +56,7 @@ test('H3C Liveview relays RTSPS video from the configured printer and redacts it
   ]);
   const peers = new Set();
   let verifiedStream = false;
+  let plays = 0, firstFeedSilent = false;
   const camera = tls.createServer(await certificate(dir), socket => {
     peers.add(socket);
     socket.on('error', () => {});
@@ -102,10 +103,17 @@ test('H3C Liveview relays RTSPS video from the configured printer and redacts it
         } else if (method === 'PLAY') {
           respond('200 OK', ['Session: fixture']);
           if (timer) continue;
+          const play = ++plays;
           let offset = 0;
           let index = 0;
           timer = setInterval(() => {
-            if (offset >= media.length) { clearInterval(timer); return; }
+            if (offset >= media.length) {
+              clearInterval(timer);
+              // Leave the authenticated connection established but starve
+              // FFmpeg of further RTP. Its process has no exit to observe.
+              if (play === 1) firstFeedSilent = true;
+              return;
+            }
             const payload = media.subarray(offset, offset + 7 * 188);
             offset += payload.length;
             const header = Buffer.alloc(16);
@@ -133,7 +141,11 @@ test('H3C Liveview relays RTSPS video from the configured printer and redacts it
   const config = { printer: { type: 'H3C', url: '127.0.0.1', accessCode: code } };
   let cameraTelemetry;
   const app = express();
-  buildVideoRouter({ app, getConfig: () => config, dataPath, getCameraTelemetry: () => cameraTelemetry });
+  const relay = buildVideoRouter({
+    app, getConfig: () => config, dataPath, getCameraTelemetry: () => cameraTelemetry,
+    relayOptions: { timing: { frameGapMs: 1600, backoffMs: 200, killGraceMs: 250 } },
+  });
+  t.after(() => relay.stop());
   const base = await listen(t, app);
   const status = async () => (await fetch(base + '/api/printer/video/status')).json();
   // A saved endpoint may belong to the previous printer, so H3C must wait for fresh MQTT.
@@ -146,6 +158,7 @@ test('H3C Liveview relays RTSPS video from the configured printer and redacts it
   cameraTelemetry = { rtsp_url: url, resolution: '1080p' };
   const available = await status();
   assert.equal(available.available, true);
+  assert.equal(available.state, 'idle');
   assert.equal(available.cameraType, 'rtsp');
   assert.equal(available.resolution, '1080p');
   assert.equal(available.url, null);
@@ -159,7 +172,15 @@ test('H3C Liveview relays RTSPS video from the configured printer and redacts it
   ws.onmessage = event => frames.push(Buffer.from(event.data));
   t.after(() => ws.close());
   await until(() => frames.some(frame => frame.length >= 188 && frame[0] === 0x47), 10000);
+  await until(async () => (await status()).state === 'streaming');
   assert.ok(verifiedStream, 'the relay uses the reported port and path, the configured host, and its own authenticated session');
   assert.equal(frames[0].subarray(0, 4).toString(), 'jsmp');
+  await until(() => firstFeedSilent);
+  assert.equal(peers.size, 1, 'the printer has not closed the transport');
+  await until(async () => (await status()).state === 'reconnecting');
+  const beforeRestart = frames.length;
+  await until(async () => plays === 2 && frames.length > beforeRestart && (await status()).state === 'streaming');
+  assert.equal(ws.readyState, WebSocket.OPEN, 'the existing viewer receives the replacement stream');
+  assert.equal(frames.filter(frame => frame.subarray(0, 4).toString() === 'jsmp').length, 1);
   ws.close();
 });

@@ -175,6 +175,9 @@
       // The G-code widget accepts these two options without losing its model.
       const frameUrl = new URL(url);
       const { searchParams } = frameUrl;
+      searchParams.delete('mode');
+      searchParams.delete('layers');
+      content.url = frameUrl.href;
       content.gcodeView = { view: searchParams.get('view'), zoom: searchParams.get('zoom') };
       searchParams.delete('view');
       searchParams.delete('zoom');

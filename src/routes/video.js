@@ -2,12 +2,11 @@
 //
 // Proxies the printer's RTSP camera feed through the Express server so that
 // browser clients (scene editor, dashboard) can view it without needing
-// ffmpeg or VLC locally. Uses rtsp-relay which spawns an ffmpeg process to
-// transcode RTSP → MPEG-TS over WebSocket, decoded client-side by JSMpeg.
+// ffmpeg or VLC locally. FFmpeg transcodes RTSP to MPEG-TS over WebSocket,
+// decoded client-side by JSMpeg.
 //
 // Endpoint: WS /api/printer/video (WebSocket, used by JSMpeg client)
-// Endpoint: GET /api/printer/video/status (JSON health check — reads MQTT
-//           data to see if rtsp_url is enabled on the printer)
+// Endpoint: GET /api/printer/video/status (configuration and relay state)
 //
 // The RTSP URL for Bambu printers is:
 //   rtsps://bblp:{accessCode}@{ip}:322/streaming/live/1
@@ -19,12 +18,12 @@
 // ffmpeg handles RTSPS (RTSP over TLS) natively and doesn't verify self-signed
 // certs by default, so Bambu's self-signed TLS works out of the box.
 
-const path = require('path');
 const fs = require('fs');
 const { capsFor } = require('../lib/caps');
 const { sameOrigin } = require('../lib/requestOrigin');
+const { createRtspCamera, rtspReady } = require('../lib/rtspCamera');
 
-function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry }) {
+function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayOptions }) {
   // Grace window: keep a stream (ffmpeg / chamber socket) alive this long after
   // the last viewer leaves, so brief client gaps (reloads, OBS restarts) reuse
   // it instead of churning the printer's limited camera connection.
@@ -33,48 +32,55 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry }) {
   // Camera status, capability-aware. X1 / X1C / H2D / H3C / P2S expose RTSP (relayed
   // via ffmpeg + WebSocket/JSMpeg); P1 / A1-class expose the port-6000 JPEG
   // stream (served as MJPEG). `cameraType` tells the widget which to use.
-  function buildCameraStatus(printer, rtspRelayOk) {
+  function buildCameraStatus(printer) {
     const caps = capsFor(printer.type);
     const hasCredentials = !!(printer.url && printer.accessCode);
     if (!caps.hasCameraRtsp) {
       return {
         available: hasCredentials,
         cameraType: 'image',
-        relayReady: true, // MJPEG path is independent of rtsp-relay
+        relayReady: true, // MJPEG path is independent of FFmpeg
         mjpegUrl: '/api/printer/camera.mjpeg',
         hint: hasCredentials ? null : 'Printer credentials not set — finish Setup first.',
       };
     }
     const rtsp = getRtspStatus(printer.type);
     const isH3c = printer.type === 'H3C';
-    const enabled = isH3c ? !!h3cCameraEndpoint(printer.url, rtsp.rtspField) : rtsp.enabled;
+    const endpoint = printerCameraEndpoint(printer.url, isH3c ? rtsp.rtspField : undefined);
+    const enabled = isH3c ? !!endpoint : rtsp.enabled;
+    const state = relay.state();
+    const available = hasCredentials && enabled && !!endpoint && rtspReady;
+    let hint = null;
+    if (!hasCredentials) hint = 'Printer credentials not set. Finish Setup first.';
+    else if (!rtspReady) hint = 'The video relay (FFmpeg) failed to initialize on the server.';
+    else if (!enabled) hint = isH3c
+      ? 'On the H3C touchscreen, turn on Settings → Network → LAN Only Liveview.'
+      : 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.';
+    else if (state === 'reconnecting') hint = 'Waiting for new camera video. Reconnecting automatically.';
+    else if (state === 'unavailable') hint = 'The printer is not sending video. Check its network connection and LAN Only Liveview setting.';
     return {
-      available: hasCredentials && enabled && rtspRelayOk,
+      available,
+      state,
       cameraType: 'rtsp',
-      relayReady: rtspRelayOk,
+      relayReady: rtspReady,
       rtspEnabled: enabled,
       resolution: rtsp.resolution,
-      url: hasCredentials && !isH3c ? `rtsps://${printer.url}:322/streaming/live/1` : null,
-      hint: !rtspRelayOk
-        ? 'The video relay (ffmpeg) failed to initialize on the server.'
-        : (!enabled
-          ? (isH3c
-            ? 'On the H3C touchscreen, turn on Settings → Network → LAN Only Liveview.'
-            : 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.')
-          : null),
+      url: hasCredentials && !isH3c ? endpoint?.href || null : null,
+      hint,
     };
   }
 
-  // H3C publishes its Liveview endpoint in MQTT. Use the reported path/port
-  // over TLS, and send the LAN access code only to the configured printer.
-  function h3cCameraEndpoint(host, reportedUrl) {
-    if (!host || typeof reportedUrl !== 'string' || !reportedUrl || reportedUrl === 'disable') return null;
+  // H3C publishes a Liveview path and port in MQTT. Keep the configured host
+  // and TLS when using that path, so the LAN access code only goes there.
+  function printerCameraEndpoint(host, reportedUrl) {
+    if (!host) return null;
     try {
-      const reported = new URL(reportedUrl);
-      if (reported.protocol !== 'rtsps:' || !reported.hostname) return null;
       const address = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
       const configured = new URL(`http://${address}`);
-      if (configured.username || configured.password || configured.port || configured.pathname !== '/' || configured.search || configured.hash) return null;
+      if (!configured.hostname || configured.username || configured.password || configured.port || configured.pathname !== '/' || configured.search || configured.hash) return null;
+      if (reportedUrl === undefined) return new URL(`rtsps://${configured.hostname}:322/streaming/live/1`);
+      const reported = new URL(reportedUrl);
+      if (reported.protocol !== 'rtsps:' || !reported.hostname) return null;
       const endpoint = new URL(`rtsps://${configured.hostname}:${reported.port || '322'}`);
       endpoint.pathname = reported.pathname;
       endpoint.search = reported.search;
@@ -109,7 +115,7 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry }) {
   // One shared TLS stream per printer, fanned out to all viewers as
   // multipart/x-mixed-replace JPEG (which <img> renders natively). Same grace
   // period as the RTSP relay so brief client gaps don't churn the port-6000
-  // connection. Independent of rtsp-relay, so it works even if that failed.
+  // connection. Independent of the FFmpeg relay.
   const { ChamberImageStream } = require('../lib/chamberImage');
   const chamber = { stream: null, clients: 0, grace: null, key: '' };
 
@@ -167,115 +173,43 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry }) {
     });
   });
 
-  try {
-    const rtspRelay = require('rtsp-relay');
-    const { proxy: createProxy } = rtspRelay(app);
-
-    // GET /api/printer/video/status — health check
-    app.get('/api/printer/video/status', (req, res) => {
-      res.json(buildCameraStatus(getConfig().printer || {}, true));
-    });
-
-    // WS /api/printer/video — WebSocket MPEG-TS stream.
-    //
-    // IMPORTANT: rtsp-relay's `url` option must be a STRING. Earlier this was
-    // a function (`url: () => …`), but rtsp-relay (1.9.0) never invokes it —
-    // it uses `url` verbatim as both the Inbound map key and the ffmpeg `-i`
-    // argument. A function coerced to a string yields garbage, so ffmpeg
-    // failed to open the input instantly and the relay produced no video
-    // (clients only ever received rtsp-relay's 8-byte `jsmp` header). We now
-    // build the URL string from the current config per WebSocket connection
-    // and cache one proxy per resolved URL, so rtsp-relay still shares a
-    // single ffmpeg across viewers AND a printer IP/access-code change is
-    // picked up on the next connection (a new URL → a new cached proxy).
-    function buildStreamUrl() {
-      const p = getConfig().printer || {};
-      if (p.type === 'H3C') {
-        if (!p.accessCode) return null;
-        const endpoint = h3cCameraEndpoint(p.url, getRtspStatus(p.type).rtspField);
-        if (!endpoint) return null;
-        endpoint.username = 'bblp';
-        endpoint.password = encodeURIComponent(p.accessCode);
-        return endpoint.href;
-      }
-      return `rtsps://bblp:${p.accessCode}@${p.url}:322/streaming/live/1`;
-    }
-
-    const proxyByUrl = {};
-    function getProxyFor(url) {
-      if (!proxyByUrl[url]) {
-        proxyByUrl[url] = createProxy({
-          url,
-          // `transport: 'tcp'` makes rtsp-relay place `-rtsp_transport tcp`
-          // BEFORE `-i` (where it belongs). Do NOT also put it in
-          // additionalFlags — those are appended AFTER `-i` and rtsp-relay
-          // warns about it.
-          transport: 'tcp',
-          additionalFlags: [
-            '-allowed_media_types', 'video',
-            // Keep latency low.
-            '-fflags', 'nobuffer',
-          ],
-        });
-      }
-      return proxyByUrl[url];
-    }
-
-    // ── Reconnect hardening ──
-    // rtsp-relay kills ffmpeg the instant the client count hits 0 and respawns
-    // on the next connect. Rapid churn (page reloads, OBS source restarts, tab
-    // open/close) therefore rapidly tears down + re-pulls the printer's RTSP
-    // stream — and Bambu's RTSP server allows only a couple of concurrent
-    // connections, so a respawn can race the previous teardown and stall the
-    // feed (the "white/black camera" we hit during dev).
-    //
-    // Fix: hold a server-side keepalive subscriber per stream so ffmpeg stays
-    // alive through brief gaps. When the last real viewer leaves we wait
-    // GRACE_MS (shared with the chamber-image path) before releasing the
-    // holder; a reconnect within the window reuses the still-running ffmpeg.
-    const keepalive = {}; // url -> { count, timer, holder }
-
-    // A minimal ws-like object rtsp-relay's handler accepts: it counts as a
-    // client (keeping ffmpeg up) and discards the frames it's sent.
-    function makeHolder() {
-      const h = new (require('events').EventEmitter)();
-      h.OPEN = 1;
-      h.readyState = 1;
-      h.send = () => {};
-      h.close = () => { h.readyState = 3; h.emit('close'); };
-      return h;
-    }
-
-    app.ws('/api/printer/video', (ws, req) => {
-      if (!sameOrigin(req)) { ws.close(1008); return; }
-      const url = buildStreamUrl();
-      if (!url) { ws.close(1013, 'Printer Liveview is unavailable'); return; }
-      const proxy = getProxyFor(url);
-      const ka = keepalive[url] || (keepalive[url] = { count: 0, timer: null, holder: null });
-      if (ka.timer) { clearTimeout(ka.timer); ka.timer = null; } // cancel pending release
-      if (!ka.holder) { ka.holder = makeHolder(); proxy(ka.holder, req); } // pin ffmpeg up
-      ka.count += 1;
-      ws.on('close', () => {
-        ka.count -= 1;
-        if (ka.count <= 0 && !ka.timer) {
-          ka.timer = setTimeout(() => {
-            ka.timer = null;
-            if (ka.count <= 0 && ka.holder) { ka.holder.close(); ka.holder = null; }
-          }, GRACE_MS);
-        }
-      });
-      return proxy(ws, req);
-    });
-
-    console.log('[bambuboard] RTSP video relay ready at ws://*/api/printer/video');
-  } catch (err) {
-    console.warn('[bambuboard] RTSP video relay unavailable:', err.message);
-    // Fallback status when rtsp-relay isn't available. Image-camera printers
-    // (P1/A1) still work via the MJPEG path, which doesn't use rtsp-relay.
-    app.get('/api/printer/video/status', (req, res) => {
-      res.json(buildCameraStatus(getConfig().printer || {}, false));
-    });
+  function buildStreamUrl() {
+    const printer = getConfig().printer || {};
+    if (!capsFor(printer.type).hasCameraRtsp || !printer.accessCode || !printer.url) return null;
+    const rtsp = getRtspStatus(printer.type);
+    if (!rtsp.enabled) return null;
+    const endpoint = printerCameraEndpoint(printer.url, printer.type === 'H3C' ? rtsp.rtspField : undefined);
+    if (!endpoint) return null;
+    endpoint.username = 'bblp';
+    endpoint.password = encodeURIComponent(printer.accessCode);
+    return endpoint.href;
   }
+
+  require('express-ws')(app);
+  const relay = createRtspCamera({ ...relayOptions, resolveUrl: buildStreamUrl });
+  app.get('/api/printer/video/status', (_req, res) => {
+    relay.refresh();
+    res.set('Cache-Control', 'no-store').json(buildCameraStatus(getConfig().printer || {}));
+  });
+  app.ws('/api/printer/video', (ws, req) => {
+    if (!sameOrigin(req)) { ws.close(1008); return; }
+    const printer = getConfig().printer || {};
+    if (!capsFor(printer.type).hasCameraRtsp || !rtspReady) {
+      ws.close(1013, 'Printer Liveview is unavailable');
+      return;
+    }
+    relay.subscribe(ws);
+  });
+
+  console.log('[bambuboard] RTSP video relay ready at ws://*/api/printer/video');
+  return {
+    stop() {
+      clearTimeout(chamber.grace);
+      chamber.stream?.stop();
+      return relay.stop();
+    },
+    forceStop: relay.forceStop,
+  };
 }
 
 module.exports = { buildVideoRouter };

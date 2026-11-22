@@ -11,14 +11,22 @@ let currentState = "OFF";
 let printModelName = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+let calibration = '';
+let modelGeneration = 0;
 let lastFetchTime = 0; // Timestamp of the last fetch
 let lastNoteTime = 0; // Timestamp of the last note save
 const fetchInterval = 240000; // 4 minutes interval in milliseconds
 const noteInterval = 900000; // 10 minutes interval for note saving
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
-async function updateUI(telemetryObject) {
+function updateUI(telemetryObject) {
   try {
+    if (calibration) {
+      $('#printModelName').text(calibration);
+      $('#printCurrentLayer, #printRemaining, #printETA, #modelWeight, #totalPrints').text('—');
+      $('#printModeName2, #printModelName2').text('');
+      return;
+    }
     let printStatus = telemetryObject.gcode_state;
 
     // mc_remaining_time in minutes
@@ -68,14 +76,14 @@ async function updateUI(telemetryObject) {
 
       // Save note only when printing first starts or if it hasn't been updated recently
       if (currentTime - lastNoteTime > noteInterval && telemetryObject.layer_num === 0 && currentState === "RUNNING") {
-        await saveNote(telemetryObject.subtask_name);
         lastNoteTime = currentTime;
+        void saveNote(telemetryObject.subtask_name);
       }
 
       // Ensure saveNote and loginAndFetchImage only run every 4 minutes
       if (currentTime - lastFetchTime > fetchInterval) {
-        await loginAndFetchImage();
         lastFetchTime = currentTime;
+        void loginAndFetchImage();
       }
     } else if (printStatus === "FINISH") {
       printStatus = "Print Complete";
@@ -131,17 +139,25 @@ function printName(print) {
 }
 
 BBTelemetry.poll(print => {
+  const nextCalibration = BBGcodeJob.calibrationStatus(print);
+  if (nextCalibration !== calibration) {
+    calibration = nextCalibration;
+    modelGeneration++;
+    printModelName = '';
+    lastFetchTime = 0;
+  }
   currentState = print.gcode_state;
   telemetryObjectMain = print;
   return updateUI(print);
 }, {
-  ready: print => BBTelemetry.hasPrintState(print) && !!printName(print) &&
+  ready: print => BBTelemetry.hasPrintState(print) && (BBGcodeJob.describe(print).calibration || (!!printName(print) &&
     BBTelemetry.number(print.layer_num) !== null && BBTelemetry.number(print.total_layer_num) !== null &&
-    (print.gcode_state !== 'RUNNING' || BBTelemetry.number(print.mc_remaining_time) !== null),
+    (print.gcode_state !== 'RUNNING' || BBTelemetry.number(print.mc_remaining_time) !== null))),
   onUnavailable: () => { telemetryObjectMain = null; },
 });
 
 async function executeTask() {
+  if (calibration) return;
   try {
     var telemetryObject = telemetryObjectMain;
     const currentTime = new Date().getTime();
@@ -149,12 +165,12 @@ async function executeTask() {
     if (telemetryObject != null && telemetryObject != "Incomplete") {
       if (telemetryObject.layer_num === 0 && currentState === "RUNNING" && printModelName === "") {
         if (currentTime - lastNoteTime > noteInterval) {
-          await saveNote(telemetryObject.subtask_name);
           lastNoteTime = currentTime;
+          void saveNote(telemetryObject.subtask_name);
         }
         if (currentTime - lastFetchTime > fetchInterval) {
-          await loginAndFetchImage();
           lastFetchTime = currentTime;
+          void loginAndFetchImage();
         }
       }
     } else if (telemetryObject == null){
@@ -196,6 +212,7 @@ function convertMinutesToReadableTime(totalMinutes) {
 
 // Send credentials to your own server
 async function loginAndFetchImage() {
+  const generation = modelGeneration;
   try {
     const response = await fetch(fullServerURL + "/login-and-fetch-image",
       {
@@ -205,6 +222,7 @@ async function loginAndFetchImage() {
     );
 
     const data = await response.json();
+    if (generation !== modelGeneration || calibration) return;
 
     // Display the image using the extracted URL
     displayAPIData(data);

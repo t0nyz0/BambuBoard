@@ -2,6 +2,7 @@
 (function () {
   const overlay = document.getElementById('gcodeOverlay');
   const tools = document.getElementById('gcodeRecovery');
+  const operator = new URLSearchParams(location.search).get('mode') === 'preview';
   const log = [];
   let retry = () => location.reload();
   let cancel = () => {};
@@ -10,31 +11,38 @@
   const downloadButton = document.getElementById('gcodeDownloadLog');
   window.BBGcodeUI = {
     log,
-    message(text, kind) {
+    operator,
+    message(text, kind, canCancel = false) {
       const stage = document.querySelector('.gcode-stage');
       stage.classList.toggle('error-state', kind === 'error');
+      stage.classList.toggle('calibration-state', kind === 'calibration');
       stage.setAttribute('aria-busy', String(kind === 'loading'));
       overlay.textContent = text;
-      for (const name of ['loading', 'error', 'waiting']) overlay.classList.toggle(name, kind === name);
-      overlay.style.display = text ? (kind === 'waiting' ? 'flex' : 'block') : 'none';
-      tools.hidden = kind !== 'error' && kind !== 'loading';
-      cancelButton.hidden = kind !== 'loading';
-      downloadButton.hidden = kind !== 'error';
+      const waiting = kind === 'waiting' || kind === 'calibration';
+      overlay.classList.toggle('waiting', waiting);
+      for (const name of ['loading', 'error']) overlay.classList.toggle(name, kind === name);
+      overlay.style.display = text ? (waiting ? 'flex' : 'block') : 'none';
+      tools.hidden = !operator || (kind !== 'error' && !canCancel);
+      cancelButton.hidden = !operator || !canCancel;
+      downloadButton.hidden = !operator || kind !== 'error';
       this.recovery(kind === 'error');
     },
     recovery(available, canRetry = available) {
-      document.getElementById('gcodeRetry').hidden = !canRetry;
-      fileButton.hidden = !available;
+      document.getElementById('gcodeRetry').hidden = !operator || !canRetry;
+      fileButton.hidden = !operator || !available;
     },
     bindRetry(callback) { retry = callback; },
     bindCancel(callback) { cancel = callback; },
-    allowFile(value) { fileButton.disabled = !value; },
+    allowFile(value) { fileButton.disabled = !operator || !value; },
     fail(error) {
       const detail = error?.message || String(error);
       log.push({ at: new Date().toISOString(), stage: 'renderer', detail });
-      this.message('3D preview could not start. Enable WebGL 2 / hardware acceleration in your browser or OBS, then retry. Download diagnostics for the exact error.', 'error');
+      this.message(operator
+        ? '3D preview could not start. Enable WebGL 2 or hardware acceleration, then retry. Download diagnostics for the exact error.'
+        : '3D preview unavailable.', 'error');
     },
   };
+  if (!operator) return;
   document.getElementById('gcodeRetry').addEventListener('click', () => retry());
   cancelButton.addEventListener('click', () => cancel());
   const fileInput = document.getElementById('gcodeFile');

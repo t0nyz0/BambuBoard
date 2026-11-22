@@ -10,10 +10,13 @@ const { archive, ftpsFixture } = require('./ftps-fixture');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode, extractPlateGcode, GcodeError, LIMITS, describe } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
-const { mergePrint } = require('../src/lib/printTelemetry');
+const { mergePrint, reconnectJob } = require('../src/lib/printTelemetry');
+const { calibrationStatus } = require('../public/js/gcode-job');
 const gcode = Buffer.from('G90\nM83\nG1 X10 Y10 Z0.2 E1\nG1 X40 Y10 E1\nG1 X40 Y40 E1\n');
 const options = { host: '127.0.0.1', accessCode: 'fixture-only', subtaskName: 'Fixture', plateIdx: 1, model: 'H2D' };
 const telemetry = (name = 'Fixture', extra = {}) => ({ gcode_state: 'RUNNING', task_id: '0', subtask_id: '0', subtask_name: name, gcode_file: '/data/Metadata/plate_1.gcode', _bb_job_id: name, mc_percent: 47, ...extra });
+const calibrationName = 'auto_cali_for_user_param.gcode';
+const calibrationPath = '/usr/etc/print/' + calibrationName;
 async function routeFixture(t, fetchGcode, extra = {}) {
   let routes;
   t.after(() => routes?.flushDiagnostics());
@@ -122,6 +125,49 @@ test('plate selection honors MQTT filenames, multi-plate order and a sole non-1 
   await assert.rejects(extractPlateGcode(multi, { plate: 3 }), { code: 'PLATE_NOT_FOUND' });
   await assert.rejects(extractPlateGcode(multi, { plateKnown: false }), { code: 'PLATE_AMBIGUOUS' });
   assert.deepEqual(await extractPlateGcode(archive({ 'Metadata/plate_7.gcode': gcode }), { plateKnown: false }), gcode);
+});
+test('only the reserved firmware path identifies the built-in calibration', async t => {
+  for (const locator of [{ gcode_file: calibrationPath }, { param: 'file://' + calibrationPath }, { url: 'file://' + calibrationPath }]) {
+    const active = { ...locator, gcode_state: 'RUNNING' };
+    assert.equal(describe(active).calibrating, true);
+    assert.equal(describe(active).available, false);
+    assert.equal(calibrationStatus(active), 'Calibrating');
+    const completed = { ...active, gcode_state: 'FINISH' };
+    assert.equal(describe(completed).calibration, true);
+    assert.equal(describe(completed).calibrating, false);
+    assert.equal(calibrationStatus(completed), 'Calibration complete');
+  }
+  for (const locator of [{ subtask_name: calibrationName }, { gcode_file: calibrationName },
+    { gcode_file: '/cache/' + calibrationName }, { gcode_file: calibrationPath + '.3mf' },
+    { subtask_name: calibrationName, gcode_file: 'https://fixture.invalid' + calibrationPath }]) {
+    assert.equal(describe({ ...locator, gcode_state: 'RUNNING', stg_cur: 25 }).calibration, false);
+    assert.equal(describe(locator).available, true);
+  }
+  const fixture = await ftpsFixture(t, {});
+  await assert.rejects(fetchPlateGcode({ ...options, port: fixture.port, job: describe({ gcode_file: calibrationPath }) }),
+    { code: 'CALIBRATING', retryable: false, stage: 'telemetry' });
+  assert.equal(fixture.connections, 0);
+});
+test('partial calibration telemetry replaces print metadata and resumes an ordinary job', () => {
+  const previous = mergePrint({}, telemetry('Previous', { layer_num: 22, total_layer_num: 30, mc_remaining_time: 44, bed_temper: 55, mapping: [8192] }));
+  const calibrating = mergePrint(previous, { param: calibrationPath, mc_percent: 15 });
+  assert.equal(calibrating.gcode_state, 'RUNNING');
+  assert.equal(calibrating.bed_temper, 55);
+  assert.equal(describe(calibrating).calibrating, true);
+  assert.notEqual(calibrating._bb_job_id, previous._bb_job_id);
+  for (const field of ['gcode_file', 'subtask_name', 'layer_num', 'total_layer_num', 'mc_remaining_time', 'mapping']) {
+    assert.equal(calibrating[field], undefined, field);
+  }
+  const delta = mergePrint(calibrating, { mc_percent: 18 });
+  assert.equal(describe(delta).calibrating, true);
+  assert.equal(delta._bb_job_id, calibrating._bb_job_id);
+  assert.equal(reconnectJob(previous, { gcode_state: 'RUNNING', gcode_file: calibrationPath }, true), 'different');
+  assert.equal(reconnectJob(calibrating, { gcode_state: 'RUNNING', gcode_file: calibrationPath }, true), 'same');
+  const next = mergePrint(delta, { gcode_file: '/cache/' + calibrationName, layer_num: 0, mc_percent: 0 });
+  assert.equal(describe(next).calibration, false);
+  assert.equal(describe(next).available, true);
+  assert.equal(next.param, undefined);
+  assert.notEqual(next._bb_job_id, delta._bb_job_id);
 });
 test('archive validation catches corruption, unsliced projects, checksums and decompression limits', async () => {
   const checksum = createHash('md5').update(gcode).digest('hex').toUpperCase();
@@ -285,6 +331,45 @@ test('unconfirmed reconnect telemetry pauses downloads and keeps manual recovery
   assert.equal(resolved.status, 200);
   assert.deepEqual(Buffer.from(await resolved.arrayBuffer()), gcode);
   assert.equal(count, 1, 'The confirmed print reuses the cached manual file');
+});
+test('direct G-code requests during calibration cancel an obsolete download without writing diagnostics', async t => {
+  let calls = 0, download;
+  const fixture = await routeFixture(t, opts => {
+    calls++;
+    if (calls > 1) return Promise.resolve(gcode);
+    download = opts;
+    return new Promise((resolve, reject) => opts.signal.addEventListener('abort', () => reject(
+      new GcodeError('JOB_CHANGED', 'Canceled.', { status: 409, retryable: true })), { once: true }));
+  });
+  assert.equal((await fixture.post(gcode)).status, 200);
+  const manual = await fixture.diagnostics();
+  const older = fixture.get('?nocache=1');
+  await until(() => download);
+  const calibrating = telemetry(calibrationName, { gcode_file: calibrationPath, stg_cur: 25 });
+  await fixture.write(calibrating);
+  assert.equal((await fixture.progress()).status, 204);
+  assert.equal(download.signal.aborted, true);
+  assert.equal((await older).status, 409);
+  const attempts = await Promise.all([
+    fixture.get(), fixture.get('?retry=1'), fixture.get('?nocache=1'),
+    fixture.post(gcode, '?job=' + encodeURIComponent(describe(calibrating).key)),
+  ]);
+  for (const response of attempts) {
+    assert.equal(response.status, 409);
+    const error = await response.json();
+    assert.equal(error.code, 'CALIBRATING');
+    assert.equal(error.retryable, false);
+  }
+  assert.equal(calls, 1);
+  assert.deepEqual(await fixture.diagnostics(), manual);
+  assert.deepEqual(fixture.logs, []);
+  assert.equal((await fs.readdir(path.join(fixture.data, 'gcode-cache'))).length, 1);
+
+  await fixture.write(telemetry(calibrationName, { gcode_file: '/cache/' + calibrationName }));
+  const next = await fixture.get();
+  assert.equal(next.status, 200);
+  assert.deepEqual(Buffer.from(await next.arrayBuffer()), gcode);
+  assert.equal(calls, 2);
 });
 test('missing telemetry/configuration produce explicit errors, not generic waiting responses', async t => {
   const fixture = await routeFixture(t, async () => gcode);

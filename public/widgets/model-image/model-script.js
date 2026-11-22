@@ -11,10 +11,12 @@ let currentState = "OFF";
 let modelImage = "";
 const consoleLogging = false;
 let telemetryObjectMain;
+let calibration = false;
+let modelGeneration = 0;
 const fullServerURL = `${protocol}//${serverURL}:${serverPort}`;
 
 async function retrieveData() {
-  const response = await fetch(fullServerURL + "/data.json");
+  const response = await fetch(fullServerURL + "/data.json", { signal: AbortSignal.timeout(5000) });
 
   let data = await response.text();
   let telemetryObject = JSON.parse(data);
@@ -52,17 +54,35 @@ async function retrieveData() {
   const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
 
 // Call the updateLog function to fetch and parse the data
-setInterval(async () => {
+async function refreshTelemetry() {
   try {
-    var telemetryObject = await retrieveData();
+    const telemetryObject = await retrieveData();
     telemetryObjectMain = telemetryObject;
+    // Incomplete reports cannot restore the image of the preceding model.
+    if (!telemetryObject || telemetryObject === 'Incomplete' || telemetryObject._bb_job_pending) return;
+    const isCalibration = BBGcodeJob.describe(telemetryObject).calibration;
+    if (isCalibration === calibration) return;
+    calibration = isCalibration;
+    modelGeneration++;
+    if (calibration) {
+      modelImage = '';
+      $('#modelImage').hide().removeAttr('src');
+    } else {
+      void executeTask();
+    }
   } catch (error) {
     //console.error(error);
     await sleep(1000);
   }
-}, 1000);
+}
+
+async function pollTelemetry() {
+  await refreshTelemetry();
+  setTimeout(pollTelemetry, 1000);
+}
 
 async function executeTask() {
+  if (calibration) return;
   try {
       var telemetryObject = telemetryObjectMain;
       if (telemetryObject != null && telemetryObject != "Incomplete") {
@@ -79,8 +99,8 @@ async function executeTask() {
   }
 }
 
-// Run the task immediately
-executeTask();
+// Confirm the current print before requesting cloud model data.
+pollTelemetry().then(executeTask);
 
 // Then set it to run at intervals
 (function scheduleTask() {
@@ -92,13 +112,15 @@ executeTask();
 
   // Send credentials to your own server
   async function loginAndFetchImage() {
+    const generation = modelGeneration;
     try {
         const response =  await fetch(fullServerURL + '/login-and-fetch-image', {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
         });
   
-        let data; 
+        if (generation !== modelGeneration || calibration) return;
+        let data;
 
         if (response.status == 401)
         {
@@ -109,6 +131,7 @@ executeTask();
           data = await response.json();
         }
 
+        if (generation !== modelGeneration || calibration) return;
         // Display the image using the extracted URL
         displayAPIData(data);
 

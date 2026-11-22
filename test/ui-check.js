@@ -566,6 +566,12 @@ async function runEngine(name, artifactDir) {
     await page.locator('#scene-picker').selectOption('Main');
     await select('Toolpath preview');
     const frame = page.locator('iframe[title="Toolpath preview"]');
+    const previewLink = page.getByRole('link', { name: 'Open toolpath preview', exact: true });
+    const operatorPreview = async () => new URL(await previewLink.getAttribute('href'), base);
+    assert.equal((await operatorPreview()).searchParams.get('mode'), 'preview');
+    assert.equal((await operatorPreview()).searchParams.get('view'), 'front');
+    assert.equal((await operatorPreview()).searchParams.get('zoom'), '125');
+    assert.equal(new URL(await frame.getAttribute('src'), base).searchParams.has('mode'), false);
     const waitForView = (view, zoom) => page.waitForFunction(({ view, zoom }) => {
       const settings = document.querySelector('iframe[title="Toolpath preview"]')?.contentWindow?.fixtureView;
       return !!settings && settings.view === view && settings.zoom === zoom;
@@ -597,6 +603,8 @@ async function runEngine(name, artifactDir) {
     });
     await waitForView('side', '150');
     assert.equal(await frame.evaluate(node => node.contentWindow.fixtureFrameId), frameId, 'Camera changes keep the current renderer');
+    assert.equal((await operatorPreview()).searchParams.get('view'), 'side');
+    assert.equal((await operatorPreview()).searchParams.get('zoom'), '150');
     assert.equal(await zoomControl.getAttribute('aria-valuetext'), '150%');
     await audit('Toolpath view controls');
     assert.deepEqual(accessibility.at(-1).violations, []);
@@ -622,6 +630,7 @@ async function runEngine(name, artifactDir) {
     assert.equal(savedToolpath.searchParams.get('view'), 'side');
     assert.equal(savedToolpath.searchParams.get('zoom'), '150');
     assert.equal(savedToolpath.searchParams.get('fixture'), 'keep');
+    assert.equal(savedToolpath.searchParams.has('mode'), false);
     assert.equal(savedToolpath.hash, '#toolpath');
     assert.deepEqual(await request('/api/obs/published'), publishedRemoval);
     await page.locator('#golive-btn').click();

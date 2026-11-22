@@ -2,7 +2,7 @@
 //
 // Renders the printer's camera feed directly in the browser via the
 // server-side RTSP relay (src/routes/video.js):
-//   GET  /api/printer/video/status  — JSON health check (reads MQTT ipcam state)
+//   GET  /api/printer/video/status  — configuration and relay frame state
 //   WS   /api/printer/video         — MPEG-TS over WebSocket, decoded by JSMpeg
 //
 // This removes the need for OBS *and* Bambu Studio "Go Live": the relay
@@ -27,7 +27,8 @@
   const STATUS_POLL_MS = 5000;
 
   let player = null;       // active JSMpeg.Player instance, or null
-  let streaming = false;   // true once JSMpeg reports a source established
+  let decodedFrame = false;
+  let relayState = 'idle';
   let lastHint = null;
   let img = null;          // <img> element for MJPEG (image-camera printers)
   let mjpegActive = false;
@@ -53,7 +54,7 @@
       try { player.destroy(); } catch (_) { /* ignore */ }
       player = null;
     }
-    streaming = false;
+    decodedFrame = false;
   }
 
   // ---- MJPEG (image-camera printers) ----
@@ -91,15 +92,10 @@
         // JSMpeg's WebSocket source auto-reconnects on this interval (seconds)
         // if the relay drops, so transient blips recover without our help.
         reconnectInterval: 4,
-        onSourceEstablished: () => {
-          streaming = true;
-          setOverlay(false);
-        },
-        onSourceCompleted: () => {
-          // Stream ended (relay closed / ffmpeg exited). Drop back to the
-          // status loop, which will reconnect once the camera is live again.
-          streaming = false;
-          setOverlay(true, 'Camera stream ended — reconnecting…', 'loading', lastHint || '');
+        onVideoDecode: () => {
+          if (decodedFrame) return;
+          decodedFrame = true;
+          if (relayState !== 'reconnecting' && relayState !== 'unavailable') setOverlay(false);
         },
       });
     } catch (e) {
@@ -112,12 +108,13 @@
   async function poll() {
     let status;
     try {
-      const res = await fetch('/api/printer/video/status', { cache: 'no-store' });
+      const res = await fetch('/api/printer/video/status', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+      if (!res.ok) throw new Error('Camera status unavailable');
       status = await res.json();
     } catch (_) {
       // Server unreachable — show a soft error, keep any running player as-is
       // (it has its own reconnect), and try again next tick.
-      if (!streaming) setOverlay(true, 'Waiting for server…', 'loading');
+      if (!decodedFrame) setOverlay(true, 'Waiting for server…', 'loading');
       return;
     }
 
@@ -125,6 +122,7 @@
 
     // Image-camera printers (P1 / A1): render the MJPEG stream in an <img>.
     if (status.cameraType === 'image') {
+      relayState = 'idle';
       if (status.available) {
         showMjpeg(status.mjpegUrl || '/api/printer/camera.mjpeg');
       } else {
@@ -141,13 +139,20 @@
         setOverlay(true, 'Video decoder failed to load', 'error');
         return;
       }
-      // Camera is live — ensure a player exists. If one's already running we
-      // leave it alone (tearing it down every poll would stutter the feed).
       if (!player) connect();
+      const recovering = status.state === 'reconnecting' || status.state === 'unavailable';
+      const wasRecovering = relayState === 'reconnecting' || relayState === 'unavailable';
+      const restarting = relayState === 'streaming' && (status.state === 'idle' || status.state === 'connecting');
+      if ((recovering && !wasRecovering) || restarting) decodedFrame = false;
+      relayState = status.state;
+      if (relayState === 'unavailable') setOverlay(true, 'Camera unavailable', 'error', status.hint || '');
+      else if (recovering || restarting) setOverlay(true, 'Reconnecting camera…', 'loading', status.hint || '');
+      else if (decodedFrame) setOverlay(false);
     } else {
       // Camera not available — relay disabled or LAN Liveview off. Tear down
       // any stale player and surface the server's hint.
       destroyPlayer();
+      relayState = 'idle';
       const msg = status.relayReady === false
         ? 'Video relay unavailable'
         : 'Camera off';
@@ -155,7 +160,9 @@
     }
   }
 
-  // Kick off immediately, then poll on an interval.
-  poll();
-  setInterval(poll, STATUS_POLL_MS);
+  async function pollStatus() {
+    await poll();
+    setTimeout(pollStatus, STATUS_POLL_MS);
+  }
+  void pollStatus();
 })();

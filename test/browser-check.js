@@ -9,12 +9,13 @@ const { chromium } = require('playwright');
 const { devDependencies } = require('../package.json');
 const { mergePrint } = require('../src/lib/printTelemetry');
 const { h3cAmsPrint } = require('./fixtures/h3c-ams');
+const { checkCameraRecovery } = require('./camera-browser-fixture');
 const root = path.resolve(__dirname, '..');
 const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 X80 Y80 E3\nG1 X10 Y80 E4\nG1 X10 Y10 E5\n;LAYER:1\nG1 Z0.4\nG1 X80 Y10 E6\nG1 X80 Y80 E7\nG1 X10 Y80 E8\n';
 
 async function checkLiveWidgetReuse(context, base) {
   const page = await context.newPage();
-  const toolpath = { name: 'Live toolpath fixture', id: 'browser_source', settings: { url: `${base}/widgets/gcode-viz/?debug=1&view=front&zoom=110`, width: 280, height: 240 } };
+  const toolpath = { name: 'Live toolpath fixture', id: 'browser_source', settings: { url: `${base}/widgets/gcode-viz/?debug=1&mode=preview&layers=1&view=front&zoom=110`, width: 280, height: 240 } };
   const status = { name: 'Live status fixture', id: 'browser_source', settings: { url: `${base}/version?v=1`, width: 100, height: 100 } };
   const camera = { name: 'Live camera fixture', id: 'ffmpeg_source', settings: { width: 320, height: 180 } };
   const items = [toolpath, status, camera].map((src, id) => ({ id, name: src.name, pos: { x: 0, y: 0 }, align: 5 }));
@@ -49,6 +50,9 @@ async function checkLiveWidgetReuse(context, base) {
     const toolpathElement = await page.locator('iframe[title="Live toolpath fixture"]').elementHandle();
     const toolpathFrame = await toolpathElement.contentFrame();
     await toolpathFrame.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')));
+    assert.equal(new URL(toolpathFrame.url()).searchParams.has('mode'), false, 'Live cannot inherit a preview-only URL option');
+    assert.equal(new URL(toolpathFrame.url()).searchParams.has('layers'), false, 'Live must display the complete printable job');
+    assert.equal(await toolpathFrame.locator('#gcodeDebug').isVisible(), false);
     assert.equal(await toolpathFrame.evaluate(() => window.__diag().orbit.view), 'front');
     assert.equal(toolpathRequests, 1);
     await page.waitForFunction(() => [...document.querySelectorAll('#stage iframe')].every(frame =>
@@ -99,6 +103,76 @@ async function checkLiveWidgetReuse(context, base) {
     }
   } finally {
     await page.close();
+  }
+}
+
+async function checkCalibrationWidgets(context, base, data, telemetry) {
+  const [info, progress, notes, model, live] = await Promise.all(Array.from({ length: 5 }, () => context.newPage()));
+  const dataPath = path.join(data, 'data.json'), notePath = path.join(data, 'note.json');
+  const originalTelemetry = await fs.readFile(dataPath);
+  const originalNote = await fs.readFile(notePath).catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
+  const autoNote = JSON.stringify({ text: 'Ordinary fixture footer', manual: false });
+  let snapshot = telemetry;
+  const seed = async print => {
+    snapshot = { print, _bb_received_at: Date.now() };
+    const pending = dataPath + '.calibration-fixture';
+    await fs.writeFile(pending, JSON.stringify(snapshot));
+    await fs.rename(pending, dataPath);
+  };
+  const matches = (page, selector, hasText) => page.locator(selector).filter({ hasText }).waitFor();
+  const routeData = route => route.fulfill({ headers: { 'X-BambuBoard-Printer-Connection': 'online' }, json: snapshot });
+  const toolpathSource = { name: 'Calibration preview', id: 'browser_source', settings: { url: `${base}/widgets/gcode-viz/?mode=preview&debug=1`, width: 400, height: 360 } };
+  const scene = { id: 'scene', name: 'Calibration fixture', settings: { items: [{ name: toolpathSource.name, pos: { x: 0, y: 0 }, align: 5 }] } };
+  let publicFetches = 0;
+  try {
+    await seed(telemetry.print);
+    await fs.writeFile(notePath, autoNote);
+    await Promise.all([info, progress, model, live].map(page => page.route(base + '/data.json', routeData)));
+    await model.route(base + '/login-and-fetch-image', route => route.fulfill({ json: { imageUrl: base + '/assets/logo-h2d.png' } }));
+    await live.route(base + '/api/obs/active', route => route.fulfill({ json: { slug: 'calibration-fixture', updatedAt: 1 } }));
+    await live.route(base + '/api/obs/published', route => route.fulfill({ json: { resolution: { x: 640, y: 480 }, sources: [toolpathSource, scene] } }));
+    live.on('request', request => { if (new URL(request.url()).pathname === '/api/gcode/current') publicFetches++; });
+    await Promise.all([info.goto(base + '/widgets/print-info/'), progress.goto(base + '/widgets/progress-info/'),
+      notes.goto(base + '/widgets/notes/'), model.goto(base + '/widgets/model-image/'), live.goto(base + '/live')]);
+    const player = live.frameLocator('iframe[title="Calibration preview"]');
+    await matches(info, '#printModelName', /^Fixture print$/);
+    await matches(progress, '#printStatus', /47%/);
+    await matches(notes, '#noteDisplay', /^Ordinary fixture footer$/);
+    await model.locator('#modelImage[src$="/assets/logo-h2d.png"]').waitFor();
+    await player.locator('#gcodeCanvas').waitFor();
+    assert.equal(publicFetches, 1);
+
+    const name = 'auto_cali_for_user_param.gcode';
+    const calibration = { ...telemetry.print, _bb_job_id: 'heater calibration fixture', subtask_name: name,
+      gcode_file: '/usr/etc/print/' + name, layer_num: 0, stg_cur: 25, mc_percent: 16 };
+    await seed(calibration);
+    await Promise.all([matches(info, '#printModelName', /^Calibrating$/), matches(progress, '#printStatus', /^Calibrating$/),
+      matches(notes, '#noteDisplay', /^Calibrating$/), model.locator('#modelImage').waitFor({ state: 'hidden' }),
+      player.getByText('Calibrating', { exact: true }).waitFor()]);
+    for (const selector of ['#printCurrentLayer', '#printRemaining', '#printETA']) assert.equal(await info.locator(selector).textContent(), '—');
+    assert.equal(await player.locator('#gcodeRecovery').isVisible(), false);
+    assert.equal(await model.locator('#modelImage').getAttribute('src'), null);
+    assert.equal(await fs.readFile(notePath, 'utf8'), autoNote, 'Calibration is a transient footer label');
+    assert.equal(publicFetches, 1, 'Live does not fetch the calibration job');
+
+    await fs.writeFile(notePath, JSON.stringify({ text: 'My manual footer', manual: true }));
+    await matches(notes, '#noteDisplay', /^My manual footer$/);
+    await live.route('**/api/gcode/current*', route => route.fulfill({ status: 502, json: { code: 'FILE_NOT_FOUND', detail: 'Use Retry now or load a sliced file.', retryable: false } }));
+    await seed({ ...telemetry.print, _bb_job_id: 'ordinary print from cache', subtask_name: name,
+      gcode_file: '/cache/' + name, gcode_state: 'FINISH', mc_percent: 100 });
+    await matches(info, '#printModelName', /^auto_cali_for_user_param\.gcode$/);
+    await matches(progress, '#printStatus', /Print Complete/);
+    await model.locator('#modelImage[src$="/assets/logo-h2d.png"]').waitFor();
+    await player.getByText('Print preview unavailable.', { exact: true }).waitFor();
+    assert.equal(await player.locator('#gcodeRecovery').isVisible(), false);
+    assert.equal(await player.locator('#gcodeLog').isVisible(), false);
+    assert.equal(publicFetches, 2, 'An identically named user job still follows the ordinary transfer path');
+    await matches(notes, '#noteDisplay', /^My manual footer$/);
+  } finally {
+    await Promise.all([info, progress, notes, model, live].map(page => page.close()));
+    await fs.writeFile(dataPath, originalTelemetry);
+    if (originalNote) await fs.writeFile(notePath, originalNote);
+    else await fs.rm(notePath, { force: true });
   }
 }
 
@@ -539,6 +613,8 @@ async function checkAms3h(context, base, artifactDir) {
     await checkTelemetryFreshness(context, base, telemetry);
     await checkAms3h(context, base, artifactDir);
     await checkLiveWidgetReuse(context, base);
+    await checkCalibrationWidgets(context, base, data, telemetry);
+    await checkCameraRecovery(browser, artifactDir);
     // Old hosts, AMS/nozzle selection, custom themes and bindings survive an editor round-trip.
     const parameters = structuredClone(published);
     const ams = parameters.sources.find(source => source.settings?.url?.includes('/widgets/ams/'));
@@ -589,8 +665,8 @@ async function checkAms3h(context, base, artifactDir) {
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.deepEqual(errors, [], 'browser JavaScript errors');
     assert.deepEqual([...external], [], 'LAN operation must not request CDN assets');
-    await fs.writeFile(path.join(artifactDir, 'browser-results.json'), JSON.stringify({ layouts: layoutResults, widgets: widgets.length, errors, externalRequests: [...external] }, null, 2));
-    console.log(`Browser passed: ${layoutResults.length} responsive layouts, ${widgets.length} widgets, save/publish isolation, setup keyboard controls, HTTP capture detection, no external requests. Screenshots: ${artifactDir}`);
+    await fs.writeFile(path.join(artifactDir, 'browser-results.json'), JSON.stringify({ layouts: layoutResults, widgets: widgets.length, calibrationWidgets: true, cameraRecovery: true, errors, externalRequests: [...external] }, null, 2));
+    console.log(`Browser passed: ${layoutResults.length} responsive layouts, ${widgets.length} widgets, save/publish isolation, setup keyboard controls, HTTP capture detection, calibration and camera recovery, no external requests. Screenshots: ${artifactDir}`);
   } catch (error) { console.error(logs); throw error; }
   finally {
     await browser?.close(); server.kill('SIGTERM');

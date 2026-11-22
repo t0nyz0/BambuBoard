@@ -13,7 +13,7 @@ Show the printer camera, progress, temperatures, filament and toolpath in a sing
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-93-51a34f?style=flat-square)](.github/workflows/validate.yml)
+[![Server tests](https://img.shields.io/badge/server_tests-100-51a34f?style=flat-square)](.github/workflows/validate.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 [Quickstart](#quickstart) · [Install](#install-bambuboard) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
@@ -295,7 +295,7 @@ The dashboard and Setup are usable without a BambuBoard account. Keep BambuBoard
 - **Camera is black or unavailable:** check camera status separately from MQTT. On RTSP models, enable the printer's LAN liveview option where available and follow the widget's hint; menu names and firmware requirements vary. Verify port 322 and the server's FFmpeg relay. P1/A1-class types use port 6000 and the LAN access code instead.
 - **OBS shows nothing:** use `/live`, confirm the host address is reachable from the OBS machine, and publish a scene. Match the source dimensions to the canvas. Inspect `/live` in a browser on that machine to check the same output.
 - **AMS unit unavailable:** check `print.ams.ams` in `/data.json` and choose a reported array index. Clear an explicit `ams` parameter to use automatic selection.
-- **G-code cannot load:** open `/widgets/gcode-viz/?debug=1` to see the reason. Use **Retry now** and **Download diagnostics**; automatic retries are bounded to five attempts. Check port 990 and passive data access. Some firmware does not expose internal cloud-job files over FTPS. **Load sliced file** accepts the exact sliced `.gcode.3mf` / `.3mf` or `.gcode` for the current print; an unsliced model project has no toolpath. It also updates the cache for other viewers. Rendering requires WebGL 2 and is subject to file-size/line limits. See [G-code troubleshooting, recovery and protocol research](docs/gcode-resilience.md) for detailed error meanings and bounds.
+- **G-code cannot load:** select the G-code widget in the Scene Editor and choose **Open toolpath preview**, or open `/widgets/gcode-viz/?mode=preview`. Use **Test G-code connection** in Setup to check printer file access and **Retry now**, **Download diagnostics**, or **Load sliced file** in the preview. The manual upload takes the exact sliced `.3mf` or `.gcode` for the current print. [G-code troubleshooting and limits](docs/gcode-resilience.md)
 
 ## Migrating from older versions
 

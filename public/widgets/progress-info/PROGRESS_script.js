@@ -7,6 +7,13 @@ async function updateUI(telemetryObject) {
     let printStatus = telemetryObject.gcode_state;
     let progressParentWidth = $("#printParentProgressBar").width();
     const percent = BBTelemetry.number(telemetryObject.mc_percent);
+    const job = BBGcodeJob.describe(telemetryObject);
+    if (job.calibration) {
+      $('#printStatus').text(BBGcodeJob.calibrationStatus(telemetryObject, job));
+      const width = job.calibrating && percent !== null ? Math.min(100, Math.max(0, percent)) * progressParentWidth / 100 : 0;
+      $('#printProgressBar').width(width).css('background-color', '#4a90e2');
+      return;
+    }
 
     if (printStatus === "RUNNING") {
       const pctText = "Printing... " + percent + "%";
@@ -82,7 +89,7 @@ async function updateUI(telemetryObject) {
 
 BBTelemetry.poll(updateUI, {
   ready: print => BBTelemetry.hasPrintState(print) &&
-    (!['RUNNING', 'PAUSE', 'PAUSED'].includes(print.gcode_state) || BBTelemetry.number(print.mc_percent) !== null),
+    (BBGcodeJob.describe(print).calibration || !['RUNNING', 'PAUSE', 'PAUSED'].includes(print.gcode_state) || BBTelemetry.number(print.mc_percent) !== null),
   showStatus(message) {
     if (!message) return;
     $('#printStatus').text(message);

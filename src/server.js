@@ -15,6 +15,8 @@ const { sameOrigin } = require('./lib/requestOrigin');
 const { samePrinterConnection } = require('./lib/printerConnection');
 const { checkContainerData } = require('./lib/containerData');
 const { publicTelemetry } = require('./lib/cameraTelemetry');
+const { calibrationStatus } = require('../public/js/gcode-job');
+const { reading } = require('../public/widgets/_telemetry');
 
 const ROOT = path.resolve(__dirname, '..');
 const paths = {
@@ -138,14 +140,21 @@ app.use('/', buildAuthRouter({ getConfig, saveConfig, paths }));
 // doesn't need editing (and keeps OBS scene URLs stable).
 const fsp = fs.promises;
 app.get('/note', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
-    const raw = JSON.parse(await fsp.readFile(path.join(paths.data, 'note.json'), 'utf-8'));
-    const content = typeof raw.text === 'string' ? raw.text
-                  : typeof raw.content === 'string' ? raw.content
-                  : '';
+    const raw = await fsp.readFile(path.join(paths.data, 'note.json'), 'utf-8')
+      .then(JSON.parse, error => { if (error.code !== 'ENOENT') throw error; return {}; });
+    if (!raw.manual) {
+      // A built-in job has no model. Display its state without saving it as
+      // a print note or altering a manually set footer.
+      let currentPrint;
+      try { currentPrint = reading(JSON.parse(await fsp.readFile(DATA_FILE, 'utf-8'))).print; } catch (_) {}
+      const status = calibrationStatus(currentPrint);
+      if (status) return res.json({ content: status });
+    }
+    const content = typeof raw.text === 'string' ? raw.text : typeof raw.content === 'string' ? raw.content : '';
     res.json({ content });
   } catch (e) {
-    if (e.code === 'ENOENT') return res.json({ content: '' });
     res.status(500).json({ error: e.message });
   }
 });
@@ -201,7 +210,7 @@ app.get('/status', (req, res) => {
 
 // RTSP video relay — must be mounted before the page router catch-all.
 // Uses express-ws under the hood, so this augments the app with ws() support.
-buildVideoRouter({ app, getConfig, dataPath: DATA_FILE, getCameraTelemetry: () => printer.cameraTelemetry });
+const videoRoutes = buildVideoRouter({ app, getConfig, dataPath: DATA_FILE, getCameraTelemetry: () => printer.cameraTelemetry });
 
 // YouTube/RTMP stream relay — registered after the video relay so express-ws
 // is already applied to the app.
@@ -236,8 +245,8 @@ let shuttingDown = false;
   shuttingDown = true;
   console.log(`\n[bambuboard] received ${sig}, shutting down`);
   try { printer.stop(); } catch (_) {}
-  const deadline = setTimeout(() => { streamRoutes.forceStop(); process.exit(0); }, 10000);
+  const deadline = setTimeout(() => { videoRoutes.forceStop(); streamRoutes.forceStop(); process.exit(0); }, 10000);
   deadline.unref();
-  await Promise.allSettled([configWrites, gcodeRoutes.stop(), streamRoutes.stop()]);
+  await Promise.allSettled([configWrites, gcodeRoutes.stop(), streamRoutes.stop(), videoRoutes.stop()]);
   process.exit(0);
 }));

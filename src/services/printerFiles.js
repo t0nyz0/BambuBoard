@@ -247,6 +247,7 @@ async function probePrinterFiles({ host, port = FTPS_PORT, accessCode, model, ti
 async function fetchPlateGcode(options) {
   const { host, port = FTPS_PORT, accessCode, model, signal, onEvent = () => {}, limits = LIMITS } = options;
   const job = options.job || describe({ subtask_name: options.subtaskName, plate_idx: options.plateIdx });
+  if (job.calibration) throw new GcodeError('CALIBRATING', 'The printer’s built-in calibration has no toolpath preview.', { status: 409, stage: 'telemetry' });
   const plan = candidates(job, model);
   let client, stage = 'connect', expired = false;
   const abort = () => client?.close();

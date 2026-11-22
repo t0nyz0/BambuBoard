@@ -43,7 +43,11 @@ function reconnectJob(previous, current, waitingForIdentity) {
   if (['IDLE', 'FAILED'].includes(current.gcode_state) || startsNewJob(previous, current)) return 'different';
   const before = describe(previous);
   const after = describe({ ...current, _bb_job_id: previous._bb_job_id });
-  if (after.available && before.key === after.key) return 'same';
+  if ((after.available || after.calibration) && before.key === after.key) return 'same';
+  // This reserved path is conclusive even when an MQTT reconnect supplies it
+  // in a different field or arrives before the rest of the identity.
+  if (after.calibration) return before.calibration ? 'same' : 'different';
+  if (before.calibration && after.available) return 'different';
   const conflict = ['task_id', 'subtask_id'].some(key => id(previous[key]) && id(current[key]) && id(previous[key]) !== id(current[key]))
     || ['name', 'file', 'param', 'url'].some(key => before[key] && after[key] && before[key] !== after[key])
     || (before.plateKnown && after.plateKnown && before.plate !== after.plate);
@@ -55,7 +59,12 @@ function reconnectJob(previous, current, waitingForIdentity) {
 
 function mergePrint(previous = {}, delta = {}) {
   const newLifecycle = startsNewJob(previous, delta);
-  const changed = ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'url'].some(key =>
+  const before = describe(previous);
+  const next = describe(delta);
+  const calibrationChanged = before.calibration !== next.calibration
+    && (next.calibration || (before.calibration
+      && [next.file, next.param, next.url].some(locator => /\.(?:gcode|3mf)$/i.test(locator))));
+  const changed = calibrationChanged || ['task_id', 'subtask_id', 'subtask_name', 'gcode_file', 'url'].some(key =>
     Object.hasOwn(delta, key) && id(previous[key]) && id(delta[key]) && id(previous[key]) !== id(delta[key]));
   const base = { ...previous };
   if (newLifecycle || changed) for (const key of JOB_FIELDS) delete base[key];

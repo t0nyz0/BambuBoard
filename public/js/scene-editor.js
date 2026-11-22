@@ -858,7 +858,6 @@ function previewSourceKey(source) {
 
 function removePreviewItem(node) {
   node.remove();
-  node._previewPlayer?.destroy();
 }
 
 function render () {
@@ -1006,13 +1005,7 @@ function renderItem (item, idx, replacing) {
       div.style.whiteSpace = 'nowrap';
       body.appendChild(div);
     } else if (src.id === 'ffmpeg_source' || src.id === 'vlc_source' || src.id === 'rtsp_source') {
-      // OBS Media Source — typically the printer's RTSP/SDP camera feed.
-      // We can't play raw RTSP in browser without a relay, so we render either:
-      //   - a per-source override URL the user has set (an MJPEG stream, mp4
-      //     loop, or any browser-playable media URL), stored in localStorage
-      //     keyed by source UUID so it persists across page loads
-      //   - otherwise a placeholder telling the user this is where their
-      //     camera feed will appear in OBS
+      // Match Live's printer camera unless this editor has a preview override.
       const overrideKey = `bb-media-override:${src.uuid || src.name}`;
       const overrideUrl = localStorage.getItem(overrideKey);
       if (overrideUrl) {
@@ -1026,36 +1019,7 @@ function renderItem (item, idx, replacing) {
         tag.style.background = '#000';
         body.appendChild(tag);
       } else {
-        // Try the RTSP relay WebSocket endpoint (if available).
-        // JSMpeg renders MPEG-TS into a <canvas> element.
-        fetch('/api/printer/video/status').then(r => r.json()).then(status => {
-          if (!node.isConnected) return;
-          if (status.available && typeof JSMpeg !== 'undefined') {
-            const canvas = document.createElement('canvas');
-            canvas.style.width = '100%';
-            canvas.style.height = '100%';
-            canvas.style.background = '#000';
-            body.appendChild(canvas);
-            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProto}//${location.host}/api/printer/video`;
-            try {
-              node._previewPlayer = new JSMpeg.Player(wsUrl, {
-                canvas: canvas,
-                autoplay: true,
-                audio: false,
-                loop: true,
-                onSourceEstablished: () => { console.log('RTSP stream connected'); },
-              });
-            } catch (e) {
-              console.warn('JSMpeg connect failed:', e);
-              showMediaPlaceholder(body, item.name, status.hint);
-            }
-          } else {
-            showMediaPlaceholder(body, item.name, status.hint);
-          }
-        }).catch(() => {
-          showMediaPlaceholder(body, item.name);
-        });
+        body.appendChild(mkIframe('/widgets/camera/index.html', item.name, sz));
       }
     } else {
       // Unknown source type — fall back to a labeled placeholder.
@@ -1107,6 +1071,10 @@ function queryOf(url) {
 function widgetParams(slug, source) {
   const url = source?.settings?.url || '';
   const params = new URLSearchParams(queryOf(url));
+  if (slug === 'gcode-viz') {
+    params.delete('mode');
+    params.delete('layers');
+  }
   const cust = state.customizations[customizationKeyOf(source)];
   if (cust) {
     for (const key of customizationParams(slug)) {
@@ -1772,6 +1740,9 @@ function refreshInspector () {
   gcodeView.hidden = slug !== 'gcode-viz';
   gcodeView.disabled = viewportLocked;
   if (!gcodeView.hidden) {
+    const previewUrl = new URL(widgetUrlForPreview(slug, src), location.origin);
+    previewUrl.searchParams.set('mode', 'preview');
+    document.getElementById('gcode-preview-link').href = previewUrl.href;
     const view = BBGcodeView.normalize(cust.view, cust.zoom);
     setValue('gcode-view', view.view);
     setValue('gcode-zoom', view.zoom);
@@ -2086,9 +2057,10 @@ function applyChangesToCollection () {
   if (scene) scene.settings.items = structuredClone(state.items);
   clone.sources.forEach(source => {
     if (!isWidgetSrc(source)) return;
+    const slug = widgetSlugOf(source);
     const cust = state.customizations[customizationKeyOf(source)];
-    if (!cust) return;
-    const params = widgetParams(widgetSlugOf(source), source);
+    if (!cust && slug !== 'gcode-viz') return;
+    const params = widgetParams(slug, source);
     const [base] = source.settings.url.split(/[?#]/, 1);
     const hashAt = source.settings.url.indexOf('#');
     source.settings.url = base + (params.size ? `?${params}` : '') + (hashAt < 0 ? '' : source.settings.url.slice(hashAt));
@@ -2246,25 +2218,6 @@ async function refreshSavedScenes (selectSlug) {
 
 
 function escape (s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
-
-function showMediaPlaceholder (body, name, hint) {
-  const setupSteps = [
-    'On the printer touchscreen:',
-    'Settings → Network → LAN Only Liveview → ON',
-    'Reboot the printer after toggling',
-    'Firmware 01.06+ required for RTSP',
-  ];
-  const setupHtml = `<div style="margin-top:8px;font-size:9px;line-height:1.5;opacity:0.55;text-align:left;max-width:280px;margin-left:auto;margin-right:auto">${setupSteps.map(s => s).join('<br>')}</div>`;
-  const hintHtml = hint
-    ? `<div class="ptype" style="margin-top:6px;font-size:10px;color:#e2a04a">${escape(hint)}</div>${setupHtml}`
-    : `<div class="ptype" style="margin-top:4px;font-size:10px;opacity:0.6">Click to set a manual preview URL in the inspector</div>${setupHtml}`;
-  body.innerHTML = `
-    <div class="pname">📹 ${escape(name)}</div>
-    <div class="ptype">Camera / video feed</div>
-    ${hintHtml}
-  `;
-  body.parentElement?.classList.add('placeholder');
-}
 
 // Canvas size belongs to the whole draft. The browser source reads the applied
 // size from Live.

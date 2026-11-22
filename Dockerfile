@@ -3,7 +3,7 @@ FROM node:24-alpine3.24
 WORKDIR /usr/src/app
 
 # Use Alpine's maintained FFmpeg instead of the older static download.
-# ffmpeg-static and rtsp-relay both honor this path, including during install.
+# ffmpeg-static honors this path, including during install.
 # SwiftShader supplies WebGL on NAS/server hosts without a usable GPU.
 RUN apk upgrade --no-cache && apk add --no-cache ffmpeg chromium chromium-swiftshader ca-certificates
 ENV FFMPEG_BIN=/usr/bin/ffmpeg

@@ -4,7 +4,7 @@ The widget downloads the current print's sliced file, extracts its plate and ren
 
 ## Recover a failed preview
 
-1. Open `http://<bambuboard-host>:8080/widgets/gcode-viz/?debug=1` directly. A failure displays its reason rather than an indefinite loading spinner.
+1. Select the G-code widget in the Scene Editor and choose **Open toolpath preview**, or open `/widgets/gcode-viz/?mode=preview` directly. Append `&debug=1` to see the layer scrubber and event log. The broadcast view keeps recovery controls hidden.
 2. Use **Download diagnostics**. The JSON includes the widget timeline, renderer/browser information and the last server attempt, with stages, paths checked, reply/error codes, sizes and timing. The server also stores the last report in `data/gcode-diagnostics.json` and logs failures to Docker output. LAN access codes and signed cloud URLs are excluded. Job filenames remain in the report.
 3. Correct the address/access code in Setup or make file transfer reachable, then use **Retry now**. The widget makes at most five automatic attempts per job. Server cooldowns prevent multiple widgets from repeatedly opening connections to the same failing printer.
 4. If the printer cannot expose its sliced file, use **Load sliced file** with the exact sliced `.3mf` or `.gcode` used for this print. A design-only 3MF has no toolpath. The file is checked and saved under this print's cache identity; other widgets can then retrieve it. A different print or a reprint starts a new identity. A mismatched plate or bad upload preserves the existing valid cache.
@@ -27,7 +27,7 @@ The self-test performs only reads and uses the same downloader as the widget. It
 | `PLATE_NOT_FOUND`, `PLATE_AMBIGUOUS` | The printer-reported plate and available archive plates. Another plate is never substituted for a known requested plate. |
 | `FILE_TRUNCATED`, `FILE_CORRUPT`, `ARCHIVE_INVALID` | Interrupted transfer, invalid ZIP/CRC or mismatched slicer MD5. Re-export the sliced plate if retrying does not resolve it. |
 | Browser/renderer error | WebGL 2 and hardware acceleration in the browser/OBS; context loss. Download diagnostics and use Retry now after correcting the renderer configuration. |
-| Preview limit | Toolpaths up to 64 MiB and 2,000,000 lines are supported. Larger plates must be opened in Bambu Studio. Retrying or uploading the same file cannot change the limit; these errors show diagnostics without ineffective recovery buttons. |
+| Preview limit | The viewer accepts sliced G-code up to 250 MiB. Exceptionally dense geometry can reach the renderer's workload limit. Open those plates in Bambu Studio. |
 
 ## Protocol and storage research
 
@@ -43,9 +43,9 @@ Reviewed October 7, 2026. These are primary project sources and observed issue r
 
 ## Bounds and correctness
 
-- Each lookup has a 90-second total deadline, 15-second socket inactivity limit, and at most one fresh-session retry for transient transport/corruption failures. Login failures and missing-file sweeps fail promptly. Concurrent requests for the same job share one download; a newer print cancels obsolete work.
-- Download/ZIP input: 128 MiB. Extracted G-code: 64 MiB. Archive entries: 20,000. FTP directory listing: 1 MiB. Browser preview: 64 MiB and 2,000,000 lines. Oversized input produces an actionable error. The parser reads batches of 5,000 lines without splitting the complete file into a second array and yields between batches; it does not repeatedly rebuild geometry while parsing.
-- Loading shows file retrieval, download size/percentage, processing percentage and rendering as separate stages. The high-contrast status remains visible until the requested preview has rendered. Its busy state is exposed to assistive technology; reduced-motion preferences disable the pulse animation.
+- File discovery has a 90-second deadline, a 15-second socket inactivity limit, and at most one fresh-session retry for transient transport or corruption failures. A progressing transfer can outlast the discovery deadline. Concurrent requests for the same job share one download. A newer print cancels obsolete work.
+- Compressed archive limit is 128 MiB, and raw or extracted G-code limit is 250 MiB. The archive entry limit is 20,000 and the FTP directory listing limit is 1 MiB. The browser streams and parses commands in batches. Its geometry, layer, and retained-command limits bound rendering cost independently of the raw line count.
+- The viewer reports file retrieval, transferred bytes, processing, and rendering. While a plate loads, use **Cancel** in the operator preview. The viewer times out after 30 seconds without transfer progress. Its busy state is exposed to assistive technology, and reduced-motion preferences disable the pulse animation.
 - The widget owns one drawing loop. Finished views skip identical redraws and limit camera settling to five draws per second; active print animation continues normally. This keeps large plates usable in software-rendered NAS capture.
 - Waiting for a status paint has a bounded fallback, so browsers suspending animation frames in an obscured/offscreen widget cannot leave loading stuck. Docker images include Chromium's software graphics library for WebGL on NAS/server hosts without a usable GPU; both native architectures exercise the real widget in CI.
 - Reported `gcode_file`/`param` plate filenames take precedence over positive plate fields. Zero IDs do not make a print unusable. If no plate is identified, a single-plate archive can be resolved; a multi-plate archive remains ambiguous.

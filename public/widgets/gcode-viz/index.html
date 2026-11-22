@@ -104,6 +104,8 @@
       }
       .gcode-log.show { display: block; }
       .gcode-stage.error-state .gcode-debug,
+      .gcode-stage.calibration-state .gcode-debug,
+      .gcode-stage.calibration-state .gcode-log,
       .gcode-stage[aria-busy="true"] .gcode-debug { display: none; }
       .gcode-stage.error-state .gcode-log {
         top: auto; bottom: calc(8% + 65px); max-height: 35%;

@@ -310,8 +310,11 @@
     try {
       const response = await fetch('/api/printer/video/status', { signal: AbortSignal.timeout(4000) });
       const video = response.ok ? await response.json() : null;
-      document.getElementById('connect-camera').textContent = video?.available ? `${video.cameraType === 'rtsp' ? 'RTSP' : 'Chamber image'} available` : 'Unavailable';
-      document.getElementById('connect-camera-hint').textContent = video?.available ? '' : (video?.hint || 'Camera availability does not affect the printer connection.');
+      const states = { idle: 'Ready when opened', connecting: 'Connecting…', streaming: 'Streaming', reconnecting: 'Reconnecting…', unavailable: 'Unavailable' };
+      document.getElementById('connect-camera').textContent = video?.available
+        ? video.cameraType === 'rtsp' ? states[video.state] || 'Ready when opened' : 'Chamber image available'
+        : 'Unavailable';
+      document.getElementById('connect-camera-hint').textContent = video?.hint || (video?.available ? '' : 'Camera availability does not affect the printer connection.');
     } catch (_) {
       document.getElementById('connect-camera').textContent = 'Status unavailable';
       document.getElementById('connect-camera-hint').textContent = '';

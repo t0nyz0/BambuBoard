@@ -3,6 +3,8 @@
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.BBGcodeJob = factory();
 })(typeof globalThis === 'object' ? globalThis : this, function () {
+  const calibrationPath = '/usr/etc/print/auto_cali_for_user_param.gcode';
+  const activeStates = new Set(['RUNNING', 'PREPARE', 'SLICING', 'PAUSE', 'PAUSED']);
   function text(value) {
     return typeof value === 'string' || typeof value === 'number' ? String(value).trim().slice(0, 1024) : '';
   }
@@ -27,7 +29,19 @@
     const task = id(print.subtask_id) || id(print.task_id);
     const generation = text(print._bb_job_id);
     const key = JSON.stringify([generation, id(print.task_id), id(print.subtask_id), name, file, param, url, plate, plateKnown]);
-    return { key, task, name, file, param, url, plate, plateKnown, available: Boolean(name || file || url) };
+    // A user can give a print the same name. Only the firmware's reserved
+    // system path identifies this built-in calibration job.
+    const calibration = [file, param, url].includes(calibrationPath);
+    const calibrating = calibration && activeStates.has(print.gcode_state);
+    return { key, task, name, file, param, url, plate, plateKnown, calibration, calibrating,
+      available: !calibration && Boolean(name || file || url) };
   }
-  return { describe, id, filePath };
+  function calibrationStatus(print, job = describe(print)) {
+    if (!job.calibration) return '';
+    if (job.calibrating) return 'Calibrating';
+    if (print.gcode_state === 'FINISH') return 'Calibration complete';
+    if (print.gcode_state === 'FAILED') return 'Calibration failed';
+    return 'Waiting for print';
+  }
+  return { describe, id, filePath, calibrationStatus };
 });

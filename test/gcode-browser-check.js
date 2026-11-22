@@ -84,7 +84,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     res.json({ print, _bb_received_at: Date.now() - (telemetryStale ? 65000 : 0) });
   });
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
-  app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&view=front&zoom=125" width="640" height="640"></iframe>'));
+  app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&mode=preview&view=front&zoom=125" width="640" height="640"></iframe>'));
   app.get('/api/gcode/current', (_req, res, next) => {
     if (['slow-response', 'stalled-response', 'truncated-response'].includes(mode)) {
       count++;
@@ -138,7 +138,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     context.on('request', req => { if (!req.url().startsWith(base) && !req.url().startsWith('blob:') && !req.url().startsWith('data:')) external.add(req.url()); });
     const page = await context.newPage();
-    const open = settings => page.goto(base + '/widgets/gcode-viz/?' + new URLSearchParams({ debug: '1', ...settings }));
+    const open = settings => page.goto(base + '/widgets/gcode-viz/?' + new URLSearchParams({ debug: '1', mode: 'preview', ...settings }));
     const rendered = async () => {
       await page.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')));
       assert.ok(await page.evaluate(() => window.__preview.layers.length > 0 && window.__preview.renderer.info.render.calls > 0));
@@ -147,6 +147,45 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     await open(); await rendered(); assert.equal(count, 1);
     await page.screenshot({ path: path.join(artifacts, 'gcode-rendered.png') });
     passed.push('Real HTTP/FTPS/ZIP/WebGL path renders a zero-ID LAN job');
+
+    const calibrationName = 'auto_cali_for_user_param.gcode';
+    const calibrationPath = '/usr/etc/print/' + calibrationName;
+    const beforeCalibration = count;
+    const renderedBeforeCalibration = await page.evaluate(() => window.__log().filter(line => line.includes('loadGcode OK')).length);
+    await write(calibrationName, 'RUNNING', { gcode_file: calibrationPath, stg_cur: 25, mc_percent: 16 });
+    await page.getByText('Calibrating', { exact: true }).waitFor();
+    assert.equal(await page.locator('#gcodeCanvas').isVisible(), false);
+    assert.equal(await page.locator('#gcodeRecovery').isVisible(), false);
+    assert.ok(await page.evaluate(() => window.__preview.layers.every(layer => layer.commands.length === 0)));
+    const calibrationGet = await fetch(base + '/api/gcode/current');
+    assert.equal(calibrationGet.status, 409);
+    assert.equal((await calibrationGet.json()).code, 'CALIBRATING');
+    const calibrationPost = await fetch(base + '/api/gcode/current', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: sampleBytes });
+    assert.equal(calibrationPost.status, 409);
+    assert.equal((await calibrationPost.json()).code, 'CALIBRATING');
+    assert.equal((await fetch(base + '/api/gcode/progress')).status, 204);
+    await page.waitForTimeout(1800);
+    assert.equal(count, beforeCalibration, 'Built-in calibration cannot fetch, retry, or upload an ordinary toolpath');
+
+    files['/cache/' + calibrationName] = sampleBytes;
+    await write(calibrationName, 'FINISH', { _bb_job_id: 'user job with calibration basename', gcode_file: '/cache/' + calibrationName, mc_percent: 100 });
+    await page.locator('#gcodeOverlay').waitFor({ state: 'hidden' });
+    await page.waitForFunction(previous => window.__log().filter(line => line.includes('loadGcode OK')).length > previous, renderedBeforeCalibration);
+    await rendered();
+    assert.equal(count, beforeCalibration + 1, 'An identically named user file from ordinary storage still renders');
+    passed.push('Calibration clears the previous preview, blocks transfer and recovery controls, and restores rendering for a similarly named ordinary print');
+
+    await write('Public missing file', 'FINISH', { mc_percent: 100 });
+    await page.goto(base + '/widgets/gcode-viz/?debug=1');
+    await page.getByText('Print preview unavailable.', { exact: true }).waitFor();
+    for (const id of ['gcodeRetry', 'gcodeDownloadLog', 'gcodeFileButton', 'gcodeCancel', 'gcodeDebug', 'gcodeLog']) {
+      assert.equal(await page.locator('#' + id).isVisible(), false, `Public widget exposed ${id}`);
+    }
+    await write(calibrationName, 'RUNNING', { gcode_file: calibrationPath, stg_cur: 25, mc_percent: 16 });
+    await page.getByText('Calibrating', { exact: true }).waitFor();
+    assert.equal(await page.locator('#gcodeRecovery').isVisible(), false);
+    await page.screenshot({ path: path.join(artifacts, 'gcode-live-calibrating.png') });
+    passed.push('The default browser source shows a concise public error and calibration status without operator controls');
 
     await write('Missing file'); await open();
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('cannot expose'));
@@ -270,10 +309,12 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     await writePacket({ _bb_job_pending: true, gcode_state: 'RUNNING', gcode_file: '/data/Metadata/plate_1.gcode' });
     await page.getByText('Waiting for print details', { exact: true }).waitFor();
     await write('Next job'); files['/Next job.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
-    await rendered(); const loaded = count; releaseSlow(); releaseSlow = null;
+    await rendered(); const loaded = count;
+    const confirmedCache = (await fs.readdir(path.join(data, 'gcode-cache'))).sort();
+    releaseSlow(); releaseSlow = null;
     await page.waitForTimeout(1000); assert.equal(count, loaded);
     assert.equal(await page.locator('#gcodeOverlay').isVisible(), false);
-    assert.equal((await fs.readdir(path.join(data, 'gcode-cache'))).length, 4);
+    assert.deepEqual((await fs.readdir(path.join(data, 'gcode-cache'))).sort(), confirmedCache, 'The obsolete download cannot update the cache');
     passed.push('A confirmed new print renders after a provisional report while its obsolete download is still pending');
 
     // Accelerate the inactivity wait on this page only. The standalone
@@ -305,7 +346,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
       responseBody = null;
       mode = nextMode;
       await write(job, state);
-      await transport.goto(base + '/widgets/gcode-viz/?debug=1');
+      await transport.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
     };
     const transportRendered = () => transport.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')) && window.__preview.renderer.info.render.calls > 0);
     const progressReceipts = [];
@@ -511,7 +552,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     await write('Worker unavailable', 'FINISH');
     const fallback = await context.newPage();
     await fallback.addInitScript(() => { window.Worker = class { constructor() { throw new Error('Worker blocked in fixture'); } }; });
-    await fallback.goto(base + '/widgets/gcode-viz/?debug=1');
+    await fallback.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
     await fallback.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')));
     assert.deepEqual(await renderedToolpath(fallback), smallPreview);
     await fallback.close();
@@ -539,7 +580,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     files['/Suspended animation frames.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
     const suspended = await context.newPage();
     await suspended.addInitScript(() => { window.requestAnimationFrame = () => 0; window.cancelAnimationFrame = () => {}; });
-    await suspended.goto(base + '/widgets/gcode-viz/?debug=1');
+    await suspended.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
     await suspended.waitForFunction(() => window.__log?.().some(line => line.includes('loadGcode OK')), null, { polling: 100 });
     assert.equal(await suspended.locator('#gcodeOverlay').isVisible(), false);
     assert.equal(await suspended.locator('.gcode-stage').getAttribute('aria-busy'), 'false');
@@ -583,7 +624,7 @@ const largeToolpathBytes = Buffer.byteLength(modalSample) + paddingLines * paddi
     const disabled = await browser.newContext({ viewport: { width: 640, height: 640 } });
     await disabled.addInitScript(() => { const get = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (type, ...args) { return /webgl/.test(type) ? null : get.call(this, type, ...args); }; });
     const noWebGL = await disabled.newPage();
-    await noWebGL.goto(base + '/widgets/gcode-viz/');
+    await noWebGL.goto(base + '/widgets/gcode-viz/?mode=preview');
     await noWebGL.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('WebGL 2'));
     assert.equal(await noWebGL.locator('#gcodeDownloadLog').isVisible(), true);
     await noWebGL.screenshot({ path: path.join(artifacts, 'gcode-no-webgl.png') });
