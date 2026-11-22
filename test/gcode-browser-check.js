@@ -91,6 +91,16 @@ function onRasterMotion(plate, layer, position) {
   const [x, y, z] = position.map(value => value * 100);
   const [liftX, liftY, surface] = rasterPoint(layer, 1);
   const tolerance = 0.12; // Allow Float32 coordinate rounding.
+  if (layer > 1) {
+    const previous = rasterPoint(layer - 1, layerShare(plate.segments, plate.layers, layer - 1));
+    const start = rasterPoint(layer, 0);
+    const direction = start.map((value, i) => value - previous[i]);
+    const relative = [x, y, z].map((value, i) => value - previous[i]);
+    const dot = direction.reduce((sum, value, i) => sum + value * relative[i], 0);
+    const lengthSquared = direction.reduce((sum, value) => sum + value * value, 0);
+    const fraction = Math.min(1, Math.max(0, dot / lengthSquared));
+    if (Math.hypot(...relative.map((value, i) => value - fraction * direction[i])) < tolerance) return true;
+  }
   if (Math.abs(x - liftX) < tolerance && Math.abs(y - liftY) < tolerance
     && z >= surface - tolerance && z <= surface + travelLiftCenti + tolerance) return true;
   if (Math.abs(z - surface) > tolerance) return false;
