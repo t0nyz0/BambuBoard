@@ -1,78 +1,66 @@
 const SOURCE_BLOCK_CHARACTERS = 192 * 1024;
 const MOVE_BLOCK_SIZE = 1024;
 // Checkpoints and replay windows share this command boundary. The character
-// bound can also split a compressed block when unusually long lines require it.
+// bound can also split a source block when unusually long lines require it.
 export const MOTION_WINDOW_LINES = 2048;
 
 export function createPackedMotionSource() {
   const blocks = [];
-  const encoder = new TextEncoder();
-  const compress = typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
   let pending = [];
   let characters = 0;
   let count = 0;
   let sourceBytes = 0;
-  let rawSourceBytes = 0;
   let pendingStart = 0;
+  let writeMs = 0;
+
+  function flush() {
+    if (!pending.length) return;
+    // Keep immutable source in bounded Blob blocks. Encoding happens in
+    // the ingestion worker without waiting for serial compression.
+    const start = performance.now();
+    const blob = new Blob([pending.join('')]);
+    writeMs += performance.now() - start;
+    blocks.push({ first: pendingStart, end: count, blob });
+    pending = [];
+    characters = 0;
+    pendingStart = count;
+    sourceBytes += blob.size;
+  }
 
   return {
     get count() { return count; },
-    get sourceBytes() { return sourceBytes; },
-    get rawSourceBytes() { return rawSourceBytes; },
     append(line) {
-      // The caller retains only commands that affect the interpreted path.
       // A trailing comment contains no modal data and never needs replay.
       const comment = line.indexOf(';');
       const command = comment === -1 ? line : line.slice(0, comment);
       pending.push(command, '\n');
       characters += command.length + 1;
       count++;
-      return characters >= SOURCE_BLOCK_CHARACTERS || count % MOTION_WINDOW_LINES === 0;
+      if (characters >= SOURCE_BLOCK_CHARACTERS || count % MOTION_WINDOW_LINES === 0) flush();
     },
-    async flush(signal) {
-      if (!pending.length) return;
-      signal?.throwIfAborted();
-      const bytes = encoder.encode(pending.join(''));
-      pending = [];
-      characters = 0;
-      let blob;
-      if (compress) {
-        const compressor = new CompressionStream('gzip');
-        const writer = compressor.writable.getWriter();
-        const stream = new Response(compressor.readable).blob();
-        const [, result] = await Promise.all([
-          writer.write(bytes).then(() => writer.close()),
-          stream,
-        ]);
-        blob = result;
-      } else {
-        blob = new Blob([bytes]);
-      }
-      signal?.throwIfAborted();
-      blocks.push({ first: pendingStart, end: count, blob });
-      pendingStart = count;
-      sourceBytes += blob.size;
-      rawSourceBytes += bytes.byteLength;
-    },
-    async replay(start, end, signal, consume) {
-      let lo = 0;
-      let hi = blocks.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >>> 1;
-        if (blocks[mid].end <= start) lo = mid + 1;
-        else hi = mid;
-      }
-      for (let i = lo; i < blocks.length && blocks[i].first < end; i++) {
-        signal?.throwIfAborted();
-        const block = blocks[i];
-        const decoder = compress ? new DecompressionStream('gzip') : new TransformStream();
-        const readable = block.blob.stream().pipeThrough(decoder, { signal });
-        const lines = (await new Response(readable).text()).split('\n');
-        signal?.throwIfAborted();
-        if (await consume(lines, Math.max(0, start - block.first), Math.min(block.end, end) - block.first) === false) break;
-      }
+    finish() {
+      flush();
+      return { blocks, sourceBytes, writeMs };
     },
   };
+}
+
+export async function replayPackedMotionSource(blocks, start, end, signal, consume) {
+  let lo = 0;
+  let hi = blocks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (blocks[mid].end <= start) lo = mid + 1;
+    else hi = mid;
+  }
+  for (let i = lo; i < blocks.length && blocks[i].first < end; i++) {
+    signal?.throwIfAborted();
+    const block = blocks[i];
+    const readable = block.blob.stream().pipeThrough(new TransformStream(), { signal });
+    const lines = (await new Response(readable).text()).split('\n');
+    signal?.throwIfAborted();
+    if (await consume(lines, Math.max(0, start - block.first), Math.min(block.end, end) - block.first) === false) break;
+  }
 }
 
 function travelDistance(from, to, arc) {
@@ -127,25 +115,26 @@ export function indexMotionWindows(ranges, spans) {
       windows.push({ line, state, end, before, through, layer });
     }
     const last = windows.length - 1;
-    return {
-      duration, distance, moves, basis,
-      locate(fraction) {
-        if (!Number.isFinite(fraction)) return null;
-        if (fraction <= 0) return { index: first, fraction: 0 };
-        if (fraction >= 1) return { index: last, fraction: 1 };
-        const target = fraction * through;
-        let lo = first, hi = last;
-        while (lo < hi) {
-          const mid = (lo + hi) >>> 1;
-          if (windows[mid].through <= target) lo = mid + 1;
-          else hi = mid;
-        }
-        const { before, through: end } = windows[lo];
-        return { index: lo, fraction: Math.max(0, Math.min(1, (target - before) / (end - before))) };
-      },
-    };
+    return { duration, distance, moves, basis, first, last, through };
   });
   return { layers, windows };
+}
+
+export function locateMotionWindow(windows, layer, fraction) {
+  if (!Number.isFinite(fraction)) return null;
+  const { first, last, through } = layer;
+  if (fraction <= 0) return { index: first, fraction: 0 };
+  if (fraction >= 1) return { index: last, fraction: 1 };
+  const target = fraction * through;
+  let lo = first;
+  let hi = last;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (windows[mid].through <= target) lo = mid + 1;
+    else hi = mid;
+  }
+  const { before, through: end } = windows[lo];
+  return { index: lo, fraction: Math.max(0, Math.min(1, (target - before) / (end - before))) };
 }
 
 export function createWindowMoves() {

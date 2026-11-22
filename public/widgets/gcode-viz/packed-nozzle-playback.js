@@ -67,6 +67,11 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
   }
 
   return {
+    prime(index) {
+      const track = source.layer(index);
+      const first = track?.duration > 0 ? track.locate(0) : null;
+      if (first) buffer.select(first.index);
+    },
     live(index) {
       const changedLayer = selectLayer(index);
       if (changedLayer || mode !== 'live') {

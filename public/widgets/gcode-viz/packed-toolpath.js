@@ -1,6 +1,7 @@
 import { PreviewWorkloadError, PREVIEW_WORKLOAD_LIMITS } from './preview-workload.js';
 import {
-  addMotionWeights, createPackedMotionSource, createWindowMoves, indexMotionWindows, MOTION_WINDOW_LINES,
+  addMotionWeights, createPackedMotionSource, createWindowMoves, indexMotionWindows, locateMotionWindow,
+  replayPackedMotionSource, MOTION_WINDOW_LINES,
 } from './packed-motion-index.js';
 
 const CHUNK_SEGMENTS = 32_768;
@@ -178,13 +179,18 @@ function getCurve(move) {
   return describeArc(move.pos, move.next, move.params, move.units, move.clockwise);
 }
 
-function createMotionPlayback(parser, spool, ranges, spans) {
-  const { layers, windows } = indexMotionWindows(ranges, spans);
+export function restorePackedMotion(parser, descriptor) {
+  if (!descriptor) return null;
+  const { layers, windows, blocks, sourceBytes } = descriptor;
+  const tracks = layers.map(track => track?.through ? {
+    ...track,
+    locate: fraction => locateMotionWindow(windows, track, fraction),
+  } : track);
   return {
     windowCount: windows.length,
-    layer: index => layers[index] ?? null,
-    get sourceBytes() { return spool.sourceBytes; },
-    get rawSourceBytes() { return spool.rawSourceBytes; },
+    layer: index => tracks[index] ?? null,
+    sourceBytes,
+    rawSourceBytes: sourceBytes,
     async load(index, { signal, yieldTask = () => new Promise(resolve => setTimeout(resolve, 0)) } = {}) {
       signal?.throwIfAborted();
       const window = windows[index];
@@ -206,7 +212,7 @@ function createMotionPlayback(parser, spool, ranges, spans) {
         }
         moves.add(move.pos, move.next, move.deltaE, move.feed, move.extrusion, curve);
       };
-      await spool.replay(window.line, window.end, signal, async (lines, from, to) => {
+      await replayPackedMotionSource(blocks, window.line, window.end, signal, async (lines, from, to) => {
         let deadline = performance.now() + 8;
         for (let i = from; i < to; i++) {
           reader.read(parser.parseCommand(lines[i], false), onSetting, onMove);
@@ -231,6 +237,7 @@ export function createPackedToolpath(parser, {
   chunkSegments = CHUNK_SEGMENTS,
   signal,
   yieldTask,
+  transferable = false,
 } = {}) {
   const chunks = [];
   const allBounds = emptyBounds();
@@ -362,7 +369,6 @@ export function createPackedToolpath(parser, {
     }
     const command = parser.parseCommand(line, false);
     if (!isMotionSource(command.gcode)) return;
-    let flush = false;
     if (spool) {
       lineIndex = spool.count;
       if (lineIndex % MOTION_WINDOW_LINES === 0) {
@@ -370,11 +376,10 @@ export function createPackedToolpath(parser, {
         span = { start: { ...boundary, state: reader.snapshot() }, end: boundary };
         spans.push(span);
       }
-      flush = spool.append(line);
+      spool.append(line);
     }
     const pending = reader.read(command, captureTransition, onMove);
     if (spool) span.end.line = lineIndex + 1;
-    if (flush) return Promise.resolve(pending).then(() => spool.flush(signal));
     return pending;
   }
 
@@ -388,8 +393,19 @@ export function createPackedToolpath(parser, {
   }
 
   function result() {
-    return { chunks, layers, segmentCount, bounds: Number.isFinite(modelBounds[0]) ? modelBounds : allBounds,
-      motion: spool ? createMotionPlayback(parser, spool, ranges, spans) : null };
+    signal?.throwIfAborted();
+    let descriptor = null;
+    let timing;
+    if (spool) {
+      const { writeMs, ...source } = spool.finish();
+      const start = performance.now();
+      descriptor = { ...source, ...indexMotionWindows(ranges, spans) };
+      timing = { sourceMs: writeMs, indexMs: performance.now() - start };
+    }
+    return {
+      chunks, layers, segmentCount, bounds: Number.isFinite(modelBounds[0]) ? modelBounds : allBounds,
+      motion: transferable ? descriptor : restorePackedMotion(parser, descriptor), timing,
+    };
   }
 
   return {
@@ -397,9 +413,6 @@ export function createPackedToolpath(parser, {
       if (spool) return parseMotionBatch(lines);
       for (const line of lines) process(line);
     },
-    finish() {
-      if (spool) return spool.flush(signal).then(result);
-      return result();
-    },
+    finish: result,
   };
 }

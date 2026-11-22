@@ -11,7 +11,7 @@ import * as GCodePreview from '../../vendor/gcode-preview.esm.js';
 import * as THREE from '../../vendor/three.module.js';
 import { openToolpathFramer } from './toolpath-framing.js';
 import { createPreviewBudget, PREVIEW_WORKLOAD_LIMITS } from './preview-workload.js';
-import { createPackedToolpath } from './packed-toolpath.js';
+import { openPackedPreview } from './packed-preview-loader.js';
 import { buildPackedRenderer } from './packed-renderer.js';
 import { createPackedNozzleRenderer } from './packed-nozzle-renderer.js';
 import { createPackedNozzlePlayback } from './packed-nozzle-playback.js';
@@ -463,6 +463,7 @@ let packedPlayback = null;
 let packedCompositor = null;
 let packedViewDirty = true;
 let packedFrame = null;
+let startupReport = null;
 const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
@@ -588,24 +589,20 @@ function recomputeCumLayerTime() {
 // 0.12 mm). Find the index of the first parsed layer that looks like a real
 // model layer so we can translate model→parsed.
 let modelLayerOffset = 0;
-function recomputeModelLayerOffset() {
-  modelLayerOffset = packedPreview ? 1 : 0;
-  const ls = preview.layers || [];
-  for (let i = 0; i < ls.length; i++) {
-    const h = ls[i]?.height || 0;
-    if (h >= 0.05 && h <= 0.5) { modelLayerOffset = i; return; }
-  }
+function findModelLayerOffset(layers, fallback) {
+  const first = layers.findIndex(layer => layer.height >= 0.05 && layer.height <= 0.5);
+  return first >= 0 ? first : fallback;
 }
 
 // Firmware counts slicer model layers. Parsed previews can include additional
 // layers for supports and startup, so keep the same mapping on first load and
 // on subsequent live updates.
-function modelToParsed(layer, mqttTotal) {
+function modelToParsed(layer, mqttTotal, count = totalLayers, offset = modelLayerOffset) {
   if (layer <= 0) return 0;
-  if (mqttTotal > 0 && totalLayers > 0) {
-    return Math.min(totalLayers, Math.round((layer / mqttTotal) * (totalLayers - modelLayerOffset) + modelLayerOffset));
+  if (mqttTotal > 0 && count > 0) {
+    return Math.min(count, Math.round((layer / mqttTotal) * (count - offset) + offset));
   }
-  return Math.min(totalLayers, layer + modelLayerOffset);
+  return Math.min(count, layer + offset);
 }
 
 async function buildLayerPaths(layers, signal) {
@@ -1153,7 +1150,7 @@ function adaptivePreview(parser, signal) {
           if (!error.canPack) throw error;
         }
       }
-      packed = createPackedToolpath(parser, { signal, yieldTask });
+      packed = await openPackedPreview(parser, signal, yieldTask);
       parser.layers.length = 0;
       parser.preamble.commands.length = 0;
       let yieldAt = performance.now() + 8;
@@ -1168,6 +1165,8 @@ function adaptivePreview(parser, signal) {
       prefix.length = 0;
     },
     packed: () => packed?.finish(),
+    reader: () => packed?.reader ?? 'native',
+    close: () => packed?.close(),
   };
 }
 
@@ -1223,6 +1222,9 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
   const controller = loadController = new AbortController();
   const watchdog = transferWatchdog(controller);
   let stopWatching = () => {};
+  let budget, provisionalPlayback;
+  const startup = startupReport = { startedAt: performance.now(), reader: 'native' };
+  const elapsed = () => performance.now() - startup.startedAt;
   const attempts = manual ? 1 : (failure?.attempts || 0) + 1;
   inFlight = true;
   dbg(`loadGcode START job=${wantedJob?.task || 'LAN'} attempt=${attempts} source=${file ? 'manual' : 'printer'}`);
@@ -1266,6 +1268,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       });
       res = await fetch(url, { cache: 'no-store', signal: controller.signal });
     }
+    startup.responseMs = elapsed();
     stopWatching();
     watchdog.touch();
     if (!res.ok) {
@@ -1293,10 +1296,11 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     const header = res.headers.get('X-Gcode-Job');
     if (header && decodeURIComponent(header) !== taskKey) throw Object.assign(new Error('The print changed during download.'), { code: 'JOB_CHANGED' });
     let lastProgressAt = -Infinity;
-    const budget = adaptivePreview(parser, controller.signal);
+    budget = adaptivePreview(parser, controller.signal);
     const bytes = await readToolpath(res, budget, controller.signal, (receivedBytes, total) => {
       watchdog.touch();
       if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
+      startup.downloadMs = elapsed();
       if (performance.now() - lastProgressAt < 150 && receivedBytes !== total) return;
       lastProgressAt = performance.now();
       setOverlay(`Downloading print file… ${byteProgress(receivedBytes, total)}`, 'loading');
@@ -1305,6 +1309,11 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     stage = 'parse';
     const packed = await budget.packed();
+    startup.reader = budget.reader();
+    if (packed) {
+      startup.geometryReadyMs = elapsed();
+      startup.workerTiming = packed.timing ?? null;
+    }
     const layers = packed?.layers ?? [parser.preamble, ...parser.layers];
     if (packed) {
       if (!packed.segmentCount) throw Object.assign(new Error('The file has no printable extrusion toolpath.'), { retryable: false });
@@ -1312,10 +1321,18 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       await paintLoading();
       controller.signal.throwIfAborted();
       stage = 'render';
+      provisionalPlayback = createPackedNozzlePlayback(packed.motion, yieldTask);
+      if (lastGcodeState === 'RUNNING' && lastSubStage === 0 && !wantedJob?.effectivelyDone) {
+        const first = modelToParsed(Number(wantedJob?.layer) || 0, Number(wantedJob?.totalLayers) || 0,
+          layers.length, findModelLayerOffset(layers, 1));
+        if (first > 0) provisionalPlayback.prime(first - 1);
+      }
       const packingPalette = preview.extrusionColor;
+      const stageStart = performance.now();
       const renderer = await buildPackedRenderer(packed, preview, bed, controller.signal, yieldTask, (done, total) => {
         setOverlay(`Rendering large 3D preview… ${Math.floor(done / total * 100)}%`, 'loading');
       });
+      startup.gpuStageMs = performance.now() - stageStart;
       if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) {
         renderer.dispose();
         return;
@@ -1324,7 +1341,8 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       if (preview.extrusionColor !== packingPalette) renderer.setPalette(preview.extrusionColor);
       parser.preamble = layers[0];
       parser.layers = layers.slice(1);
-      packedPlayback = createPackedNozzlePlayback(packed.motion, yieldTask);
+      packedPlayback = provisionalPlayback;
+      provisionalPlayback = null;
       packedCompositor = createPackedNozzleRenderer(preview, nozzleGroup, {
         lights: [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim],
       });
@@ -1342,9 +1360,11 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
         throw Object.assign(new Error('The file has no printable extrusion toolpath. Choose the exact sliced .3mf or .gcode.'), { retryable: false });
       }
       layerPaths = paths;
+      startup.geometryReadyMs = elapsed();
     }
     preview.parser = parser;
-    recomputeCumZ(); recomputeCumLayerTime(); recomputeModelLayerOffset();
+    recomputeCumZ(); recomputeCumLayerTime();
+    modelLayerOffset = findModelLayerOffset(layers, packedPreview ? 1 : 0);
     totalLayers = layers.length;
     stage = 'render';
     cameraDistance = 0; trailBuf.length = 0; lastTrailPos = null; lastEndLayer = -1;
@@ -1369,6 +1389,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     failure = null;
     setLabel(verifyLayers ? 1 : lastEndLayer, renderCap);
     canvas.style.visibility = 'visible';
+    if (!packed) startup.firstGeometryMs = elapsed();
     setOverlay('');
     dbg(`loadGcode OK layers=${totalLayers} bytes=${bytes} source=${file ? 'manual' : 'printer'}`);
   } catch (error) {
@@ -1385,6 +1406,8 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     dbg(`loadGcode FAIL stage=${stage} attempts=${attempts} retryable=${retryable}: ${detail}`);
     showFailure();
   } finally {
+    provisionalPlayback?.dispose();
+    budget?.close();
     stopWatching();
     watchdog.stop();
     if (serial === loadSerial) { inFlight = false; loadController = null; }
@@ -1554,20 +1577,24 @@ function drawPackedFrame() {
   const rebuild = preview.endLayer !== lastRenderedEndLayer;
   if (rebuild) fullRebuild();
   const frame = packedPlayback.frame();
-  const status = packedCompositor.available ? packedStatus(frame) : 'Nozzle playback unavailable on this graphics device';
-  if (detailEl.textContent !== status) detailEl.textContent = status;
-  detailEl.hidden = !status;
   const point = packedCompositor.available ? frame.position : null;
   const previous = packedFrame?.position;
   const moved = Boolean(point) !== Boolean(previous) ||
     (point && (point.x !== previous.x || point.y !== previous.y || point.z !== previous.z || point.extruding !== previous.extruding));
-  if (dirty || rebuild || !packedFrame || (moved && (Boolean(point) !== Boolean(previous) || timing - lastDrawAt >= 33))) {
+  if (dirty || rebuild || !packedFrame || packedCompositor.building || (moved && (Boolean(point) !== Boolean(previous) || timing - lastDrawAt >= 33))) {
     if (point) {
       nozzleGroup.position.set(point.x - buildCenter.x, point.z, buildCenter.y - point.y);
       glowGroup.visible = point.extruding;
     }
     nozzleGroup.visible = Boolean(point);
     packedCompositor.draw({ refreshStatic: dirty || rebuild, drawNozzle: nozzleGroup.visible });
+    if (startupReport && (startupReport.fullGeometryMs === undefined || startupReport.firstNozzleMs === undefined)) {
+      const { staticLines, staticBuiltLines, staticReady, nozzleDraws } = packedCompositor.stats();
+      const elapsed = performance.now() - startupReport.startedAt;
+      if (staticLines > 0 || staticBuiltLines > 0) startupReport.firstGeometryMs ??= elapsed;
+      if (staticReady && staticLines > 0) startupReport.fullGeometryMs ??= elapsed;
+      if (nozzleDraws > 0) startupReport.firstNozzleMs ??= elapsed;
+    }
     if (!packedCompositor.available) {
       packedPlayback.hide();
       nozzleGroup.visible = false;
@@ -1577,6 +1604,12 @@ function drawPackedFrame() {
     packedFrame = { position: nozzleGroup.visible ? point : null };
     lastDrawAt = timing;
   }
+  let status = packedCompositor.available ? packedStatus(frame) : 'Nozzle playback unavailable on this graphics device';
+  if (packedCompositor.building && startupReport?.fullGeometryMs === undefined) {
+    status = status ? `Rendering plate… ${status}` : 'Rendering plate…';
+  }
+  if (detailEl.textContent !== status) detailEl.textContent = status;
+  detailEl.hidden = !status;
   if (packedCompositor.available && frame.mode === 'replay' && frame.ended && (playing || (verifyLayers && !verifyManualHold))) {
     const cap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
     const next = frame.layer + 1 < cap ? frame.layer + 1 : (cap > 1 ? 1 : 0);
@@ -2068,6 +2101,7 @@ if (diagnostics) {
   window.__diag = () => ({
     compact: packedPreview ? { ...packedPreview.stats(), ...packedCompositor.stats() } : null,
     motion: packedMotionDiagnostics(),
+    startup: startupReport ? { ...startupReport } : null,
     activeLayerIdx,
     pathHoldFraction,
     totalForActive: layerPaths[activeLayerIdx]?.total,

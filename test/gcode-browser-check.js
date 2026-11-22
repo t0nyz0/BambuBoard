@@ -757,15 +757,15 @@ function onRasterMotion(plate, layer, position) {
     assert.ok(densePreview.paths.some(path => path.length >= 16000 * 3), 'The dense printable fixture draws its actual motion geometry');
     passed.push('A dense two-layer fixture renders all 16,000 extrusion moves on its first layer');
 
-    async function attachPackedBrowserProbes(target, virtualClock = false) {
-      await target.addInitScript(virtualClock => {
+    async function attachPackedBrowserProbes(target, { virtualClock = false, holdFirstRead = false } = {}) {
+      await target.addInitScript(({ virtualClock, holdFirstRead }) => {
         if (virtualClock) {
           window.__motionClockOffset = 0;
           const actualNow = performance.now.bind(performance);
           performance.now = () => actualNow() + window.__motionClockOffset;
         }
         window.__packedHeartbeat = { loading: 0, maximumGapMs: 0 };
-        const gate = window.__packedLayerGate = { armed: false, blocked: false, release: null, reads: 0, canceled: 0 };
+        const gate = window.__packedLayerGate = { armed: holdFirstRead, blocked: false, release: null, reads: 0, canceled: 0 };
         const stream = Blob.prototype.stream;
         Blob.prototype.stream = function () {
           const original = stream.call(this);
@@ -804,7 +804,7 @@ function onRasterMotion(plate, layer, position) {
           wasBusy = busy;
           last = now;
         }, 25);
-      }, virtualClock);
+      }, { virtualClock, holdFirstRead });
     }
 
     const packedEvidence = [];
@@ -819,7 +819,8 @@ function onRasterMotion(plate, layer, position) {
       const sumThrough = end => Math.floor(plate.segments / plate.layers) * end + Math.min(end, plate.segments % plate.layers);
       const waitForVisible = (visible, limit = timeout) => densePage.waitForFunction(expected => {
         const packed = window.__diag?.().compact;
-        return packed?.visibleSegments === expected && window.__preview.renderer.info.render.calls > 0;
+        return packed?.visibleSegments === expected && packed.staticReady &&
+          packed.staticLines >= expected && window.__preview.renderer.info.render.calls > 0;
       }, visible, { timeout: limit });
       const motionSample = target => target.evaluate(() => window.__diag?.().motion);
       async function waitForMotion(target, layer, previous) {
@@ -833,9 +834,10 @@ function onRasterMotion(plate, layer, position) {
         const motion = await handle.jsonValue();
         await handle.dispose();
         assert.ok(onRasterMotion(plate, layer, motion.position), `Layer ${layer} nozzle is off the ordered toolpath: ${motion.position}`);
-        assert.ok(motion.bytes > 0 && motion.bytes <= 32 * mebibyte, `Resident motion bytes: ${motion.bytes}`);
-        assert.ok(motion.sourceBytes > 0 && motion.sourceBytes < motion.rawSourceBytes,
-          `Expected the replay spool to compress source bytes: ${motion.sourceBytes} / ${motion.rawSourceBytes}`);
+        assert.ok(motion.bytes > 0 && motion.bytes <= 2 * 2048 * 61, `Resident motion bytes: ${motion.bytes}`);
+        assert.ok(motion.sourceBytes > 0 && motion.sourceBytes <= motion.rawSourceBytes &&
+          motion.rawSourceBytes <= compactByteLength(plate),
+          `Replay source must remain within the downloaded byte bound: ${motion.sourceBytes} / ${motion.rawSourceBytes}`);
         assert.ok(motion.layers.length <= 2 && motion.layers.includes(layer), `Unexpected decoded layers: ${motion.layers}`);
         return motion;
       }
@@ -853,7 +855,13 @@ function onRasterMotion(plate, layer, position) {
         await write(name, 'PAUSED', { layer_num: 1, total_layer_num: plate.layers, mc_percent: timing.progress(1) });
         await densePage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
         await waitForVisible(sumThrough(1));
-        const first = await densePage.evaluate(() => ({ ...window.__diag().compact, nozzle: window.__diag().motion?.visible }));
+        const first = await densePage.evaluate(() => ({
+          ...window.__diag().compact, nozzle: window.__diag().motion?.visible, startup: window.__diag().startup,
+        }));
+        assert.equal(first.startup?.reader, 'worker');
+        assert.ok(first.startup.responseMs <= first.startup.downloadMs && first.startup.downloadMs <= first.startup.geometryReadyMs,
+          JSON.stringify(first.startup));
+        assert.ok(first.startup.workerTiming?.batches > 0, JSON.stringify(first.startup));
         assert.equal(first.segments, plate.segments);
         assert.equal(first.layers, plate.layers + 1, 'The model layers and parser preamble are all counted');
         assert.equal(first.nozzle, false, 'Opening on a paused print must not animate the nozzle');
@@ -864,6 +872,9 @@ function onRasterMotion(plate, layer, position) {
         await densePage.getByText('Estimated nozzle position', { exact: false }).waitFor();
         const afterFirst = await waitForMotion(densePage, 1, firstMotion.position);
         assert.ok(afterFirst.animationDraws > firstMotion.animationDraws);
+        const startup = await densePage.evaluate(() => window.__diag().startup);
+        assert.ok(startup.geometryReadyMs <= startup.firstGeometryMs && startup.firstGeometryMs <= startup.firstNozzleMs,
+          JSON.stringify(startup));
         const staticBefore = await densePage.evaluate(() => {
           const preview = window.__preview;
           const renderer = preview.renderer;
@@ -923,8 +934,15 @@ function onRasterMotion(plate, layer, position) {
           const latePage = await context.newPage();
           latePage.on('request', request => { if (new URL(request.url()).pathname === '/api/gcode/current') lateJoinRequests++; });
           try {
+            await attachPackedBrowserProbes(latePage, { holdFirstRead: true });
             await latePage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
-            await latePage.waitForFunction(expected => window.__diag?.().compact?.visibleSegments === expected, sumThrough(middle), { timeout });
+            await latePage.waitForFunction(expected => {
+              const diag = window.__diag?.();
+              return window.__packedLayerGate.blocked && diag?.compact?.visibleSegments === expected &&
+                diag.compact.staticBuiltLines > 0 && diag.motion?.state === 'buffering' && !diag.motion.visible &&
+                getComputedStyle(document.getElementById('gcodeCanvas')).visibility === 'visible';
+            }, sumThrough(middle), { timeout });
+            await latePage.evaluate(() => window.__packedLayerGate.release());
             const joined = await waitForMotion(latePage, middle);
             lateJoin = await waitForMotion(latePage, middle, joined.position);
             assert.equal(lateJoinRequests, 1, 'A late viewer seeks the current layer in its single download');
@@ -1075,6 +1093,7 @@ function onRasterMotion(plate, layer, position) {
         assert.equal(await densePage.locator('#gcodeDetail').isVisible(), false);
         packedEvidence.push({ fixture: name, initialState: 'PAUSED', ...plate, sourceBytes: compactByteLength(plate), rendered: rendered.compact,
           geometryObjects: rendered.objects, gpuLines: rendered.gpuLines, heartbeat: rendered.heartbeat, httpRequests: 1, lateJoinRequests,
+          startup,
           motion: { first: afterFirst, middle: afterMiddle, final: afterFinal, lateJoin, scrub, staticDrawsDuringAnimation: animationOnly.staticDraws - staticBefore.staticDraws } });
       } finally {
         await densePage.close();
@@ -1088,6 +1107,45 @@ function onRasterMotion(plate, layer, position) {
     }
     await fs.writeFile(path.join(artifacts, 'gcode-compact-results.json'), JSON.stringify(packedEvidence, null, 2));
 
+    // Disable just the packed parser worker. The worker-independent bounded
+    // pipeline must still render exact geometry and decode the chosen path.
+    mode = 'packed';
+    packedFixture = compactPlate;
+    await write('Packed worker unavailable', 'RUNNING', { layer_num: 50, total_layer_num: compactPlate.layers });
+    const packedFallback = await context.newPage();
+    try {
+      await packedFallback.addInitScript(() => {
+        const NativeWorker = window.Worker;
+        window.__packedWorkerDenied = 0;
+        window.Worker = class extends NativeWorker {
+          constructor(url, ...args) {
+            if (String(url).endsWith('/packed-preview-worker.js')) {
+              window.__packedWorkerDenied++;
+              throw new Error('Packed worker blocked in fixture');
+            }
+            super(url, ...args);
+          }
+        };
+      });
+      const expected = Math.floor(compactPlate.segments / compactPlate.layers) * 50 + Math.min(50, compactPlate.segments % compactPlate.layers);
+      await packedFallback.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
+      await packedFallback.waitForFunction(expected => {
+        const diag = window.__diag?.();
+        return diag?.compact?.visibleSegments === expected && diag.compact.staticReady &&
+          diag.compact.staticLines >= expected && diag.motion?.layer === 50 &&
+          diag.motion.state === 'ready' && diag.motion.visible && diag.motion.position;
+      }, expected, { timeout: 45_000 });
+      const fallbackMotion = await packedFallback.evaluate(() => window.__diag().motion);
+      assert.ok(onRasterMotion(compactPlate, 50, fallbackMotion.position), JSON.stringify(fallbackMotion));
+      assert.deepEqual(await packedFallback.evaluate(() => ({
+        attempts: window.__packedWorkerDenied, reader: window.__diag().startup?.reader,
+      })), { attempts: 1, reader: 'cooperative' });
+      assert.equal(await packedFallback.getByText('Estimated nozzle position', { exact: false }).isVisible(), true);
+      passed.push('Packed geometry and selected motion remain usable when the packed parser worker is blocked');
+    } finally {
+      await packedFallback.close();
+    }
+
     async function checkWindowedLayer() {
       await page.goto('about:blank');
       const livePage = await context.newPage();
@@ -1099,7 +1157,7 @@ function onRasterMotion(plate, layer, position) {
         const before = count;
         const waitForPlate = target => target.waitForFunction(segments => {
           const packed = window.__diag?.().compact;
-          return packed?.visibleSegments === segments && packed.staticLines >= segments;
+          return packed?.visibleSegments === segments && packed.staticReady && packed.staticLines >= segments;
         }, windowLayerSegments, { timeout });
         const waitForPose = async (target, move, exact = false) => {
           const handle = await target.waitForFunction(({ point, exact }) => {
@@ -1130,7 +1188,7 @@ function onRasterMotion(plate, layer, position) {
           slider.dispatchEvent(new Event('input', { bubbles: true }));
         }, fraction);
 
-        await attachPackedBrowserProbes(livePage, true);
+        await attachPackedBrowserProbes(livePage, { virtualClock: true });
         mode = 'packed-window';
         await write(job, 'PAUSED', { layer_num: 1, total_layer_num: 1, mc_percent: 10 });
         const loadingStarted = performance.now();
@@ -1241,15 +1299,31 @@ function onRasterMotion(plate, layer, position) {
     await write('Canceled packed job', 'RUNNING', { layer_num: 1, total_layer_num: compactPlate.layers });
     const canceledPackedPage = await context.newPage();
     try {
+      await canceledPackedPage.addInitScript(() => {
+        const NativeWorker = window.Worker;
+        window.__packedWorkers = { started: 0, terminated: 0 };
+        window.Worker = class extends NativeWorker {
+          constructor(url, ...args) {
+            super(url, ...args);
+            this.packedPreviewWorker = String(url).endsWith('/packed-preview-worker.js');
+            if (this.packedPreviewWorker) window.__packedWorkers.started++;
+          }
+          terminate() {
+            if (this.packedPreviewWorker) window.__packedWorkers.terminated++;
+            return super.terminate();
+          }
+        };
+      });
       await canceledPackedPage.goto(base + '/widgets/gcode-viz/?debug=1&mode=preview');
       await until(() => packedHold?.blocked, 45000);
+      await canceledPackedPage.waitForFunction(() => window.__packedWorkers.started === 1);
       await canceledPackedPage.locator('#gcodeCancel').click();
       await until(() => packedHold.closed, 45000);
       await canceledPackedPage.getByText(/Toolpath loading canceled/).waitFor();
       assert.deepEqual(await canceledPackedPage.evaluate(() => {
         const { motion, compact } = window.__diag();
-        return { motion, compact, nozzle: window.__nozzle.visible };
-      }), { motion: null, compact: null, nozzle: false });
+        return { motion, compact, nozzle: window.__nozzle.visible, workers: window.__packedWorkers };
+      }), { motion: null, compact: null, nozzle: false, workers: { started: 1, terminated: 1 } });
       passed.push('Cancel during dense streaming closes the download without installing stale geometry or moving the nozzle');
     } finally {
       await canceledPackedPage.close();

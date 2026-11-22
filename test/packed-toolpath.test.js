@@ -107,7 +107,8 @@ test('packed lazy motion preserves modal feed, the preceding Z transition, trave
   ]);
   const data = await packed.finish();
   assert.deepEqual(data.layers.map(layer => layer.end), [0, 1, 3]);
-  assert.ok(data.motion.sourceBytes > 0 && data.motion.sourceBytes < data.motion.rawSourceBytes);
+  assert.ok(data.motion.sourceBytes > 0);
+  assert.equal(data.motion.sourceBytes, data.motion.rawSourceBytes);
   assert.equal(data.motion.layer(0), null);
   const first = data.motion.layer(1);
   assert.equal(first.duration, 1);
@@ -145,7 +146,7 @@ test('packed lazy motion exposes distance seek without inventing missing or part
   assert.equal(path.locate(NaN), null);
 });
 
-test('packed motion replays exact line ranges across compressed blocks and honors cancellation', async () => {
+test('packed motion replays exact line ranges across immutable source blocks and honors cancellation', async () => {
   const { packed } = await fixture({ yieldTask });
   const lines = ['G90', 'M83', 'G0 X10 Y10 Z0.2 F600'];
   for (let n = 0; n < 15_000; n++) lines.push(`G1 X${n % 2 ? '10.0000' : '11.0000'} E1`);
@@ -153,7 +154,7 @@ test('packed motion replays exact line ranges across compressed blocks and honor
   for (let i = 0; i < lines.length; i += 512) await packed.parseBatch(lines.slice(i, i + 512));
   const { motion } = await packed.finish();
   assert.ok(motion.rawSourceBytes > 192 * 1024);
-  assert.ok(motion.sourceBytes < 5 * 1024);
+  assert.equal(motion.sourceBytes, Buffer.byteLength(lines.join('\n') + '\n'));
   const first = motion.layer(1);
   assert.equal(first.moves, 15_000);
   assert.ok(Math.abs(first.duration - 1500) < 1e-6);
@@ -293,4 +294,52 @@ test('a direct window seek restores relative arc, coordinate reset and modal fee
   assert.ok(Math.abs(point.x - 25) < 1e-6 && Math.abs(point.y - 15) < 1e-6);
   assert.equal(point.extruding, true);
   assert.deepEqual(window.sample(1, layer.basis), { x: 35, y: 10, z: Math.fround(0.2), extruding: true });
+});
+
+test('packed worker command fields match the pinned document parser', async () => {
+  const { native } = await fixture();
+  const { createPackedCommandParser } = await import('../public/widgets/gcode-viz/packed-command-parser.js');
+  const parser = createPackedCommandParser(native.parser.tolerance);
+  for (const text of [
+    '', ' ;foo G2 X99', '42', 'G', 'G 1  X 1.2 Y -0 Z+3 F1200 E.2 ;foo Y80',
+    'g1x1.2y4e-3', 'G1 X1 X 2', '\tG92 E0\r', 'T0', 't 7 ; no fields',
+    'T8', 'T-1', 'M400 S0', 'N12 G1 X4', 'G90.1', 'G2 X8 Y9 I.5 J5',
+    'G200 α X15', 'G1 X1e2 YInfinity Z  `  ', '  leading G1 X1', 'G1 X2; café',
+  ]) {
+    const { gcode, params } = native.parser.parseCommand(text, false);
+    assert.deepEqual(parser.parseCommand(text), { gcode, params }, text);
+  }
+});
+
+test('the packed worker can transfer exact geometry and restore an independently seekable replay source', async () => {
+  const { packed, native } = await fixture({ yieldTask });
+  const { createPackedCommandParser } = await import('../public/widgets/gcode-viz/packed-command-parser.js');
+  const { createPackedToolpath, restorePackedMotion } = await import('../public/widgets/gcode-viz/packed-toolpath.js');
+  const worker = createPackedToolpath(createPackedCommandParser(native.parser.tolerance), {
+    yieldTask: () => Promise.resolve(), transferable: true,
+  });
+  const input = ['; café', 'G90', 'M83', 'G0 X10 Y10 Z0.2 F600', 'G1 X20 E1; λ',
+    'G1 E-1', 'G2 I5 J0 X30 Y10', 'G1 X40 E1', 'G0 Z0.4', 'G1 X50 E1'];
+  for (let i = 0; i < input.length; i += 3) {
+    const lines = input.slice(i, i + 3);
+    await packed.parseBatch(lines);
+    await worker.parseBatch(lines);
+  }
+  const expected = packed.finish();
+  const built = worker.finish();
+  const transfers = built.chunks.flatMap(chunk => [chunk.positions.buffer, chunk.tools.buffer]);
+  const result = structuredClone(built, { transfer: transfers });
+  assert.ok(transfers.every(buffer => buffer.byteLength === 0));
+  assert.deepEqual(result.chunks, expected.chunks);
+  assert.deepEqual(result.layers, expected.layers);
+  assert.deepEqual(result.bounds, expected.bounds);
+  assert.equal(result.segmentCount, expected.segmentCount);
+  const replay = restorePackedMotion(native.parser, result.motion);
+  assert.ok(replay.sourceBytes <= Buffer.byteLength(input.join('\n') + '\n'));
+  for (const layer of [2, 1, 2]) {
+    const track = replay.layer(layer);
+    for (const fraction of [1, 0, 0.5]) {
+      assert.deepEqual(await motionSample(replay, track, fraction), await motionSample(expected.motion, expected.motion.layer(layer), fraction));
+    }
+  }
 });
