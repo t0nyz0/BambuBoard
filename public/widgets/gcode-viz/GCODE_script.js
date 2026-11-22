@@ -11,6 +11,8 @@ import * as GCodePreview from '../../vendor/gcode-preview.esm.js';
 import * as THREE from '../../vendor/three.module.js';
 import { openToolpathFramer } from './toolpath-framing.js';
 import { createPreviewBudget, PREVIEW_WORKLOAD_LIMITS } from './preview-workload.js';
+import { createPackedToolpath } from './packed-toolpath.js';
+import { buildPackedRenderer } from './packed-renderer.js';
 import '../../js/gcode-limits.js';
 import '../../js/gcode-view.js';
 
@@ -59,6 +61,7 @@ const labelEl = document.getElementById('gcodeLabel');
 const pathEl = document.getElementById('gcodePath');
 const pathLabelEl = document.getElementById('gcodePathLabel');
 const logEl = document.getElementById('gcodeLog');
+const detailEl = document.getElementById('gcodeDetail');
 
 // Rolling debug log. Always captured into a ring buffer (cheap, ~240 lines)
 // so it can be inspected from the console anytime via window.__log(); mirrored
@@ -453,9 +456,16 @@ const _origRender = preview.render.bind(preview);
 let lastRenderedEndLayer = -1;
 let lastStaticView = null;
 let lastDrawAt = -Infinity;
+let packedPreview = null;
 const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
 
 function fullRebuild() {
+  if (packedPreview) {
+    packedPreview.show(preview.endLayer);
+    if (packedPreview.group.parent !== preview.scene) preview.scene.add(packedPreview.group);
+    lastRenderedEndLayer = preview.endLayer;
+    return;
+  }
   // Heavy path: gcode-preview clears the scene + rebuilds layer geometry.
   _origRender();
   // gcode-preview also re-adds its bed grid (LineSegments at y=0) and the
@@ -509,7 +519,7 @@ function fastTick() {
   updateTrail();
   // A finished plate has no moving nozzle. Keep the camera fit responsive,
   // but avoid flooding a software GPU with millions of identical vertices.
-  const still = isPausedForState() && trailBuf.length === 0;
+  const still = packedPreview || (isPausedForState() && trailBuf.length === 0);
   preview.camera.updateMatrixWorld();
   const view = [...preview.camera.matrixWorld.elements, ...preview.camera.projectionMatrix.elements];
   if (still && !rebuild && lastStaticView) {
@@ -569,12 +579,23 @@ function recomputeCumLayerTime() {
 // model layer so we can translate model→parsed.
 let modelLayerOffset = 0;
 function recomputeModelLayerOffset() {
-  modelLayerOffset = 0;
+  modelLayerOffset = packedPreview ? 1 : 0;
   const ls = preview.layers || [];
   for (let i = 0; i < ls.length; i++) {
     const h = ls[i]?.height || 0;
     if (h >= 0.05 && h <= 0.5) { modelLayerOffset = i; return; }
   }
+}
+
+// Firmware counts slicer model layers. Parsed previews can include additional
+// layers for supports and startup, so keep the same mapping on first load and
+// on subsequent live updates.
+function modelToParsed(layer, mqttTotal) {
+  if (layer <= 0) return 0;
+  if (mqttTotal > 0 && totalLayers > 0) {
+    return Math.min(totalLayers, Math.round((layer / mqttTotal) * (totalLayers - modelLayerOffset) + modelLayerOffset));
+  }
+  return Math.min(totalLayers, layer + modelLayerOffset);
 }
 
 async function buildLayerPaths(layers, signal) {
@@ -892,7 +913,9 @@ function syncFilamentColor(print) {
   if (sig !== lastPaletteSig) {
     preview.extrusionColor = palette || neutralFilament;
     lastPaletteSig = sig;
-    // Force a rebuild so per-tool colors apply to existing geometry.
+    if (packedPreview) packedPreview.setPalette(preview.extrusionColor);
+    // The compact geometry already exists. Invalidate the draw, including
+    // the static camera's skip-unchanged-frame optimization.
     lastRenderedEndLayer = -1;
   }
   // Trail "cold" color follows the currently-active tray.
@@ -926,7 +949,15 @@ function setLabel(layer, total) {
 // geometry doesn't stay on screen while we fetch the new gcode (which can
 // take 1-2 s for a fresh print, longer if the printer hasn't written the
 // file to /cache/ yet and we have to retry).
+function clearPackedPreview() {
+  packedPreview?.dispose();
+  packedPreview = null;
+  detailEl.hidden = true;
+  pathEl.disabled = false;
+}
+
 function clearScene() {
+  clearPackedPreview();
   preview.clear();                         // reset parser + geometry — old layers are gone
   preview.endLayer = 0;
   layerPaths = [];
@@ -987,7 +1018,10 @@ function invalidateLoad() {
 function showFailure() {
   if (!failure) return;
   if (!operator) {
-    setOverlay('Print preview unavailable.', 'error');
+    const text = failure.code === 'PREVIEW_COMPLEXITY'
+      ? 'This plate exceeds the 3D preview limits. Open it in Bambu Studio.'
+      : 'Print preview unavailable.';
+    setOverlay(text, 'error');
     return;
   }
   const seconds = Math.max(0, Math.ceil((failure.nextAt - Date.now()) / 1000));
@@ -1069,6 +1103,45 @@ function uploadToolpath(url, file, signal, onProgress) {
   });
 }
 
+// Preserve the existing animated preview for smaller jobs. Keep a bounded
+// prefix so a denser plate can switch to compact geometry using the same
+// download. At the switch the original parser no longer retains commands.
+function adaptivePreview(parser, signal) {
+  const native = createPreviewBudget(parser, { inches: preview.inches });
+  const prefix = [];
+  let commands = 0, characters = 0, packed;
+  return {
+    async parseBatch(lines) {
+      if (packed) return packed.parseBatch(lines);
+      commands += lines.length;
+      for (const line of lines) characters += line.length;
+      prefix.push(lines);
+      if (commands <= 200_000 && characters <= 12 * 1024 * 1024) {
+        try {
+          native.parseBatch(lines);
+          return;
+        } catch (error) {
+          if (!error.canPack) throw error;
+        }
+      }
+      packed = createPackedToolpath(parser);
+      parser.layers.length = 0;
+      parser.preamble.commands.length = 0;
+      let yieldAt = performance.now() + 8;
+      for (const batch of prefix) {
+        signal.throwIfAborted();
+        packed.parseBatch(batch);
+        if (performance.now() >= yieldAt) {
+          await yieldTask();
+          yieldAt = performance.now() + 8;
+        }
+      }
+      prefix.length = 0;
+    },
+    packed: () => packed?.finish(),
+  };
+}
+
 async function readToolpath(res, budget, signal, onBytes) {
   const encoding = res.headers.get('Content-Encoding');
   const total = !encoding || encoding === 'identity' ? Number(res.headers.get('Content-Length')) || 0 : 0;
@@ -1082,7 +1155,7 @@ async function readToolpath(res, budget, signal, onBytes) {
   async function parse(lines) {
     for (let offset = 0; offset < lines.length; offset += 512) {
       signal.throwIfAborted();
-      budget.parseBatch(lines.slice(offset, offset + 512));
+      await budget.parseBatch(lines.slice(offset, offset + 512));
       if (performance.now() >= yieldAt) {
         await yieldTask();
         yieldAt = performance.now() + 8;
@@ -1191,7 +1264,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     const header = res.headers.get('X-Gcode-Job');
     if (header && decodeURIComponent(header) !== taskKey) throw Object.assign(new Error('The print changed during download.'), { code: 'JOB_CHANGED' });
     let lastProgressAt = -Infinity;
-    const budget = createPreviewBudget(parser, { inches: preview.inches });
+    const budget = adaptivePreview(parser, controller.signal);
     const bytes = await readToolpath(res, budget, controller.signal, (receivedBytes, total) => {
       watchdog.touch();
       if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
@@ -1202,21 +1275,44 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     watchdog.stop();
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     stage = 'parse';
-    setOverlay('Processing toolpath… Building layer paths', 'loading');
-    await paintLoading();
-    controller.signal.throwIfAborted();
-    // The renderer includes the parser's preamble in its public layer index.
-    const layers = [parser.preamble, ...parser.layers];
-    const paths = await buildLayerPaths(layers, controller.signal);
-    controller.signal.throwIfAborted();
-    setOverlay('Rendering 3D preview…', 'loading');
-    await paintLoading();
-    if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
-    if (!parser.layers.length || !paths.some(layer => layer.segs.some(seg => seg.ext))) {
-      throw Object.assign(new Error('The file has no printable extrusion toolpath. Choose the exact sliced .3mf or .gcode.'), { retryable: false });
+    const packed = budget.packed();
+    const layers = packed?.layers ?? [parser.preamble, ...parser.layers];
+    if (packed) {
+      if (!packed.segmentCount) throw Object.assign(new Error('The file has no printable extrusion toolpath.'), { retryable: false });
+      setOverlay('Rendering large 3D preview…', 'loading');
+      await paintLoading();
+      controller.signal.throwIfAborted();
+      stage = 'render';
+      const packingPalette = preview.extrusionColor;
+      const renderer = await buildPackedRenderer(packed, preview, bed, controller.signal, yieldTask, (done, total) => {
+        setOverlay(`Rendering large 3D preview… ${Math.floor(done / total * 100)}%`, 'loading');
+      });
+      if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) {
+        renderer.dispose();
+        return;
+      }
+      packedPreview = renderer;
+      if (preview.extrusionColor !== packingPalette) renderer.setPalette(preview.extrusionColor);
+      parser.preamble = layers[0];
+      parser.layers = layers.slice(1);
+      detailEl.hidden = false;
+      pathEl.disabled = true;
+      layerPaths = [];
+    } else {
+      setOverlay('Processing toolpath… Building layer paths', 'loading');
+      await paintLoading();
+      controller.signal.throwIfAborted();
+      const paths = await buildLayerPaths(layers, controller.signal);
+      controller.signal.throwIfAborted();
+      setOverlay('Rendering 3D preview…', 'loading');
+      await paintLoading();
+      if (serial !== loadSerial || wantedTaskKey !== taskKey || controller.signal.aborted) return;
+      if (!parser.layers.length || !paths.some(layer => layer.segs.some(seg => seg.ext))) {
+        throw Object.assign(new Error('The file has no printable extrusion toolpath. Choose the exact sliced .3mf or .gcode.'), { retryable: false });
+      }
+      layerPaths = paths;
     }
     preview.parser = parser;
-    layerPaths = paths;
     recomputeCumZ(); recomputeCumLayerTime(); recomputeModelLayerOffset();
     totalLayers = layers.length;
     stage = 'render';
@@ -1226,7 +1322,10 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     if (verifyLayers) {
       scrubActive = true; advanceTo(renderCap); setNozzleLayer(1);
     } else {
-      advanceTo(lastGcodeState === 'FINISH' ? totalLayers : Math.min(totalLayers, Math.max(1, Number(wantedJob?.layer) || 1)));
+      const reportedLayer = Number(wantedJob?.layer) || 0;
+      const showWhole = ['FINISH', 'PREPARE', 'SLICING'].includes(lastGcodeState) || (packed && !reportedLayer);
+      const initial = modelToParsed(reportedLayer, Number(wantedJob?.totalLayers) || 0);
+      advanceTo(showWhole ? totalLayers : Math.max(1, initial));
     }
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     currentTaskKey = taskKey;
@@ -1238,11 +1337,14 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
   } catch (error) {
     if (serial !== loadSerial || wantedTaskKey !== taskKey) return;
     currentTaskKey = null;
-    if (error.code === 'PREVIEW_COMPLEXITY' && error.recovery !== false) error = previewLimit(error.message);
+    if (error.code === 'PREVIEW_COMPLEXITY' && error.recovery !== false) {
+      error = Object.assign(previewLimit(error.message), { code: error.code });
+    }
+    if (packedPreview) clearPackedPreview();
     const detail = controller.signal.aborted ? controller.signal.reason.message : error.message;
     const retryable = stage === 'fetch' && error.retryable !== false && error.code !== 'TOOLPATH_ENCODING';
     const backoff = [5000, 15000, 30000, 60000, 120000][Math.min(attempts - 1, 4)];
-    failure = { taskKey, attempts, detail, retryable, recovery: error.recovery, rawFallback: error.rawFallback, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
+    failure = { taskKey, attempts, detail, retryable, code: error.code, recovery: error.recovery, rawFallback: error.rawFallback, nextAt: Date.now() + Math.max(backoff, error.retryAfterMs || 0) };
     dbg(`loadGcode FAIL stage=${stage} attempts=${attempts} retryable=${retryable}: ${detail}`);
     showFailure();
   } finally {
@@ -1330,6 +1432,19 @@ if (window.parent !== window) {
 }
 
 function autoFitCamera() {
+  if (packedPreview) {
+    const [minX, minY, minZ, maxX, maxY, maxZ] = packedPreview.bounds;
+    bboxCenter.set(
+      (minX + maxX) / 2 - buildCenter.x, (minZ + maxZ) / 2, buildCenter.y - (minY + maxY) / 2,
+    );
+    orbitTarget.copy(bboxCenter);
+    modelCorners.length = 0;
+    for (const x of [minX, maxX]) for (const y of [minZ, maxZ]) for (const z of [minY, maxY]) {
+      modelCorners.push(new THREE.Vector3(x - buildCenter.x, y, buildCenter.y - z));
+    }
+    cameraDistance = fittedDistance(orbitTarget);
+    return;
+  }
   // Compute bbox of just the "real" model extrusions, ignoring Bambu's prep
   // / priming / purge passes which can span the whole bed and blow up the
   // framing. We approximate "real model layer" as one whose layer thickness
@@ -1447,6 +1562,7 @@ function safeOrbitTick() {
   catch (error) {
     rendererUnavailable = true;
     invalidateLoad();
+    clearPackedPreview();
     canvas.style.visibility = 'hidden';
     window.BBGcodeUI.allowFile(false);
     window.BBGcodeUI.fail(error);
@@ -1537,7 +1653,7 @@ async function tick() {
       return;
     }
     const taskId = job.task;
-    wantedJob = { ...job, layer: print.layer_num };
+    wantedJob = { ...job, layer: print.layer_num, totalLayers: print.total_layer_num };
     canRequestToolpath = job.available && !['IDLE', 'FAILED'].includes(state);
     window.BBGcodeUI.allowFile(canRequestToolpath);
     const layerNum = Number(print.layer_num) || 0;
@@ -1726,25 +1842,9 @@ async function tick() {
       return;
     }
 
-    // Map MQTT's model layer_num to gcode-preview's parsed layer index.
-    // Bambu's MQTT total_layer_num counts the slicer's CHANGE_LAYER markers
-    // (model layers). gcode-preview splits on Z changes with extrusion, which
-    // can produce MORE layers when supports exist at intermediate Z heights
-    // (support interface, support base, etc.). A simple offset breaks on those
-    // prints — the viz skips support layers and jumps ahead. Proportional
-    // mapping handles both cases: when counts match (no supports) it's
-    // equivalent, and when they differ (supports) it scales correctly.
-    const mqttTotal = Number(print.total_layer_num) || 0;
-    const modelToParsed = (n) => {
-      if (mqttTotal > 0 && totalLayers > 0) {
-        return Math.min(totalLayers, Math.round((n / mqttTotal) * (totalLayers - modelLayerOffset) + modelLayerOffset));
-      }
-      // Fallback: offset-based when we don't have a total from MQTT.
-      return Math.min(totalLayers, n + modelLayerOffset);
-    };
     const target = state === 'FINISH'
       ? totalLayers
-      : modelToParsed(layerNum);
+      : modelToParsed(layerNum, Number(print.total_layer_num) || 0);
     // Hold the previous render during the brief transitional window where
     // we've entered the active branch but layer_num hasn't ticked to 1 yet.
     // Otherwise advanceTo(0) collapses the static prep preview to an empty
@@ -1821,6 +1921,7 @@ if (diagnostics) {
   window.__preview = preview;
   window.__nozzle = nozzleGroup;
   window.__diag = () => ({
+    compact: packedPreview?.stats() ?? null,
     activeLayerIdx,
     pathHoldFraction,
     totalForActive: layerPaths[activeLayerIdx]?.total,
@@ -1968,6 +2069,7 @@ canvas.addEventListener('webglcontextlost', event => {
   event.preventDefault();
   rendererUnavailable = true;
   invalidateLoad();
+  clearPackedPreview();
   canvas.style.visibility = 'hidden';
   window.BBGcodeUI.allowFile(false);
   window.BBGcodeUI.fail(new Error('WebGL context lost (GPU reset or resource limit).'));
@@ -1977,5 +2079,12 @@ async function pollLoop() {
   setTimeout(pollLoop, POLL_MS);
 }
 void pollLoop();
+
+window.addEventListener('pagehide', event => {
+  if (!event.persisted) {
+    invalidateLoad();
+    clearPackedPreview();
+  }
+});
 
 window.addEventListener('resize', () => { lastStaticView = null; preview.resize?.(); });

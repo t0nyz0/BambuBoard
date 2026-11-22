@@ -66,6 +66,11 @@
         color: #f2d6be; background: rgba(10,15,19,.94); border: 1px solid #645143;
         border-radius: 10px; opacity: 1; font-size: clamp(12px, 2.5vw, 17px); line-height: 1.5;
       }
+      .gcode-detail {
+        position: absolute; top: 8px; right: 8px; max-width: calc(100% - 16px);
+        background: rgba(10,15,19,.9); color: #edf3f6; border-radius: 6px;
+        padding: 4px 8px; font-size: 11px; pointer-events: none;
+      }
       .gcode-recovery {
         position: absolute; left: 6%; right: 6%; bottom: 8%; display: flex;
         flex-wrap: wrap; gap: 8px; justify-content: center;
@@ -137,6 +142,7 @@
     <div class="gcode-stage">
       <canvas id="gcodeCanvas"></canvas>
       <div class="gcode-overlay waiting" id="gcodeOverlay" style="display:flex" role="status" aria-live="polite">Waiting for print…</div>
+      <div class="gcode-detail" id="gcodeDetail" role="status" hidden>Large-plate preview · Nozzle animation off</div>
       <div class="gcode-recovery" id="gcodeRecovery" hidden>
         <button type="button" id="gcodeCancel" hidden>Cancel</button>
         <button type="button" id="gcodeRetry">Retry now</button>

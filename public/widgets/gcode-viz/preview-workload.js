@@ -13,11 +13,12 @@ export const PREVIEW_WORKLOAD_LIMITS = Object.freeze({
 });
 
 export class PreviewWorkloadError extends Error {
-  constructor(reason) {
+  constructor(reason, { canPack = false } = {}) {
     super(`${reason} Open this plate in Bambu Studio.`);
     this.code = 'PREVIEW_COMPLEXITY';
     this.retryable = false;
     this.recovery = false;
+    this.canPack = canPack;
   }
 }
 
@@ -31,7 +32,9 @@ function arcSegments(x, y, nextX, nextY, params, clockwise, inches) {
   let { i = 0, j = 0, r = 0 } = params;
   if (r) {
     const chord = Math.hypot(dx, dy);
-    if (!chord) throw new PreviewWorkloadError('The toolpath contains a radius arc without a distinct endpoint.');
+    if (!chord) // The native estimator reads axes as absolute; the packed path
+    // can validate relative arc endpoints from the actual modal state.
+    throw new PreviewWorkloadError('The toolpath contains a radius arc without a distinct endpoint.', { canPack: true });
     // Match the pinned renderer's radius-to-centre conversion for the guard.
     const radius = Math.max(r, chord / 2);
     const side = clockwise ? 1 : -1;
@@ -86,7 +89,7 @@ export function createPreviewBudget(parser, { inches = false, limits = PREVIEW_W
 
   function parseBatch(lines) {
     if (commands + lines.length > limits.commands) {
-      throw new PreviewWorkloadError('The toolpath has more retained commands than the preview can safely hold.');
+      throw new PreviewWorkloadError('The toolpath has more retained commands than the preview can safely hold.', { canPack: true });
     }
     const before = parser.layers.length;
     const previousLayer = parser.layers.at(-1) ?? parser.preamble;
@@ -103,7 +106,7 @@ export function createPreviewBudget(parser, { inches = false, limits = PREVIEW_W
       commands++;
       segments += count;
       if (segments > limits.segments) {
-        throw new PreviewWorkloadError('The toolpath is too dense for a reliable 3D preview.');
+        throw new PreviewWorkloadError('The toolpath is too dense for a reliable 3D preview.', { canPack: true });
       }
       if (command.gcode.startsWith('t')) toolChanges.push(costs.length);
       costs.push(count);
@@ -147,7 +150,7 @@ export function createPreviewBudget(parser, { inches = false, limits = PREVIEW_W
     // each run once more for its final-segment color.
     drawBatches = parser.layers.length + 1 + toolRuns + currentLayerToolRuns + 1;
     if (drawBatches > limits.drawBatches) {
-      throw new PreviewWorkloadError('The toolpath needs too many separate render batches.');
+      throw new PreviewWorkloadError('The toolpath needs too many separate render batches.', { canPack: true });
     }
   }
 

@@ -44,7 +44,7 @@ Reviewed October 7, 2026. These are primary project sources and observed issue r
 ## Bounds and correctness
 
 - File discovery has a 90-second deadline, a 15-second socket inactivity limit, and at most one fresh-session retry for transient transport or corruption failures. A progressing transfer can outlast the discovery deadline. Concurrent requests for the same job share one download. A newer print cancels obsolete work.
-- Compressed archive limit is 128 MiB, and raw or extracted G-code limit is 250 MiB. The archive entry limit is 20,000 and the FTP directory listing limit is 1 MiB. The browser streams and parses commands in batches. Its geometry, layer, and retained-command limits bound rendering cost independently of the raw line count.
+- Compressed archive limit is 128 MiB, and raw or extracted G-code limit is 250 MiB. The archive entry limit is 20,000 and the FTP directory listing limit is 1 MiB. The browser streams and parses commands in batches. Dense plates switch to compact geometry within the same download. The viewer preserves the extrusion geometry and layer progression while omitting simulated nozzle motion for those plates. The compact path holds up to 3.8 million rendered segments, with separate per-layer and arc safeguards. There is no raw line-count limit.
 - The viewer reports file retrieval, transferred bytes, processing, and rendering. While a plate loads, use **Cancel** in the operator preview. The viewer times out after 30 seconds without transfer progress. Its busy state is exposed to assistive technology, and reduced-motion preferences disable the pulse animation.
 - The widget owns one drawing loop. Finished views skip identical redraws and limit camera settling to five draws per second; active print animation continues normally. This keeps large plates usable in software-rendered NAS capture.
 - Waiting for a status paint has a bounded fallback, so browsers suspending animation frames in an obscured/offscreen widget cannot leave loading stuck. Docker images include Chromium's software graphics library for WebGL on NAS/server hosts without a usable GPU; both native architectures exercise the real widget in CI.
@@ -61,6 +61,7 @@ npm run check
 npm test
 npm run test:browser
 npm run test:gcode-browser
+BAMBUBOARD_TEST_DENSE_PLATE=1 npm run test:gcode-browser
 BB_BROWSERS=chromium,firefox,webkit npm run test:ui
 ```
 
