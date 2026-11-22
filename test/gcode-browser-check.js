@@ -118,6 +118,22 @@ const pacedToolpath = Buffer.from(
   }).join('')
 );
 
+const busyFilamentToolpath = Buffer.from(
+  compactHeader + motionless.repeat(200_001) +
+  Array.from({ length: 7 }, (_, i) => {
+    const layer = i + 1;
+    const z = (layer * 0.2).toFixed(1);
+    const marker = `; CHANGE_LAYER\n; Z_HEIGHT: ${z}\n; layer num/total_layer_count: ${layer}/7\n`;
+    if (layer >= 6) return marker + `G0 X45 Y106 Z${z} F60\nG1 X225 E1\nG0 Y138\nG1 X45 E1\n`;
+    // Actual gray extrusion on multiple busy layers beneath the active bead.
+    const raster = Array.from({ length: 107 }, (_, row) =>
+      `G0 X45 Y${48 + row * 1.25}\nG1 X225 E1\n`).join('');
+    return marker + `G0 Z${z} F6000\n` + raster + 'G0 X45 Y106\n';
+  }).join('')
+);
+const mockCameraBackground = [54, 99, 122];
+const widgetStatus = '#gcodeDetail';
+
 function compactTiming(plate) {
   const layers = [];
   let elapsed = 0, previous = [0, 0, 0];
@@ -232,8 +248,27 @@ function onRasterMotion(plate, layer, position) {
   });
   app.get('/api/status', (_req, res) => res.json({ printer: { type: printerType } }));
   app.get('/toolpath-view-fixture', (_req, res) => res.send('<iframe title="Toolpath test" src="/widgets/gcode-viz/?debug=1&mode=preview&view=front&zoom=125" width="640" height="640"></iframe>'));
+  const filamentViews = {
+    operator: 'mode=preview&debug=1',
+    public: 'debug=1',
+    // OBS browser sources load the public widget in a transparent scene.
+    obs: 'debug=1',
+  };
+  app.get('/toolpath-camera-fixture/:surface', (req, res) => {
+    if (!Object.hasOwn(filamentViews, req.params.surface)) return res.sendStatus(404);
+    const query = filamentViews[req.params.surface];
+    res.send(`<!doctype html><html><head><title>Camera and toolpath test</title><style>
+      html, body { height: 100%; margin: 0; }
+      body { background: rgb(${mockCameraBackground.join(',')}); }
+      main { position: absolute; inset: 9% 6%; background:
+        repeating-linear-gradient(115deg, transparent 0 16px, rgb(206 194 172 / 38%) 16px 19px),
+        linear-gradient(30deg, #253d52 0 18%, #93a8a0 18% 36%, #344857 36% 60%, #897c6d 60% 78%, #293746 78%); }
+      iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    </style></head><body><main aria-hidden="true"></main>
+      <iframe title="G-code toolpath" src="/widgets/gcode-viz/?${query}"></iframe></body></html>`);
+  });
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace'].includes(mode)) return next();
+    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace', 'packed-busy-filament'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
@@ -245,7 +280,8 @@ function onRasterMotion(plate, layer, position) {
       controller.abort();
     });
     const windowed = mode === 'packed-window';
-    const fixture = mode === 'packed-deposition' ? depositionToolpath : mode === 'packed-pace' ? pacedToolpath : null;
+    const fixture = mode === 'packed-deposition' ? depositionToolpath :
+      mode === 'packed-pace' ? pacedToolpath : mode === 'packed-busy-filament' ? busyFilamentToolpath : null;
     const length = fixture ? fixture.length : windowed ? windowByteLength() : compactByteLength(packedFixture);
     res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(length), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
@@ -899,7 +935,7 @@ function onRasterMotion(plate, layer, position) {
         assert.ok(first.bytes >= plate.segments * 24 && first.bytes <= plate.segments * 36 + mebibyte, JSON.stringify(first));
 
         const firstMotion = await startLayer(1);
-        await densePage.getByText('Estimated nozzle position', { exact: false }).waitFor();
+        assert.equal(await densePage.locator(widgetStatus).isVisible(), false);
         const afterFirst = await waitForMotion(densePage, 1, firstMotion.position);
         assert.ok(afterFirst.animationDraws > firstMotion.animationDraws);
         const startup = await densePage.evaluate(() => window.__diag().startup);
@@ -1060,32 +1096,43 @@ function onRasterMotion(plate, layer, position) {
             control.value = String(layer + 1); // The display prefix includes the preamble.
             control.dispatchEvent(new Event('input', { bubbles: true }));
           }, middle);
-          await densePage.getByText('Toolpath replay', { exact: false }).waitFor();
           await densePage.waitForFunction(layer => {
             const motion = window.__diag?.().motion;
             return motion?.layer === layer && motion.state === 'ready' && motion.visible;
           }, middle, { timeout });
-          scrub = await densePage.evaluate(async ({ x, y, z }) => {
+          assert.equal(await densePage.locator(widgetStatus).isVisible(), false);
+          const layerEndpoint = layer => rasterPoint(layer, layerShare(plate.segments, plate.layers, layer)).map(point => point / 100);
+          scrub = await densePage.evaluate(async ({ liftPoint: [x, y, z], first, last }) => {
             const control = document.getElementById('gcodePath');
-            async function seek(value) {
+            async function seek(value, endpoint) {
+              const previousDraws = window.__diag().motion.animationDraws;
               control.value = String(value);
               control.dispatchEvent(new Event('input', { bubbles: true }));
-              await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-              return window.__diag().motion.position;
+              const deadline = performance.now() + 5000;
+              while (performance.now() < deadline) {
+                const motion = window.__diag().motion;
+                if (motion?.state === 'ready' && motion.visible && motion.position) {
+                  const painted = endpoint
+                    ? motion.position.every((point, i) => Math.abs(point - endpoint[i]) < 0.002)
+                    : motion.animationDraws > previousDraws;
+                  if (painted) return motion.position;
+                }
+                await new Promise(resolve => requestAnimationFrame(resolve));
+              }
+              throw new Error(`Replay seek ${value} did not paint its target`);
             }
-            const start = await seek(0);
+            const start = await seek(0, first);
             let lift = null;
             for (let value = 5; value <= 150; value += 5) {
               const point = await seek(value);
-              if (point && Math.abs(point[0] - x) < 0.002 && Math.abs(point[1] - y) < 0.002 && point[2] > z + 2) {
+              if (Math.abs(point[0] - x) < 0.002 && Math.abs(point[1] - y) < 0.002 && point[2] > z + 2) {
                 lift = point;
                 break;
               }
             }
-            return { start, lift, end: await seek(1000), back: await seek(0) };
-          }, Object.fromEntries(['x', 'y', 'z'].map((axis, i) => [axis, rasterPoint(middle, 1)[i] / 100])));
+            return { start, lift, end: await seek(1000, last), back: await seek(0, first) };
+          }, { liftPoint: rasterPoint(middle, 1).map(point => point / 100), first: layerEndpoint(middle - 1), last: layerEndpoint(middle) });
           assert.ok(scrub.lift && onRasterMotion(plate, middle, scrub.lift), 'Replay must include the exact non-printing Z lift');
-          const layerEndpoint = layer => rasterPoint(layer, layerShare(plate.segments, plate.layers, layer)).map(point => point / 100);
           for (const [actual, expected] of [[scrub.start, layerEndpoint(middle - 1)], [scrub.end, layerEndpoint(middle)]]) {
             assert.ok(Math.hypot(...actual.map((point, i) => point - expected[i])) < 0.002,
               `Scrub endpoint ${actual} must match ordered toolpath endpoint ${expected}`);
@@ -1164,10 +1211,10 @@ function onRasterMotion(plate, layer, position) {
           const own = element.getBoundingClientRect();
           const canvas = document.getElementById('gcodeCanvas').getBoundingClientRect();
           const style = getComputedStyle(element);
-          return { align: style.textAlign, outsideCanvas: own.bottom <= canvas.top,
+          return { align: style.textAlign, fullCanvas: canvas.top === 0 && canvas.bottom === innerHeight,
             insideViewport: own.left >= 0 && own.right <= innerWidth, acceptsEvents: style.pointerEvents !== 'none' };
         });
-        assert.deepEqual(detail, { align: 'left', outsideCanvas: true, insideViewport: true, acceptsEvents: false });
+        assert.deepEqual(detail, { align: 'left', fullCanvas: true, insideViewport: true, acceptsEvents: false });
       };
       const checkPixels = async (name, checks) => {
         const png = await target.locator('#gcodeCanvas').screenshot({ path: path.join(artifacts, name + '.png'), timeout });
@@ -1211,14 +1258,14 @@ function onRasterMotion(plate, layer, position) {
         await setLayer(1, 31_250);
         const red = await waitForMotion({ visible: true, state: 'ready', x: [55, 62], depositionStart: 1, depositedEnd: 1,
           depositedSegments: 0, partialDeposited: true, reportedLayer: 1 });
-        await target.getByText('Estimated nozzle position', { exact: true }).waitFor();
+        assert.equal(await target.locator(widgetStatus).isVisible(), false);
         await checkPixels('gcode-deposition-red-partial', [
           { x: 42, y: 70, red: true, green: false },
           { x: 82, y: 70, red: false, green: false },
         ]);
         await target.setViewportSize({ width: 236, height: 248 });
-        await checkDetail();
-        await target.screenshot({ path: path.join(artifacts, 'gcode-deposition-label-narrow.png'), timeout });
+        assert.equal(await target.locator(widgetStatus).isVisible(), false);
+        await target.screenshot({ path: path.join(artifacts, 'gcode-deposition-narrow.png'), timeout });
         await target.setViewportSize({ width: 640, height: 640 });
 
         await setLayer(1, 112_500);
@@ -1316,7 +1363,7 @@ function onRasterMotion(plate, layer, position) {
         assert.equal(middle.depositionStart, 10, 'The setup and three known completed layers are preserved');
         assert.equal(middle.depositedSegments, 2);
         assert.ok(Math.abs(middle.paceFactor - 3) < 0.05, JSON.stringify(middle));
-        await target.getByText('Estimated nozzle position', { exact: true }).waitFor();
+        assert.equal(await target.locator(widgetStatus).isVisible(), false);
 
         // A new packet for the same physical layer arrives well beyond the
         // nominal duration. Preserve ordered motion without looping or
@@ -1371,6 +1418,179 @@ function onRasterMotion(plate, layer, position) {
     await checkLearnedLayerPace();
     passed.push('Prior measured physical layers guide late estimated motion and deposition until the actual telemetry layer transition');
 
+    async function checkVisibleFilament() {
+      await page.goto('about:blank');
+      mode = 'packed-busy-filament';
+      const before = count;
+      const target = await context.newPage();
+      const timeout = 30_000;
+      const checkPose = (frame, depositing) => frame.waitForFunction(depositing => {
+        const diag = window.__diag?.();
+        const p = diag?.motion?.position;
+        if (!p || diag.motion.state !== 'ready' || !diag.motion.depositionReady || diag.compact.staticLines < 500 ||
+            diag.motion.markerLayerCount !== 7 || diag.motion.reportedLayer !== 6) return false;
+        if (depositing) return diag.motion.partialDeposited && p[0] > 142 && p[0] < 166 && Math.abs(p[1] - 106) < 0.01;
+        return !diag.motion.partialDeposited && p[1] > 119 && p[1] < 129 && Math.abs(p[0] - 225) < 0.01;
+      }, depositing, { timeout });
+      const refreshStatic = async frame => {
+        const size = target.viewportSize();
+        for (const width of [size.width + 1, size.width]) {
+          const before = await frame.evaluate(() => window.__diag().motion.staticDraws);
+          await target.setViewportSize({ ...size, width });
+          await frame.waitForFunction(({ width, before }) => innerWidth === width &&
+            window.__diag()?.compact?.staticReady && window.__diag()?.motion?.staticDraws > before,
+          { width, before }, { timeout });
+        }
+      };
+      const capture = async (frame, name, kind) => {
+        const projection = await frame.evaluate(kind => {
+          const { position: [x, y, z], ...motion } = window.__diag().motion;
+          const { camera, buildVolume } = window.__preview;
+          const bounds = document.getElementById('gcodeCanvas').getBoundingClientRect();
+          const map = ([px, py, pz]) => {
+            const point = new camera.position.constructor(px - buildVolume.x / 2, pz, buildVolume.y / 2 - py).project(camera);
+            return [Math.round(bounds.left + (point.x + 1) * bounds.width / 2),
+              Math.round(bounds.top + (1 - point.y) * bounds.height / 2)];
+          };
+          const points = kind === 'travel'
+            ? { tipBehind: [x, y - 6, z], future: [x, y + 8, z], deposited: [x - 22, 106, z] }
+            : { tipBehind: [x - 5.5, y, z], plain: [x - 24, y, z], future: [x + 17, y, z] };
+          return { position: [x, y, z], motion, zoom: camera.zoom, probes: Object.fromEntries(
+            Object.entries(points).map(([probe, point]) => [probe, map(point)]),
+          ) };
+        }, kind);
+        const png = await target.screenshot({ path: path.join(artifacts, name + '.png'), timeout, animations: 'disabled' });
+        const pixels = await target.evaluate(async ({ png, probes }) => {
+          const image = new Image();
+          image.src = 'data:image/png;base64,' + png;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(image, 0, 0);
+          const exterior = Array.from(ctx.getImageData(image.width - 3, 2, 1, 1).data);
+          const samples = Object.fromEntries(Object.entries(probes).map(([key, [x, y]]) => {
+            const { data } = ctx.getImageData(x - 2, y - 2, 5, 5);
+            let outline = 0, gray = 0, cover = 0;
+            const luma = [];
+            for (let i = 0; i < data.length; i += 4) {
+              const [r, g, b] = data.subarray(i, i + 3);
+              const neutral = Math.max(r, g, b) - Math.min(r, g, b) <= 3;
+              const value = (r + 2 * g + b) / 4;
+              if (neutral && value >= 35 && value <= 80) outline++;
+              if (neutral && Math.abs(value - 136) <= 4) gray++;
+              if (r >= 140 && b >= 140 && g <= 95) cover++;
+              luma.push(value);
+            }
+            return [key, { x, y, outline, gray, cover, minLuma: Math.min(...luma) }];
+          }));
+          return { exterior, samples };
+        }, { png: png.toString('base64'), probes: projection.probes });
+        return { ...projection, ...pixels };
+      };
+      try {
+        await write('Busy same-color extrusion', 'RUNNING', {
+          layer_num: 6, total_layer_num: 7, mc_percent: 75, _bb_layer_elapsed_ms: 127_500,
+          _bb_layer_advancing: true, ams: { ams: [{ id: '0', tray: [{ id: '0', tray_color: '888888FF' }] }] },
+        });
+        await target.setViewportSize({ width: 360, height: 270 });
+        await target.goto(base + '/toolpath-camera-fixture/obs');
+        const frame = await target.locator('iframe').contentFrame().locator('#gcodeCanvas').evaluate(element => element.ownerDocument.URL);
+        const widget = target.frames().find(child => child.url() === frame);
+        assert.ok(widget, 'The test must sample the actual OBS widget document');
+        await checkPose(widget, true);
+        const narrow = await capture(widget, 'gcode-visible-filament-360', 'deposition');
+        await target.setViewportSize({ width: 800, height: 600 });
+        await widget.waitForFunction(() => innerWidth === 800 && window.__preview.camera.aspect > 1.3, null, { timeout });
+        await checkPose(widget, true);
+        const wide = await capture(widget, 'gcode-visible-filament-800', 'deposition');
+
+        await widget.evaluate(async () => {
+          const THREE = await import('/vendor/three.module.js');
+          const { camera, scene, buildVolume } = window.__preview;
+          const [x, y, z] = window.__diag().motion.position;
+          const geometry = new THREE.PlaneGeometry(15, 15);
+          const material = new THREE.MeshBasicMaterial({ color: 0xbd35c7, side: THREE.DoubleSide });
+          const cover = new THREE.Mesh(geometry, material);
+          cover.name = 'opaque-test-occluder';
+          const point = new THREE.Vector3(x - 5.5 - buildVolume.x / 2, z, buildVolume.y / 2 - y);
+          cover.position.copy(point).addScaledVector(camera.position.clone().sub(point).normalize(), 7);
+          cover.quaternion.copy(camera.quaternion);
+          scene.add(cover);
+        });
+        await refreshStatic(widget);
+        const occluded = await capture(widget, 'gcode-visible-filament-occluded', 'deposition');
+        await widget.evaluate(() => {
+          const cover = window.__preview.scene.getObjectByName('opaque-test-occluder');
+          cover.removeFromParent();
+          cover.geometry.dispose();
+          cover.material.dispose();
+        });
+        await refreshStatic(widget);
+        await writePacket({ ...print, _bb_layer_elapsed_ms: 245_000 });
+        await checkPose(widget, false);
+        const travel = await capture(widget, 'gcode-visible-filament-travel', 'travel');
+
+        const results = { narrow, wide, occluded, travel, httpDownloads: count - before };
+        await fs.writeFile(path.join(artifacts, 'gcode-visible-filament-results.json'), JSON.stringify(results, null, 2));
+        for (const result of [narrow, wide]) {
+          assert.equal(result.zoom, 1, 'Recent extrusion must remain visible at the default zoom');
+          assert.deepEqual(result.exterior, [...mockCameraBackground, 255], 'The mock camera remains visible outside the model');
+          assert.ok(result.samples.plain.gray > 0, JSON.stringify(result.samples));
+          assert.ok(result.samples.tipBehind.outline >= 2 && result.samples.tipBehind.gray >= 1 &&
+            result.samples.plain.outline === 0 && result.samples.future.outline === 0, JSON.stringify(result.samples));
+        }
+        assert.ok(occluded.samples.tipBehind.cover >= 18 && occluded.samples.tipBehind.outline === 0,
+          JSON.stringify(occluded.samples));
+        assert.ok(travel.samples.tipBehind.outline === 0 && travel.samples.future.outline === 0,
+          JSON.stringify(travel.samples));
+        assert.equal(travel.motion.partialDeposited, false);
+        assert.equal(count, before + 1);
+      } finally {
+        await target.close();
+      }
+    }
+    await checkVisibleFilament();
+    passed.push('Same-color recent filament remains visible at two widget sizes with proper depth, no travel trail, and a transparent camera embed');
+
+    async function checkLabelFreeSurfaces() {
+      const results = [];
+      for (const name of ['operator', 'public', 'obs']) {
+        const target = await context.newPage();
+        try {
+          await target.goto(base + '/toolpath-camera-fixture/' + name);
+          const widget = target.locator('iframe').contentFrame();
+          const canvas = widget.locator('#gcodeCanvas');
+          await target.waitForFunction(() => {
+            const motion = document.querySelector('iframe')?.contentWindow?.__diag?.().motion;
+            return motion?.state === 'ready' && motion.visible && Boolean(motion.position);
+          });
+          const status = widget.locator(widgetStatus);
+          const ready = await canvas.evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            const description = document.getElementById('gcodeEstimateDescription');
+            const style = description && getComputedStyle(description);
+            return { operator: window.BBGcodeUI.operator, fullCanvas: bounds.top === 0 && bounds.left === 0 &&
+                bounds.bottom === innerHeight && bounds.right === innerWidth,
+              described: (element.getAttribute('aria-describedby') || '').split(' ').includes('gcodeEstimateDescription'),
+              accessibleText: description?.textContent.trim(),
+              visuallyHidden: style?.position === 'absolute' && description.getBoundingClientRect().width <= 1 && style.overflow === 'hidden' };
+          });
+          assert.equal(await status.isVisible(), false, `The ${name} surface must not show a ready-motion chip`);
+          assert.deepEqual(ready, { operator: name === 'operator', fullCanvas: true, described: true,
+            accessibleText: 'The nozzle position is estimated from printer telemetry and the toolpath.', visuallyHidden: true });
+          await target.screenshot({ path: path.join(artifacts, 'gcode-visible-filament-' + name + '-ready.png') });
+          results.push({ surface: name, ...ready, readyStatusVisible: false });
+        } finally {
+          await target.close();
+        }
+      }
+      await fs.writeFile(path.join(artifacts, 'gcode-visible-filament-surfaces.json'), JSON.stringify(results, null, 2));
+    }
+    await checkLabelFreeSurfaces();
+    passed.push('Ready toolpath is label-free for operator, public and OBS widgets while keeping an accessible estimate description');
+
     await checkPackedPlate(compactPlate, 'gcode-compact-plate', 45000);
     passed.push('Packed preview animates the estimated nozzle through first, middle and final layers, honors pause and resume, and preserves static geometry over one HTTP transfer');
     if (process.env.BAMBUBOARD_TEST_DENSE_PLATE === '1') {
@@ -1413,7 +1633,7 @@ function onRasterMotion(plate, layer, position) {
       assert.deepEqual(await packedFallback.evaluate(() => ({
         attempts: window.__packedWorkerDenied, reader: window.__diag().startup?.reader,
       })), { attempts: 1, reader: 'cooperative' });
-      assert.equal(await packedFallback.getByText('Estimated nozzle position', { exact: false }).isVisible(), true);
+      assert.equal(await packedFallback.locator(widgetStatus).isVisible(), false);
       passed.push('Packed geometry and selected motion remain usable when the packed parser worker is blocked');
     } finally {
       await packedFallback.close();
@@ -1549,7 +1769,7 @@ function onRasterMotion(plate, layer, position) {
         await latePage.evaluate(() => window.__packedLayerGate.release());
         await latePage.waitForTimeout(150);
         assert.deepEqual(await latePage.evaluate(() => window.__diag().motion.position), backwardSeek.position);
-        await latePage.getByText('Toolpath replay', { exact: true }).waitFor();
+        assert.equal(await latePage.locator(widgetStatus).isVisible(), false);
         assert.equal(count, before + 2, 'Each viewer downloads the plate once across all windows and seeks');
 
         const evidence = {

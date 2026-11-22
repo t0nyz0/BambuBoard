@@ -15,6 +15,7 @@ import { openPackedPreview } from './packed-preview-loader.js';
 import { buildPackedRenderer } from './packed-renderer.js';
 import { createPackedNozzleRenderer } from './packed-nozzle-renderer.js';
 import { createPackedNozzlePlayback } from './packed-nozzle-playback.js';
+import { createRecentDepositionRibbon, RECENT_DEPOSITION_LENGTH, RECENT_DEPOSITION_SEGMENTS } from './recent-deposition-ribbon.js';
 import '../../js/gcode-limits.js';
 import '../../js/gcode-view.js';
 
@@ -30,13 +31,6 @@ const H3C_MAX_SLICER_FILAMENTS = 32;
 // a few samples.
 let nozzleSpeedFactor = 0.5;
 let calibrationSamples = 0;
-// Hot-extrusion trail: how long a freshly-deposited segment glows before
-// fading to the cold print color, and the geometry buffer cap. Long window
-// + wide cooling bands so the red→orange→yellow→cold gradient is actually
-// visible across the trail rather than red-dominating up front.
-const TRAIL_SECONDS = 144;
-const TRAIL_MAX_POINTS = 8800;
-const TRAIL_BREAK_DIST = 25;    // mm jump that splits the trail (e.g. layer change)
 // No delay — sync the simulated nozzle directly to the printer's
 // mc_percent position. Any lag puts us on the wrong segment / object.
 const REPLAY_DELAY_S = 0;
@@ -64,7 +58,6 @@ const pathEl = document.getElementById('gcodePath');
 const pathLabelEl = document.getElementById('gcodePathLabel');
 const logEl = document.getElementById('gcodeLog');
 const detailEl = document.getElementById('gcodeDetail');
-const stageEl = detailEl.parentElement;
 
 // Rolling debug log. Always captured into a ring buffer (cheap, ~240 lines)
 // so it can be inspected from the console anytime via window.__log(); mirrored
@@ -109,8 +102,7 @@ const preview = GCodePreview.init({
   canvas,
   extrusionColor: printerType === 'H3C' ? neutralFilament : 'hotpink',
   backgroundColor: '#1a1c20', // overridden to transparent below; kept here so gcode-preview's fog still has a base color
-  // Travels are visualized via the trail (short-lived gray streak) rather than
-  // baked into the static toolpath — keeps the build plate uncluttered.
+  // Keep travel moves out of the deposited material.
   renderTravel: false,
   buildVolume: { x: bed.x, y: bed.y, z: bed.z },
   initialCameraPosition: [-120, 130, 150],
@@ -288,166 +280,9 @@ nozzleFill.position.set(-80, 60, -60);
 const nozzleRim = new THREE.DirectionalLight(0xffd2a0, 0.35);
 nozzleRim.position.set(-40, 30, 110);
 
-// Hot-extrusion trail: vertex-colored ribbon mesh drawn on top of the
-// toolpath with depthTest disabled so it's always visible.
-const trailMat = new THREE.MeshBasicMaterial({
-  vertexColors: true,
-  depthTest: false,
-  depthWrite: false,
-  side: THREE.DoubleSide,
-});
-// Trail rendered as a thin ribbon mesh (two triangles per segment) instead
-// of LineSegments. WebGL lines are always 1px which is invisible against
-// the dense toolpath wireframe. A ribbon with ~1mm height has real visual
-// volume that reads clearly even with white filament.
-const RIBBON_H = 0.15;  // half-height of ribbon in world units
-const trailIdxBuf = new Uint32Array(TRAIL_MAX_POINTS * 6);
-const trailRibbonPos = new Float32Array(TRAIL_MAX_POINTS * 4 * 3);
-const trailRibbonCol = new Float32Array(TRAIL_MAX_POINTS * 4 * 3);
-const trailGeoRibbon = new THREE.BufferGeometry();
-trailGeoRibbon.setAttribute('position', new THREE.BufferAttribute(trailRibbonPos, 3));
-trailGeoRibbon.setAttribute('color', new THREE.BufferAttribute(trailRibbonCol, 3));
-trailGeoRibbon.setIndex(new THREE.BufferAttribute(trailIdxBuf, 1));
-trailGeoRibbon.setDrawRange(0, 0);
-const trailLine = new THREE.Mesh(trailGeoRibbon, trailMat);
-trailLine.renderOrder = 999;
-trailLine.frustumCulled = false;
-const trailBuf = []; // ring of { x, y, z, t, jump } — jump=true means start of a new run
-let lastTrailPos = null;
-let lastTrailSegIdx = -1;
-let lastTrailLayerIdx = -1;
+const recentDeposition = createRecentDepositionRibbon();
+recentDeposition.mesh.renderOrder = 999;
 
-function lerpColor(a, b, t) {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-}
-// Trail color ramp: just-extruded filament is bright red, cools through
-// orange to green, then settles to the actual filament color.
-const COLOR_HOT  = [1.00, 0.05, 0.02]; // vivid red — just out of the nozzle
-const COLOR_ORG  = [1.00, 0.45, 0.00]; // orange — cooling
-const COLOR_YEL  = [0.95, 0.85, 0.10]; // yellow — warm
-const COLOR_GRN  = [0.10, 0.85, 0.20]; // green — almost set
-let   COLOR_COLD = [1.00, 0.37, 0.64]; // mutable: matches active filament color
-
-function ageColor(age01) {
-  //   0.00..0.05  HOT (red) — brief flash right at the nozzle
-  //   0.05..0.20  HOT → ORG  (red → orange)
-  //   0.20..0.40  ORG → YEL  (orange → yellow)
-  //   0.40..0.70  YEL → GRN  (yellow → green)
-  //   0.70..1.00  GRN → COLD (green → filament color)
-  if (age01 < 0.05) return COLOR_HOT.slice();
-  if (age01 < 0.20) return lerpColor(COLOR_HOT, COLOR_ORG, (age01 - 0.05) / 0.15);
-  if (age01 < 0.40) return lerpColor(COLOR_ORG, COLOR_YEL, (age01 - 0.20) / 0.20);
-  if (age01 < 0.70) return lerpColor(COLOR_YEL, COLOR_GRN, (age01 - 0.40) / 0.30);
-  return                   lerpColor(COLOR_GRN, COLOR_COLD, (age01 - 0.70) / 0.30);
-}
-
-function updateTrail() {
-  if (activeLayerIdx < 0) return;
-  // When the print is truly done (FINISH/IDLE/FAILED), clear the trail so
-  // hot streaks don't hang on a finished print. During mid-print sub-stage
-  // checks (stg_cur briefly nonzero) we just stop adding points — don't
-  // wipe what we've built up.
-  if (!verifyLayers && !scrubActive) {
-    if (lastGcodeState === 'FINISH' || lastGcodeState === 'IDLE' || lastGcodeState === 'FAILED') {
-      if (trailBuf.length) {
-        trailBuf.length = 0;
-        trailGeoRibbon.setDrawRange(0, 0);
-      }
-      lastTrailPos = null;
-      return;
-    }
-    if (isPausedForState()) {
-      return;
-    }
-  }
-  const now = performance.now();
-  const x = nozzleGroup.position.x;
-  const y = nozzleGroup.position.y;
-  const z = nozzleGroup.position.z;
-
-  if (lastTrailPos) {
-    const d = Math.hypot(x - lastTrailPos.x, y - lastTrailPos.y, z - lastTrailPos.z);
-    if (d > 0.05) {                    // moved enough to record
-      // A "jump" should break the trail. Detect it three ways:
-      //   1) Big distance (layer change, scrub teleport) — TRAIL_BREAK_DIST.
-      //   2) Layer changed since last sample.
-      //   3) The simulated nozzle skipped over a travel segment in the
-      //      parsed gcode between this frame and the last. Travels have
-      //      them. The nozzle moves smoothly through travels now (they
-      //      carry real duration), but no filament is deposited so we
-      //      mustn't draw a trail across the repositioning gap.
-      let jump = (d > TRAIL_BREAK_DIST) || (activeLayerIdx !== lastTrailLayerIdx);
-      if (!jump && currentSegIdx >= 0) {
-        const segs = layerPaths[activeLayerIdx]?.segs || [];
-        // Break the trail when the nozzle is currently on a travel
-        // segment — no filament is being deposited during repositioning.
-        // Also break when any travel segment was crossed since the last
-        // frame so the trail doesn't bridge an air gap.
-        if (segs[currentSegIdx] && !segs[currentSegIdx].ext) {
-          jump = true;
-        } else if (lastTrailSegIdx >= 0 && currentSegIdx !== lastTrailSegIdx) {
-          const lo = Math.min(lastTrailSegIdx, currentSegIdx);
-          const hi = Math.max(lastTrailSegIdx, currentSegIdx);
-          for (let k = lo + 1; k <= hi; k++) {
-            if (segs[k] && !segs[k].ext) { jump = true; break; }
-          }
-        }
-      }
-      trailBuf.push({ x, y, z, t: now, jump });
-      lastTrailPos = { x, y, z };
-      lastTrailSegIdx = currentSegIdx;
-      lastTrailLayerIdx = activeLayerIdx;
-    }
-  } else {
-    trailBuf.push({ x, y, z, t: now, jump: true });
-    lastTrailPos = { x, y, z };
-    lastTrailSegIdx = currentSegIdx;
-    lastTrailLayerIdx = activeLayerIdx;
-  }
-
-  // Drop expired points.
-  while (trailBuf.length && (now - trailBuf[0].t) / 1000 > TRAIL_SECONDS) {
-    trailBuf.shift();
-  }
-  while (trailBuf.length > TRAIL_MAX_POINTS) trailBuf.shift();
-
-  // Build ribbon mesh: each segment is a quad (2 triangles) offset
-  // perpendicular to the path in the XZ plane so the ribbon lies flat
-  // on the print surface — visible from the side camera angle.
-  let segCount = 0;
-  for (let i = 1; i < trailBuf.length; i++) {
-    const b = trailBuf[i];
-    if (b.jump) continue;
-    const a = trailBuf[i - 1];
-    const v = segCount * 4;   // 4 vertices per quad
-    const p = v * 3;
-    // Perpendicular offset in XZ plane (flat ribbon on the print surface)
-    const dx = b.x - a.x, dz = b.z - a.z;
-    const len = Math.hypot(dx, dz) || 1;
-    const px = (-dz / len) * RIBBON_H, pz = (dx / len) * RIBBON_H;
-    trailRibbonPos[p]      = a.x + px; trailRibbonPos[p + 1]  = a.y; trailRibbonPos[p + 2]  = a.z + pz;
-    trailRibbonPos[p + 3]  = a.x - px; trailRibbonPos[p + 4]  = a.y; trailRibbonPos[p + 5]  = a.z - pz;
-    trailRibbonPos[p + 6]  = b.x + px; trailRibbonPos[p + 7]  = b.y; trailRibbonPos[p + 8]  = b.z + pz;
-    trailRibbonPos[p + 9]  = b.x - px; trailRibbonPos[p + 10] = b.y; trailRibbonPos[p + 11] = b.z - pz;
-    const ageA = (now - a.t) / 1000 / TRAIL_SECONDS;
-    const ageB = (now - b.t) / 1000 / TRAIL_SECONDS;
-    const cA = ageColor(Math.min(1, Math.max(0, ageA)));
-    const cB = ageColor(Math.min(1, Math.max(0, ageB)));
-    trailRibbonCol[p]      = cA[0]; trailRibbonCol[p + 1]  = cA[1]; trailRibbonCol[p + 2]  = cA[2];
-    trailRibbonCol[p + 3]  = cA[0]; trailRibbonCol[p + 4]  = cA[1]; trailRibbonCol[p + 5]  = cA[2];
-    trailRibbonCol[p + 6]  = cB[0]; trailRibbonCol[p + 7]  = cB[1]; trailRibbonCol[p + 8]  = cB[2];
-    trailRibbonCol[p + 9]  = cB[0]; trailRibbonCol[p + 10] = cB[1]; trailRibbonCol[p + 11] = cB[2];
-    // Two triangles: (0,1,2) and (1,3,2)
-    const idx = segCount * 6;
-    trailIdxBuf[idx]     = v;     trailIdxBuf[idx + 1] = v + 1; trailIdxBuf[idx + 2] = v + 2;
-    trailIdxBuf[idx + 3] = v + 1; trailIdxBuf[idx + 4] = v + 3; trailIdxBuf[idx + 5] = v + 2;
-    segCount++;
-  }
-  trailGeoRibbon.setDrawRange(0, segCount * 6);
-  trailGeoRibbon.attributes.position.needsUpdate = true;
-  trailGeoRibbon.attributes.color.needsUpdate = true;
-  trailGeoRibbon.index.needsUpdate = true;
-}
 // gcode-preview's render() rebuilds the entire toolpath geometry (parses
 // commands up to endLayer, creates a fresh group, and clears the scene).
 // That's expensive and almost always wasteful — the geometry only actually
@@ -466,7 +301,7 @@ let packedViewDirty = true;
 let packedFrame = null;
 let packedModelLayerCount = 0;
 let startupReport = null;
-const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, trailLine, nozzleGroup, printPlate];
+const myExtras = [nozzleAmbient, nozzleKey, nozzleFill, nozzleRim, recentDeposition.mesh, nozzleGroup, printPlate];
 
 function fullRebuild(packedPrefix = preview.endLayer) {
   if (packedPreview) {
@@ -510,7 +345,6 @@ preview.render = function () {
   lastStaticView = null;
   fullRebuild();
   updateNozzlePosition();
-  updateTrail();
   preview.renderer?.render(preview.scene, preview.camera);
 };
 
@@ -529,10 +363,9 @@ function fastTick() {
     }
   }
   updateNozzlePosition();
-  updateTrail();
   // A finished plate has no moving nozzle. Keep the camera fit responsive,
   // but avoid flooding a software GPU with millions of identical vertices.
-  const still = isPausedForState() && trailBuf.length === 0;
+  const still = isPausedForState();
   preview.camera.updateMatrixWorld();
   const view = [...preview.camera.matrixWorld.elements, ...preview.camera.projectionMatrix.elements];
   if (still && !rebuild && lastStaticView) {
@@ -563,12 +396,6 @@ function recomputeCumZ() {
 let layerPaths = [];
 let activeLayerIdx = -1;
 let layerStartTime = 0;
-// Index of the segment the simulated nozzle is currently on within its
-// active layer's path. Set by nozzleXYAt(); used by updateTrail() to detect
-// when consecutive frames straddle a travel (so we don't draw a faux trail
-// line spanning the air gap).
-let currentSegIdx = -1;
-
 // Cumulative extrusion-time prefix sum across all layers. Used to map MQTT's
 // global `mc_percent` (0–100) into a (layer, within-layer-elapsed) pair so
 // the widget tracks the printer's real position rather than looping freely.
@@ -633,6 +460,7 @@ async function buildLayerPaths(layers, signal) {
   let curF = 6000;          // mm/min, initial guess
   let absoluteE = false;    // M83 (relative) is the Bambu default
   let prevE = 0;
+  let tool = 0;
   // Helper: append one tessellated segment to the layer's segs array.
   // Both extrusion and travel moves get their real duration at the
   // commanded feedrate. Previously travels were instant (dur=0) which
@@ -640,12 +468,11 @@ async function buildLayerPaths(layers, signal) {
   // converged to a speed factor that was too high, making the animation
   // visibly outpace the real printer (especially on multi-color H2D
   // prints with frequent tool-change travels).
-  function pushSeg(segs, ax, ay, bx, by, isExt, curFRef) {
+  function pushSeg(segs, ax, ay, bx, by, isExt) {
     if (ax === bx && ay === by) return;
     const dist = Math.hypot(bx - ax, by - ay);
-    const f = curFRef.f || 6000;
-    const dur = dist / (f / 60);
-    segs.push({ ax, ay, bx, by, ext: isExt, dist, dur });
+    const dur = dist / (curF / 60);
+    segs.push({ ax, ay, bx, by, ext: isExt, tool, dur });
   }
   for (const layer of layers) {
     const segs = [];
@@ -657,9 +484,14 @@ async function buildLayerPaths(layers, signal) {
         yieldAt = performance.now() + 8;
       }
       const g = c.gcode;
-      if (g === 'm82') { absoluteE = true; prevE = 0; continue; }
-      if (g === 'm83') { absoluteE = false; continue; }
       const p = c.params || {};
+      if (g === 'm82') { absoluteE = true; continue; }
+      if (g === 'm83') { absoluteE = false; continue; }
+      if (g === 'g92' && typeof p.e === 'number') { prevE = p.e; continue; }
+      if (g.startsWith('t') && /^t-?\d+$/.test(g)) {
+        tool = Number(g.slice(1));
+        continue;
+      }
       if (g === 'g0' || g === 'g1') {
         if (typeof p.f === 'number' && p.f > 0) curF = p.f;
         const nx = (typeof p.x === 'number') ? p.x : curX;
@@ -667,12 +499,12 @@ async function buildLayerPaths(layers, signal) {
         // Detect extrusion: in M83, any positive E param. In M82, E that exceeds
         // the previous absolute E.
         let isExtrusion = false;
-        if (g === 'g1' && typeof p.e === 'number') {
-          if (absoluteE) { isExtrusion = p.e > prevE; prevE = p.e; }
-          else { isExtrusion = p.e > 0; }
+        if (typeof p.e === 'number') {
+          isExtrusion = g === 'g1' && (absoluteE ? p.e > prevE : p.e > 0);
+          prevE = absoluteE ? p.e : prevE + p.e;
         }
         if (nx !== curX || ny !== curY) {
-          pushSeg(segs, curX, curY, nx, ny, isExtrusion, { f: curF });
+          pushSeg(segs, curX, curY, nx, ny, isExtrusion);
           curX = nx; curY = ny;
         }
       } else if (g === 'g2' || g === 'g3') {
@@ -685,8 +517,8 @@ async function buildLayerPaths(layers, signal) {
         if (typeof p.f === 'number' && p.f > 0) curF = p.f;
         let isExtrusion = false;
         if (typeof p.e === 'number') {
-          if (absoluteE) { isExtrusion = p.e > prevE; prevE = p.e; }
-          else { isExtrusion = p.e > 0; }
+          isExtrusion = absoluteE ? p.e > prevE : p.e > 0;
+          prevE = absoluteE ? p.e : prevE + p.e;
         }
         const cw = (g === 'g2');
         const cx = curX + p.i;
@@ -706,7 +538,7 @@ async function buildLayerPaths(layers, signal) {
           const a = a0 + dA * t;
           const nx = cx + r * Math.cos(a);
           const ny = cy + r * Math.sin(a);
-          pushSeg(segs, prevX, prevY, nx, ny, isExtrusion, { f: curF });
+          pushSeg(segs, prevX, prevY, nx, ny, isExtrusion);
           prevX = nx; prevY = ny;
         }
         curX = p.x; curY = p.y;
@@ -723,64 +555,68 @@ async function buildLayerPaths(layers, signal) {
   return paths;
 }
 
-function nozzleXYAt(layerIdx, elapsedSec) {
-  const p = layerPaths[layerIdx];
-  if (!p || p.segs.length === 0) { currentSegIdx = -1; return null; }
-  if (p.total === 0) { currentSegIdx = 0; return { x: p.segs[0].bx, y: p.segs[0].by }; }
-  const targetT = elapsedSec % p.total;
-  // Find the segment whose cumulative end-time crosses targetT. Travels
-  // now carry their real duration so the nozzle smoothly moves through
-  // them (matching how the real printhead repositions).
-  let i = 0;
-  while (i < p.segs.length && p.cumTime[i + 1] < targetT) i++;
-  if (i >= p.segs.length) i = p.segs.length - 1;
-  currentSegIdx = i;
-  const s = p.segs[i];
-  if (s.dur === 0) return { x: s.bx, y: s.by };
-  const f = (targetT - p.cumTime[i]) / s.dur;
-  return { x: s.ax + (s.bx - s.ax) * f, y: s.ay + (s.by - s.ay) * f };
+function nozzleXYAt(path, elapsedSec) {
+  const targetT = path.total > 0 ? elapsedSec % path.total : 0;
+  let first = 0, last = path.segs.length - 1;
+  while (first < last) {
+    const center = (first + last) >>> 1;
+    if (path.cumTime[center + 1] < targetT) first = center + 1;
+    else last = center;
+  }
+  const segment = path.segs[first];
+  const fraction = segment.dur > 0 ? Math.min(1, Math.max(0, (targetT - path.cumTime[first]) / segment.dur)) : 1;
+  return {
+    x: segment.ax + (segment.bx - segment.ax) * fraction,
+    y: segment.ay + (segment.by - segment.ay) * fraction,
+    index: first,
+  };
 }
 
 // When set, the nozzle's within-layer position is pinned to this fraction
 // (0..1) instead of being driven by elapsed wall-clock time.
 let pathHoldFraction = null;
 
-// Called from the wrapped preview.render() so the nozzle position updates on
-// every frame the orbit loop produces.
 function updateNozzlePosition() {
-  // Hide the nozzle entirely when the printer isn't actively printing — no
-  // real motion is happening, so the simulated nozzle would mislead the user.
-  if (isPausedForState()) {
+  const path = layerPaths[activeLayerIdx];
+  if (isPausedForState() || !path?.segs.length) {
     nozzleGroup.visible = false;
+    recentDeposition.setSegments([]);
     return;
   }
-  if (activeLayerIdx < 0 || !layerPaths.length) {
-    nozzleGroup.visible = false;
-    return;
-  }
-  // Verify/scrub modes leave the glow on so the visualization still reads
-  // as active while testing. Paused or unavailable telemetry hides the
-  // simulated nozzle above.
-  glowGroup.visible = (verifyLayers || scrubActive)
-    ? true
-    : (lastGcodeState === 'RUNNING');
-  let elapsed;
-  if (pathHoldFraction !== null) {
-    const total = layerPaths[activeLayerIdx]?.total || 0;
-    elapsed = pathHoldFraction * total;
-  } else {
-    elapsed = (performance.now() - layerStartTime) / 1000 * nozzleSpeedFactor;
-  }
-  const xy = nozzleXYAt(activeLayerIdx, elapsed);
-  if (!xy) { nozzleGroup.visible = false; return; }
+  const elapsed = pathHoldFraction !== null ? pathHoldFraction * path.total
+    : (performance.now() - layerStartTime) / 1000 * nozzleSpeedFactor;
+  const tip = nozzleXYAt(path, elapsed);
   const z = cumZ[activeLayerIdx] ?? 0;
-  // gcode-preview rotates its render group -90° around X (so gcode Y maps to
-  // negative three.z) and translates by (-bv.x/2, 0, +bv.y/2). Mirror that
-  // here so the nozzle lines up with the rendered toolpath, not the
-  // bed-centered raw coords. Sign on Z was flipped before — caused prints
-  // offset from bed center to appear ~20mm shifted.
-  nozzleGroup.position.set(xy.x - buildCenter.x, z, buildCenter.y - xy.y);
+  const toWorld = (x, y) => [x - buildCenter.x, z, buildCenter.y - y];
+  // Mirror gcode-preview's bed-centred transform so both draws share the
+  // same point where the nozzle contacts the material.
+  nozzleGroup.position.fromArray(toWorld(tip.x, tip.y));
   nozzleGroup.visible = true;
+  const current = path.segs[tip.index];
+  glowGroup.visible = current.ext;
+  const segments = [];
+  if (current.ext) {
+    const palette = preview.extrusionColor;
+    const color = new THREE.Color(Array.isArray(palette) ? palette[current.tool] ?? palette[0] : palette).toArray();
+    let remaining = RECENT_DEPOSITION_LENGTH;
+    let x = tip.x, y = tip.y;
+    for (let i = tip.index; i >= Math.max(0, tip.index - RECENT_DEPOSITION_SEGMENTS + 1) && remaining > 0; i--) {
+      const segment = path.segs[i];
+      if (!segment.ext || segment.tool !== current.tool) break;
+      const length = Math.hypot(x - segment.ax, y - segment.ay);
+      if (length > 0.0001) {
+        const portion = Math.min(1, remaining / length);
+        const ax = x + (segment.ax - x) * portion;
+        const ay = y + (segment.ay - y) * portion;
+        segments.push({ from: toWorld(ax, ay), to: toWorld(x, y), color });
+        remaining -= length;
+      }
+      x = segment.ax;
+      y = segment.ay;
+    }
+    recentDeposition.setViewport(canvas.clientWidth, canvas.clientHeight);
+  }
+  recentDeposition.setSegments(segments.reverse());
 }
 
 // Sets which layer the nozzle should walk along. Position itself comes from
@@ -907,25 +743,7 @@ function buildTrayPalette(print) {
   return palette;
 }
 
-function activeTrayHex(print, palette) {
-  if (printerType === 'H3C') return h3cTrayHex(print, BBAms.activeTray(print));
-  const trayNow = parseInt(print?.ams?.tray_now ?? '255', 10);
-  if (palette && trayNow >= 0 && trayNow < palette.length) return palette[trayNow];
-  // Fallback: first loaded tray
-  return palette?.find(c => c && c !== '#888888') || null;
-}
-
-function hexToRgb01(hex) {
-  const h = hex.replace('#', '');
-  return [
-    parseInt(h.slice(0, 2), 16) / 255,
-    parseInt(h.slice(2, 4), 16) / 255,
-    parseInt(h.slice(4, 6), 16) / 255,
-  ];
-}
-
 let lastPaletteSig = null;
-let lastActiveHex = null;
 function syncFilamentColor(print) {
   const palette = buildTrayPalette(print);
   if (!palette && printerType !== 'H3C') return;
@@ -937,12 +755,6 @@ function syncFilamentColor(print) {
     // The compact geometry already exists. Invalidate the draw, including
     // the static camera's skip-unchanged-frame optimization.
     lastRenderedEndLayer = -1;
-  }
-  // Trail "cold" color follows the currently-active tray.
-  const active = activeTrayHex(print, palette);
-  if (active && active !== lastActiveHex) {
-    COLOR_COLD = hexToRgb01(active);
-    lastActiveHex = active;
   }
 }
 
@@ -976,10 +788,6 @@ function clearPackedPreview() {
   packedCompositor = null;
   packedFrame = null;
   packedModelLayerCount = 0;
-  if (stageEl.classList.contains('packed-preview')) {
-    stageEl.classList.remove('packed-preview');
-    preview.resize?.();
-  }
   packedViewDirty = true;
   pathEl.disabled = false;
   playEl.disabled = false;
@@ -1001,7 +809,7 @@ function clearScene() {
   pathLabelEl.textContent = '0%';
   verifyManualHold = false;
   nozzleGroup.visible = false;
-  trailGeoRibbon.setDrawRange(0, 0);
+  recentDeposition.setSegments([]);
   preview.clear();                         // reset parser + geometry — old layers are gone
   preview.endLayer = 0;
   layerPaths = [];
@@ -1011,13 +819,8 @@ function clearScene() {
   totalLayers = 0;
   modelLayerOffset = 0;
   activeLayerIdx = -1;
-  currentSegIdx = -1;
   lastEndLayer = -1;
   lastRenderedEndLayer = -1;
-  trailBuf.length = 0;
-  lastTrailPos = null;
-  lastTrailSegIdx = -1;
-  lastTrailLayerIdx = -1;
   smoothedNozzleInit = false;
   mcPercentLastSeen = null;                 // force a fresh sync on next tick
   mqttSyncedLayer = null;
@@ -1358,8 +1161,6 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
       }
       packedPreview = renderer;
       packedModelLayerCount = hasExactModelLayers(layers) ? layers.length - 1 : 0;
-      stageEl.classList.add('packed-preview');
-      preview.resize?.();
       if (preview.extrusionColor !== packingPalette) renderer.setPalette(preview.extrusionColor);
       parser.preamble = layers[0];
       parser.layers = layers.slice(1);
@@ -1389,7 +1190,7 @@ async function loadGcode(taskKey, overlayMsg = 'Getting print file…', file = n
     modelLayerOffset = findModelLayerOffset(layers, packedPreview ? 1 : 0);
     totalLayers = layers.length;
     stage = 'render';
-    cameraDistance = 0; trailBuf.length = 0; lastTrailPos = null; lastEndLayer = -1;
+    cameraDistance = 0; lastEndLayer = -1;
     const renderCap = verifyLayers ? Math.min(verifyLayers, totalLayers) : totalLayers;
     if (scrubEl) { scrubEl.max = String(renderCap); scrubEl.value = String(renderCap); scrubLayer = renderCap; }
     if (verifyLayers) {
@@ -1583,8 +1384,7 @@ function packedStatus(frame) {
   if (frame.unavailable === 'decode') return 'Could not decode nozzle movement for this layer';
   if (frame.state === 'unavailable') return 'Nozzle path unavailable for this layer';
   if (frame.state === 'untimed') return 'Nozzle timing unavailable for this layer';
-  if (frame.state !== 'ready') return '';
-  return frame.mode === 'live' ? 'Estimated nozzle position' : 'Toolpath replay';
+  return '';
 }
 
 function drawPackedFrame() {

@@ -1,4 +1,6 @@
 import * as THREE from '../../vendor/three.module.js';
+import { createRecentDepositionRibbon, RECENT_DEPOSITION_LENGTH, RECENT_DEPOSITION_SEGMENTS }
+  from './recent-deposition-ribbon.js';
 
 const BATCHES_PER_FRAME = 2;
 
@@ -10,6 +12,45 @@ function copyTransform(target, source) {
   target.position.copy(source.position);
   target.quaternion.copy(source.quaternion);
   target.scale.copy(source.scale);
+}
+
+function recentDeposition(packed, display, partial) {
+  // Start at the playhead. Walk only a small tail of the existing exact
+  // extrusion buffer; travel and extrusion-only commands have no vertices.
+  const segments = [];
+  let remaining = RECENT_DEPOSITION_LENGTH;
+  let following = null;
+  function add(from, to, color) {
+    if (following && Math.hypot(...following.map((value, axis) => value - to[axis])) > 0.0005) return false;
+    const length = Math.hypot(...from.map((value, axis) => value - to[axis]));
+    if (!Number.isFinite(length) || length === 0) return false;
+    const amount = Math.min(1, remaining / length);
+    const tail = amount < 1 ? to.map((value, axis) => value + (from[axis] - value) * amount) : from;
+    segments.push({ from: tail, to, color });
+    remaining -= Math.min(remaining, length);
+    following = from;
+    return remaining > 0 && segments.length < RECENT_DEPOSITION_SEGMENTS;
+  }
+
+  if (partial) {
+    const color = packed.colorForTool(partial.tool).map(component => component / 255);
+    // A zero-length partial mark may occur immediately at a segment
+    // boundary. It contributes no material; continue from the prior bead.
+    if (partial.from.some((value, axis) => value !== partial.to[axis]) &&
+        !add(partial.from, partial.to, color)) return segments;
+  }
+  const start = Math.max(display.start, display.end - (RECENT_DEPOSITION_SEGMENTS - segments.length));
+  const { items } = packed.depositionBatches(start, display.end, RECENT_DEPOSITION_SEGMENTS);
+  const xyz = (attribute, vertex) => [attribute.getX(vertex), attribute.getY(vertex), attribute.getZ(vertex)];
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    const positions = item.geometry.getAttribute('position');
+    const colors = item.geometry.getAttribute('color');
+    for (let vertex = item.start + item.count - 2; vertex >= item.start; vertex -= 2) {
+      if (!add(xyz(positions, vertex), xyz(positions, vertex + 1), xyz(colors, vertex))) return segments;
+    }
+  }
+  return segments;
 }
 
 export function createPackedDepositionRenderer(renderer, packed) {
@@ -34,6 +75,11 @@ export function createPackedDepositionRenderer(renderer, packed) {
   copyTransform(partialLine, packed.group);
   partialScene.add(partialLine);
 
+  const highlightScene = new THREE.Scene();
+  const highlight = createRecentDepositionRibbon();
+  copyTransform(highlight.mesh, packed.group);
+  highlightScene.add(highlight.mesh);
+
   let cache = null;
   let displayed = null;
   let visible = false;
@@ -43,6 +89,9 @@ export function createPackedDepositionRenderer(renderer, packed) {
   let ready = true;
   let draws = 0;
   let segmentsDrawn = 0;
+  let highlightAllowed = false;
+  let recentSegments = 0;
+  let highlightDraws = 0;
 
   function cacheMatches(display) {
     return cache && display?.view && cache.start === display.end &&
@@ -90,6 +139,8 @@ export function createPackedDepositionRenderer(renderer, packed) {
       pending = false;
       partial = null;
       partialDrawn = false;
+      highlightAllowed = false;
+      recentSegments = 0;
       displayed = null;
       ready = !deposition;
       const matches = cacheMatches(display);
@@ -132,13 +183,15 @@ export function createPackedDepositionRenderer(renderer, packed) {
       }
 
       ready = !pending;
-      partial = ready ? deposition.partial : null;
+      partial = ready && deposition.partial?.from.every(Number.isFinite) &&
+        deposition.partial.to.every(Number.isFinite) ? deposition.partial : null;
+      highlightAllowed = ready && deposition.highlight !== false;
       visible = Boolean(cache && cache.end > cache.start);
       displayed = { start: deposition.start, end: visible ? cache.end : deposition.start };
       return true;
     },
     drawPartial(view) {
-      if (!partial || !partial.from.every(Number.isFinite) || !partial.to.every(Number.isFinite)) return;
+      if (!partial) return;
       const color = packed.colorForTool(partial.tool);
       positions.array.set(partial.from, 0);
       positions.array.set(partial.to, 3);
@@ -149,6 +202,14 @@ export function createPackedDepositionRenderer(renderer, packed) {
       renderer.render(partialScene, view);
       partialDrawn = true;
     },
+    drawRecent(view, width, height) {
+      if (!highlightAllowed || !displayed) return;
+      highlight.setViewport(width, height);
+      recentSegments = highlight.setSegments(recentDeposition(packed, displayed, partial));
+      if (!recentSegments) return;
+      renderer.render(highlightScene, view);
+      highlightDraws++;
+    },
     stats: () => ({
       depositionStart: displayed?.start ?? null,
       depositedSegments: displayed ? displayed.end - displayed.start : 0,
@@ -157,11 +218,14 @@ export function createPackedDepositionRenderer(renderer, packed) {
       depositionDraws: draws,
       depositionSegmentsDrawn: segmentsDrawn,
       partialDeposited: partialDrawn,
+      recentDepositedSegments: recentSegments,
+      highlightDraws,
       depositionCacheBytes: active.width * active.height * 8,
     }),
     dispose() {
       active.dispose();
       activeGroup.clear();
+      highlight.dispose();
       partialGeometry.dispose();
       partialMaterial.dispose();
     },

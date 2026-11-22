@@ -8,6 +8,7 @@ const CHUNKS_PER_FRAME = 2;
 export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extras = [], packed } = {}) {
   const { renderer, scene, camera } = preview;
   const bufferSize = new THREE.Vector2();
+  const logicalSize = new THREE.Vector2();
   const createTarget = () => new THREE.WebGLRenderTarget(1, 1, {
     colorSpace: renderer.outputColorSpace,
     depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
@@ -295,6 +296,11 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
             } finally {
               view.layers.mask = oldMask;
             }
+
+            // The already-drawn opaque nozzle and plate share their depth
+            // with the ribbon. The accent never writes depth itself.
+            renderer.getSize(logicalSize);
+            depositionRenderer?.drawRecent(view, logicalSize.x, logicalSize.y);
           }
         }
       } finally {
