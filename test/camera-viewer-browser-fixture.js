@@ -8,8 +8,8 @@ const { buildVideoRouter } = require('../src/routes/video');
 const { listen, until } = require('./helpers');
 
 function videoSample(color) {
-  return execFileSync(require('ffmpeg-static'), ['-v', 'error', '-f', 'lavfi', '-i', `color=${color}:s=320x180:r=30`,
-    '-frames:v', '4', '-g', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1'], { timeout: 10000 });
+  return execFileSync(require('ffmpeg-static'), ['-v', 'error', '-f', 'lavfi', '-i', `color=${color}:s=160x120:r=30`,
+    '-frames:v', '2', '-g', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1'], { timeout: 10000 });
 }
 
 function installViewerFixture({ dropAll, clockRate }) {
@@ -94,10 +94,10 @@ async function checkIndividualCameraRecovery(browser, artifactDir) {
   const status = () => fetch(base + '/api/printer/video/status').then(res => res.json());
   const context = await browser.newContext({ viewport: { width: 420, height: 240 } });
   const errors = [], external = [];
-  const clockRate = 16;
+  const retryClockRate = 8;
   let feed;
 
-  async function open(dropAll = false) {
+  async function open(dropAll = false, clockRate = retryClockRate) {
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(error.message));
     page.on('request', request => { if (!request.url().startsWith(base)) external.push(request.url()); });
@@ -112,14 +112,16 @@ async function checkIndividualCameraRecovery(browser, artifactDir) {
     deadline, { timeout: 6000 });
 
   try {
-    const [healthy, stale] = await Promise.all([open(), open()]);
+    // Keep the healthy viewer on its real deadline. Only accelerate the
+    // deliberate failure cases, and pace the fixture for software decoders.
+    const [healthy, stale] = await Promise.all([open(false, 1), open()]);
     await until(() => children.length === 1);
     const child = children[0];
     feed = setInterval(() => {
       child.stdout.write(sample);
-      child.frames += 4;
+      child.frames += 2;
       child.stdio[3].write(`frame=${child.frames}\nprogress=continue\n`);
-    }, 110);
+    }, 240);
     await Promise.all([detectsColor(healthy, 0), detectsColor(stale, 0)]);
     await Promise.all([overlay(healthy).waitFor({ state: 'hidden' }), overlay(stale).waitFor({ state: 'hidden' })]);
     assert.equal((await status()).state, 'streaming');
@@ -136,9 +138,9 @@ async function checkIndividualCameraRecovery(browser, artifactDir) {
       const first = window.cameraFixture.sockets[0];
       return first.dropped > 0 && first.socket.readyState === WebSocket.OPEN;
     }, null, { timeout: 6000 });
+    await detectsColor(stale, 0);
     sample = blue;
     await detectsColor(healthy, 2);
-    await detectsColor(stale, 0);
     assert.equal(await count(healthy), 1);
     assert.equal((await status()).state, 'streaming');
 
@@ -182,11 +184,14 @@ async function checkIndividualCameraRecovery(browser, artifactDir) {
       return first?.headers === 1 && first.dropped > 0 && first.socket.readyState === WebSocket.OPEN;
     }, null, { timeout: 6000 });
     await overlay(cold).waitFor({ state: 'visible' });
-    await cold.waitForFunction(() => window.cameraFixture.sockets.length >= 5, null, { timeout: 17000 });
+    await cold.waitForFunction(() => window.cameraFixture.sockets.length >= 5, null, { timeout: 32000 });
     const opened = await cold.evaluate(() => window.cameraFixture.sockets.map(socket => socket.openedAt));
     const delays = opened.slice(1).map((stamp, i) => stamp - opened[i]);
-    assert.ok(delays.every(delay => delay >= 23000), `A header-only viewer must wait for each first-frame deadline: ${delays}`);
-    assert.ok(delays.at(-1) > delays[0] + 6000, `Sustained failure increases retry delay: ${delays}`);
+    // The first deadline begins before the initial WASM startup and socket
+    // creation. Compare the later attempts, when the decoder is already warm.
+    const warmDelays = delays.slice(1);
+    assert.ok(warmDelays.every(delay => delay >= 23000), `A header-only viewer must wait for each first-frame deadline: ${delays}`);
+    assert.ok(warmDelays.at(-1) > warmDelays[0] + 6000, `Sustained failure increases retry delay: ${delays}`);
     assert.equal(await count(healthy), 1);
     assert.equal(await count(stale), 2);
     assert.deepEqual(child.kills, []);
