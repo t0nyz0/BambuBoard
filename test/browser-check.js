@@ -10,6 +10,7 @@ const { devDependencies } = require('../package.json');
 const { mergePrint } = require('../src/lib/printTelemetry');
 const { h3cAmsPrint } = require('./fixtures/h3c-ams');
 const { checkCameraRecovery } = require('./camera-browser-fixture');
+const { checkIndividualCameraRecovery } = require('./camera-viewer-browser-fixture');
 const root = path.resolve(__dirname, '..');
 const fixtureGcode = 'G90\nM82\n;LAYER:0\nG1 X10 Y10 Z0.2 E1\nG1 X80 Y10 E2\nG1 X80 Y80 E3\nG1 X10 Y80 E4\nG1 X10 Y10 E5\n;LAYER:1\nG1 Z0.4\nG1 X80 Y10 E6\nG1 X80 Y80 E7\nG1 X10 Y80 E8\n';
 
@@ -654,6 +655,7 @@ async function checkAms3h(context, base, artifactDir) {
     await checkLiveWidgetReuse(context, base);
     await checkCalibrationWidgets(context, base, data, telemetry);
     await checkCameraRecovery(browser, artifactDir);
+    await checkIndividualCameraRecovery(browser, artifactDir);
     // Old hosts, AMS/nozzle selection, custom themes and bindings survive an editor round-trip.
     const parameters = structuredClone(published);
     const ams = parameters.sources.find(source => source.settings?.url?.includes('/widgets/ams/'));
@@ -704,7 +706,7 @@ async function checkAms3h(context, base, artifactDir) {
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.deepEqual(errors, [], 'browser JavaScript errors');
     assert.deepEqual([...external], [], 'LAN operation must not request CDN assets');
-    await fs.writeFile(path.join(artifactDir, 'browser-results.json'), JSON.stringify({ layouts: layoutResults, widgets: widgets.length, calibrationWidgets: true, cameraRecovery: true, errors, externalRequests: [...external] }, null, 2));
+    await fs.writeFile(path.join(artifactDir, 'browser-results.json'), JSON.stringify({ layouts: layoutResults, widgets: widgets.length, calibrationWidgets: true, cameraRecovery: true, individualCameraRecovery: true, errors, externalRequests: [...external] }, null, 2));
     console.log(`Browser passed: ${layoutResults.length} responsive layouts, ${widgets.length} widgets, save/publish isolation, setup keyboard controls, HTTP capture detection, calibration and camera recovery, no external requests. Screenshots: ${artifactDir}`);
   } catch (error) { console.error(logs); throw error; }
   finally {
