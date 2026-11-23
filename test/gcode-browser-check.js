@@ -7,6 +7,7 @@ const { once } = require('node:events');
 const express = require('express');
 const { chromium } = require('playwright');
 const { archive, ftpsFixture } = require('./ftps-fixture');
+const continuousBead = require('./fixtures/continuous-bead');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode, LIMITS } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
@@ -131,6 +132,7 @@ const busyFilamentToolpath = Buffer.from(
     return marker + `G0 Z${z} F6000\n` + raster + 'G0 X45 Y106\n';
   }).join('')
 );
+const precisionFilamentToolpath = continuousBead.fixture();
 const mockCameraBackground = [54, 99, 122];
 const widgetStatus = '#gcodeDetail';
 
@@ -268,7 +270,7 @@ function onRasterMotion(plate, layer, position) {
       <iframe title="G-code toolpath" src="/widgets/gcode-viz/?${query}"></iframe></body></html>`);
   });
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace', 'packed-busy-filament'].includes(mode)) return next();
+    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace', 'packed-busy-filament', 'packed-precision-filament'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
@@ -281,7 +283,8 @@ function onRasterMotion(plate, layer, position) {
     });
     const windowed = mode === 'packed-window';
     const fixture = mode === 'packed-deposition' ? depositionToolpath :
-      mode === 'packed-pace' ? pacedToolpath : mode === 'packed-busy-filament' ? busyFilamentToolpath : null;
+      mode === 'packed-pace' ? pacedToolpath : mode === 'packed-busy-filament' ? busyFilamentToolpath :
+      mode === 'packed-precision-filament' ? precisionFilamentToolpath : null;
     const length = fixture ? fixture.length : windowed ? windowByteLength() : compactByteLength(packedFixture);
     res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(length), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
@@ -1454,7 +1457,7 @@ function onRasterMotion(plate, layer, position) {
           };
           const points = kind === 'travel'
             ? { tipBehind: [x, y - 6, z], future: [x, y + 8, z], deposited: [x - 22, 106, z] }
-            : { tipBehind: [x - 5.5, y, z], plain: [x - 24, y, z], future: [x + 17, y, z] };
+            : { tipBehind: [x - 5.5, y, z], plain: [x - 56, y, z], future: [x + 17, y, z] };
           return { position: [x, y, z], motion, zoom: camera.zoom, probes: Object.fromEntries(
             Object.entries(points).map(([probe, point]) => [probe, map(point)]),
           ) };
@@ -1553,6 +1556,183 @@ function onRasterMotion(plate, layer, position) {
     }
     await checkVisibleFilament();
     passed.push('Same-color recent filament remains visible at two widget sizes with proper depth, no travel trail, and a transparent camera embed');
+
+    async function checkContinuousBead() {
+      await page.goto('about:blank');
+      mode = 'packed-precision-filament';
+      const before = count;
+      const target = await context.newPage();
+      const timeout = 30_000;
+      const { trace, activeLayer, layerCount, pathEnd, travelStartY } = continuousBead;
+      const pathSeconds = trace.slice(1).reduce((total, point, i) =>
+        total + Math.hypot(point[0] - trace[i][0], point[1] - trace[i][1]), 0);
+      const drawPose = (widget, depositing) => widget.waitForFunction(({ depositing, activeLayer, layerCount, pathEnd, travelStartY }) => {
+        const diag = window.__diag?.();
+        const motion = diag?.motion;
+        const p = motion?.position;
+        if (!p || motion.state !== 'ready' || !motion.depositionReady || diag.compact.staticLines < 3000 ||
+            motion.markerLayerCount !== layerCount || motion.reportedLayer !== activeLayer) return false;
+        if (depositing) return motion.partialDeposited && p[0] > 142 && p[0] < 175;
+        return !motion.partialDeposited && Math.abs(p[0] - pathEnd) < 0.01 &&
+          p[1] > travelStartY + 16 && p[1] < travelStartY + 28;
+      }, { depositing, activeLayer, layerCount, pathEnd, travelStartY }, { timeout });
+      const refreshStatic = async widget => {
+        for (const width of [641, 640]) {
+          const before = await widget.evaluate(() => window.__diag().motion.staticDraws);
+          await target.setViewportSize({ width, height: 480 });
+          await widget.waitForFunction(({ width, before }) => innerWidth === width &&
+            window.__diag()?.compact?.staticReady && window.__diag().motion.staticDraws > before,
+          { width, before }, { timeout });
+        }
+      };
+      const capture = async (widget, name, kind) => {
+        const projection = await widget.evaluate(({ trace, kind, travelStartY }) => {
+          const { position: [x, y, z], ...motion } = window.__diag().motion;
+          const { camera, buildVolume } = window.__preview;
+          const bounds = document.getElementById('gcodeCanvas').getBoundingClientRect();
+          const project = ([px, py, pz]) => {
+            const p = new camera.position.constructor(px - buildVolume.x / 2, pz, buildVolume.y / 2 - py).project(camera);
+            return [bounds.left + (p.x + 1) * bounds.width / 2, bounds.top + (1 - p.y) * bounds.height / 2];
+          };
+          const visible = kind === 'travel' ? [[x, travelStartY + 8, z], [x, y - 5, z]] :
+            [[x, y, z], ...trace.filter(point => point[0] >= x - 48 && point[0] < x).reverse()];
+          return {
+            position: [x, y, z], motion, zoom: camera.zoom, points: visible.map(project), kind,
+            before: trace.filter(point => point[0] >= x - 53 && point[0] <= x - 47).map(project),
+            ahead: trace.filter(point => point[0] >= x + 9 && point[0] <= x + 15).map(project),
+          };
+        }, { trace, kind, travelStartY });
+        const png = await target.screenshot({ path: path.join(artifacts, name + '.png'), timeout });
+        const data = await target.evaluate(async ({ png, projection }) => {
+          const image = new Image();
+          image.src = 'data:image/png;base64,' + png;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(image, 0, 0);
+          const imagePixels = ctx.getImageData(0, 0, image.width, image.height).data;
+          const pixel = (x, y) => {
+            const index = (Math.floor(y) * image.width + Math.floor(x)) * 4;
+            return imagePixels.subarray(index, index + 4);
+          };
+          const scan = (points, from = 0, to = Infinity) => {
+            let distance = 0, chordCount = 0;
+            let nextColumn = from + 0.5;
+            const sections = [];
+            for (let index = 1; index < points.length && distance < to; index++) {
+              const [x, y] = points[index - 1];
+              const dx = points[index][0] - x, dy = points[index][1] - y;
+              const length = Math.hypot(dx, dy);
+              if (distance + length > from) chordCount++;
+              while (nextColumn <= Math.min(to, distance + length)) {
+                const ratio = (nextColumn - distance) / length;
+                const cx = x + dx * ratio, cy = y + dy * ratio;
+                const samples = Array.from({ length: 9 }, (_, i) =>
+                  pixel(cx + (i - 4) * dy / length, cy - (i - 4) * dx / length));
+                const cover = samples.filter(([r, g, b]) => r >= 140 && b >= 140 && g <= 95).length;
+                const outline = samples.filter(([r, g, b]) => r >= 158 && r <= 242 &&
+                  Math.max(r, g, b) - Math.min(r, g, b) <= 4).length;
+                const gray = samples.filter(([r, g, b]) => Math.abs(r - 63) <= 5 &&
+                  Math.max(r, g, b) - Math.min(r, g, b) <= 4).length;
+                sections.push({ cover, outline, gray, x: cx, y: cy });
+                nextColumn++;
+              }
+              distance += length;
+            }
+            return { spanPx: Math.max(0, Math.min(to, distance) - from), chordCount, sections };
+          };
+          // Count only the visible run behind the nozzle body and safely
+          // inside the intended screen-length budget, independent of fit.
+          const strand = projection.kind === 'travel' ? scan(projection.points) : scan(projection.points, 5, 31);
+          return {
+            ...strand,
+            before: scan(projection.before),
+            ahead: scan(projection.ahead),
+            exterior: Array.from(pixel(image.width - 3, 2)),
+          };
+        }, { png: png.toString('base64'), projection });
+        const visibleColumns = data.sections.map(section => section.outline > 0);
+        let longestRun = 0, run = 0;
+        for (const visible of visibleColumns) {
+          run = visible ? run + 1 : 0;
+          longestRun = Math.max(longestRun, run);
+        }
+        const visibleSections = visibleColumns.filter(Boolean).length;
+        return { ...projection, ...data, visibleSections, longestRun,
+          coverage: data.sections.length ? visibleSections / data.sections.length : 0 };
+      };
+      try {
+        await target.setViewportSize({ width: 640, height: 480 });
+        await write('Precision dark continuous bead', 'RUNNING', {
+          layer_num: activeLayer, total_layer_num: layerCount, mc_percent: 75, _bb_layer_elapsed_ms: 152_000,
+          _bb_layer_advancing: true, ams: { ams: [{ id: '0', tray: [{ id: '0', tray_color: '3F3F3FFF' }] }] },
+        });
+        await target.goto(base + '/toolpath-camera-fixture/obs');
+        const handle = await target.locator('iframe').elementHandle();
+        const widget = await handle.contentFrame();
+        await handle.dispose();
+        assert.ok(widget);
+        await drawPose(widget, true);
+        const normal = await capture(widget, 'gcode-continuous-bead-640', 'deposition');
+
+        const position = await widget.evaluate(() => window.__diag().motion.position);
+        const center = trace.find(point => point[0] >= position[0] - 10.5);
+        await widget.evaluate(async ([x, y, z]) => {
+          const THREE = await import('/vendor/three.module.js');
+          const { camera, scene, buildVolume } = window.__preview;
+          const cover = new THREE.Mesh(new THREE.PlaneGeometry(5, 7),
+            new THREE.MeshBasicMaterial({ color: 0xbd35c7, side: THREE.DoubleSide }));
+          cover.name = 'precision-fixture-cover';
+          const point = new THREE.Vector3(x - buildVolume.x / 2, z, buildVolume.y / 2 - y);
+          cover.position.copy(point).addScaledVector(camera.position.clone().sub(point).normalize(), 7);
+          cover.quaternion.copy(camera.quaternion);
+          scene.add(cover);
+        }, center);
+        await refreshStatic(widget);
+        const occluded = await capture(widget, 'gcode-continuous-bead-occluded', 'deposition');
+        await widget.evaluate(() => {
+          const cover = window.__preview.scene.getObjectByName('precision-fixture-cover');
+          cover.removeFromParent();
+          cover.geometry.dispose();
+          cover.material.dispose();
+        });
+        await refreshStatic(widget);
+
+        await writePacket({ ...print, _bb_layer_elapsed_ms: Math.round((pathSeconds + 19) * 1250) });
+        await drawPose(widget, false);
+        const travel = await capture(widget, 'gcode-continuous-bead-travel', 'travel');
+        await fs.writeFile(path.join(artifacts, 'gcode-continuous-bead-results.json'),
+          JSON.stringify({ normal, occluded, travel, httpDownloads: count - before }, null, 2));
+        assert.equal(normal.zoom, 1, 'Precision regression uses default camera zoom');
+        assert.deepEqual(normal.exterior, [...mockCameraBackground, 255]);
+        assert.ok(normal.chordCount >= 65 && normal.spanPx >= 25, JSON.stringify({
+          chords: normal.chordCount, expectedSpan: normal.spanPx,
+        }));
+        assert.ok(normal.coverage >= 0.90 && normal.longestRun >= 24, JSON.stringify({
+          span: normal.spanPx, sections: normal.sections.length, coverage: normal.coverage, contiguous: normal.longestRun,
+        }));
+        assert.ok(normal.sections.filter(section => section.gray > 0).length >= normal.sections.length * 0.8);
+        assert.ok([...normal.before.sections, ...normal.ahead.sections].every(section => !section.outline));
+        // A cross-section on the edge can contain both the cover and the
+        // correctly visible bead beside it. Measure fully covered sections.
+        const hidden = occluded.sections.map((section, index) => section.cover === 9 ? index : -1).filter(index => index >= 0);
+        assert.ok(hidden.length >= 7 && hidden.every(index => !occluded.sections[index].outline),
+          'Opaque obstruction removes the bead for a real span');
+        const left = occluded.sections.slice(0, hidden[0]).filter(section => section.outline > 0);
+        const right = occluded.sections.slice(hidden.at(-1) + 1).filter(section => section.outline > 0);
+        assert.ok(left.length >= 5 && right.length >= 5, JSON.stringify({
+          beforeObstruction: left.length, hidden: hidden.length, afterObstruction: right.length,
+        }));
+        assert.ok(travel.sections.length >= 7 && travel.visibleSections === 0, 'Travel leaves a real screen-space gap');
+        assert.equal(count, before + 1);
+      } finally {
+        await target.close();
+      }
+    }
+    await checkContinuousBead();
+    passed.push('Dense same-color toolpath draws one continuous recent bead across subpixel chords without crossing opaque geometry or travel');
 
     async function checkLabelFreeSurfaces() {
       const results = [];

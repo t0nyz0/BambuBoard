@@ -16,6 +16,11 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
   let front = createTarget();
   let back = createTarget();
   let depositionRenderer = packed ? createPackedDepositionRenderer(renderer, packed) : null;
+  let opaqueDepth = packed ? new THREE.WebGLRenderTarget(1, 1, {
+    format: THREE.RedFormat,
+    depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
+  }) : null;
+  let opaqueView = null;
   const material = new THREE.ShaderMaterial({
     uniforms: {
       cachedColor: { value: front.texture },
@@ -162,6 +167,46 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
     job.rendered += renderer.info.render.lines;
   }
 
+  function beadOcclusion(view, shown) {
+    if (!opaqueDepth) return null;
+    if (opaqueView !== view || opaqueDepth.width !== shown.width || opaqueDepth.height !== shown.height) {
+      opaqueDepth.setSize(shown.width, shown.height);
+      renderer.setRenderTarget(opaqueDepth);
+      const gl = renderer.getContext();
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        opaqueDepth.dispose();
+        opaqueDepth = null;
+        return null;
+      }
+      // Retain a depth-only view of the bed and all external scene
+      // objects. They need strict occlusion even where wide, same-plane
+      // GL_LINES call for a limited raster tolerance.
+      const group = scene.getObjectByName('packed-toolpath');
+      const previousVisibility = group?.visible;
+      const oldMask = view.layers.mask;
+      try {
+        if (group) group.visible = false;
+        view.layers.disable(NOZZLE_LAYER);
+        renderer.autoClear = true;
+        renderer.render(scene, view);
+      } finally {
+        if (group) group.visible = previousVisibility;
+        view.layers.mask = oldMask;
+      }
+      opaqueView = view;
+    }
+    return {
+      opaque: opaqueDepth.depthTexture,
+      plate: shown.depthTexture,
+      deposition: depositionRenderer.visible ? depositionRenderer.target.depthTexture : shown.depthTexture,
+      width: shown.width,
+      height: shown.height,
+      bufferWidth: bufferSize.x,
+      bufferHeight: bufferSize.y,
+      projectionMatrix: view.projectionMatrix,
+    };
+  }
+
   function complete(job, direct = false) {
     staticDraws++;
     staticLines = job.rendered;
@@ -180,6 +225,8 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
     back.dispose();
     depositionRenderer?.dispose();
     depositionRenderer = null;
+    opaqueDepth?.dispose();
+    opaqueDepth = null;
     hasFront = false;
     // The widget's renderer preserves its drawing buffer. In that mode a
     // device that rejects the depth target can still show exact slices.
@@ -264,6 +311,10 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
           useDirectFallback(building ?? snapshot(size));
           return;
         }
+        const showBead = matchesCurrent && deposition && deposition.highlight !== false &&
+          (deposition.partial || deposition.end > deposition.start) &&
+          drawNozzle && nozzle.visible && depositionRenderer?.ready;
+        const occlusion = showBead ? beadOcclusion(view, shown) : null;
         material.uniforms.cachedColor.value = shown.texture;
         material.uniforms.cachedDepth.value = shown.depthTexture;
         material.uniforms.showDeposition.value = Boolean(depositionRenderer?.visible);
@@ -287,6 +338,10 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
 
         if (matchesCurrent) {
           depositionRenderer?.drawPartial(view);
+          if (showBead) {
+            renderer.getSize(logicalSize);
+            depositionRenderer.drawRecent(view, logicalSize.x, logicalSize.y, occlusion);
+          }
           if (drawNozzle && nozzle.visible && (depositionRenderer?.ready ?? true)) {
             const oldMask = view.layers.mask;
             try {
@@ -297,10 +352,6 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
               view.layers.mask = oldMask;
             }
 
-            // The already-drawn opaque nozzle and plate share their depth
-            // with the ribbon. The accent never writes depth itself.
-            renderer.getSize(logicalSize);
-            depositionRenderer?.drawRecent(view, logicalSize.x, logicalSize.y);
           }
         }
       } finally {
@@ -308,7 +359,10 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
         renderer.setRenderTarget(previousTarget, previousFace, previousMipmap);
       }
     },
-    invalidate() { dirty = true; },
+    invalidate() {
+      dirty = true;
+      opaqueView = null;
+    },
     stats() {
       const current = hasFront ? front : back;
       const deposition = depositionRenderer?.stats();
@@ -321,7 +375,8 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
         cacheWidth: current.width, cacheHeight: current.height,
         cacheBytes: available ? current.width * current.height * 8 : 0,
         totalCacheBytes: available
-          ? (front.width * front.height + back.width * back.height) * 8 + (deposition?.depositionCacheBytes ?? 0)
+          ? (front.width * front.height + back.width * back.height) * 8 + (deposition?.depositionCacheBytes ?? 0) +
+            (opaqueDepth ? opaqueDepth.width * opaqueDepth.height * 5 : 0)
           : 0,
       };
     },
@@ -331,6 +386,9 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
       frontView = null;
       depositionRenderer?.dispose();
       depositionRenderer = null;
+      opaqueDepth?.dispose();
+      opaqueDepth = null;
+      opaqueView = null;
       for (const [object, layers] of savedLayers) object.layers.mask = layers;
       savedLayers.clear();
       geometry.dispose();

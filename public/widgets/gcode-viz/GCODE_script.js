@@ -15,7 +15,8 @@ import { openPackedPreview } from './packed-preview-loader.js';
 import { buildPackedRenderer } from './packed-renderer.js';
 import { createPackedNozzleRenderer } from './packed-nozzle-renderer.js';
 import { createPackedNozzlePlayback } from './packed-nozzle-playback.js';
-import { createRecentDepositionRibbon, RECENT_DEPOSITION_LENGTH, RECENT_DEPOSITION_SEGMENTS } from './recent-deposition-ribbon.js';
+import { createRecentDepositionRibbon } from './recent-deposition-ribbon.js';
+import { createRecentDepositionPath, RECENT_DEPOSITION_SEGMENTS } from './recent-deposition-path.js';
 import '../../js/gcode-limits.js';
 import '../../js/gcode-view.js';
 
@@ -594,29 +595,24 @@ function updateNozzlePosition() {
   nozzleGroup.visible = true;
   const current = path.segs[tip.index];
   glowGroup.visible = current.ext;
-  const segments = [];
-  if (current.ext) {
-    const palette = preview.extrusionColor;
-    const color = new THREE.Color(Array.isArray(palette) ? palette[current.tool] ?? palette[0] : palette).toArray();
-    let remaining = RECENT_DEPOSITION_LENGTH;
-    let x = tip.x, y = tip.y;
-    for (let i = tip.index; i >= Math.max(0, tip.index - RECENT_DEPOSITION_SEGMENTS + 1) && remaining > 0; i--) {
-      const segment = path.segs[i];
-      if (!segment.ext || segment.tool !== current.tool) break;
-      const length = Math.hypot(x - segment.ax, y - segment.ay);
-      if (length > 0.0001) {
-        const portion = Math.min(1, remaining / length);
-        const ax = x + (segment.ax - x) * portion;
-        const ay = y + (segment.ay - y) * portion;
-        segments.push({ from: toWorld(ax, ay), to: toWorld(x, y), color });
-        remaining -= length;
-      }
-      x = segment.ax;
-      y = segment.ay;
-    }
-    recentDeposition.setViewport(canvas.clientWidth, canvas.clientHeight);
+  if (!current.ext) {
+    recentDeposition.setSegments([]);
+    return;
   }
-  recentDeposition.setSegments(segments.reverse());
+  const palette = preview.extrusionColor;
+  const color = new THREE.Color(Array.isArray(palette) ? palette[current.tool] ?? palette[0] : palette).toArray();
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  preview.camera.updateMatrixWorld();
+  const bead = createRecentDepositionPath(preview.camera, null, width, height);
+  for (let i = tip.index; i >= Math.max(0, tip.index - RECENT_DEPOSITION_SEGMENTS + 1); i--) {
+    const segment = path.segs[i];
+    if (!segment.ext || segment.tool !== current.tool) break;
+    const from = toWorld(segment.ax, segment.ay);
+    const to = i === tip.index ? toWorld(tip.x, tip.y) : toWorld(segment.bx, segment.by);
+    if (!bead.add(from, to, color)) break;
+  }
+  recentDeposition.setViewport(width, height);
+  recentDeposition.setSegments(bead.segments());
 }
 
 // Sets which layer the nozzle should walk along. Position itself comes from
@@ -1413,6 +1409,8 @@ function drawPackedFrame() {
   const deposition = active ? {
     start: active.start,
     end: Math.max(active.start, Math.min(active.end, pose?.deposited ?? active.start)),
+    highlight: Boolean(point?.extruding),
+    tip: point ? [point.x, point.y, point.z] : null,
     partial: pose?.partial && pose.deposited >= active.start && pose.deposited < active.end ? {
       from: [pose.partial.x, pose.partial.y, pose.partial.z],
       to: [pose.x, pose.y, pose.z],
