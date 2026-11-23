@@ -2008,9 +2008,11 @@ function onRasterMotion(plate, layer, position) {
           const status = widget.locator(widgetStatus);
           const ready = await canvas.evaluate(element => {
             const bounds = element.getBoundingClientRect();
+            const toolbar = document.getElementById('gcodeViewControls');
+            const contentTop = toolbar.hidden ? 0 : toolbar.getBoundingClientRect().bottom;
             const description = document.getElementById('gcodeEstimateDescription');
             const style = description && getComputedStyle(description);
-            return { operator: window.BBGcodeUI.operator, fullCanvas: bounds.top === 0 && bounds.left === 0 &&
+            return { operator: window.BBGcodeUI.operator, fullCanvas: bounds.top === contentTop && bounds.left === 0 &&
                 bounds.bottom === innerHeight && bounds.right === innerWidth,
               described: (element.getAttribute('aria-describedby') || '').split(' ').includes('gcodeEstimateDescription'),
               accessibleText: description?.textContent.trim(),
@@ -2323,6 +2325,7 @@ function onRasterMotion(plate, layer, position) {
     await noWebGL.goto(base + '/widgets/gcode-viz/?mode=preview');
     await noWebGL.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('WebGL 2'));
     assert.equal(await noWebGL.locator('#gcodeDownloadLog').isVisible(), true);
+    assert.equal(await noWebGL.locator('#gcodeViewControls').isVisible(), false, 'View controls need a working renderer');
     await noWebGL.screenshot({ path: path.join(artifacts, 'gcode-no-webgl.png') });
     await disabled.close();
     passed.push('Renderer initialization failure has a usable diagnostic/export UI');

@@ -39,6 +39,8 @@
     fail(error) {
       const detail = error?.message || String(error);
       log.push({ at: new Date().toISOString(), stage: 'renderer', detail });
+      document.getElementById('gcodeViewControls').hidden = true;
+      document.body.classList.remove('gcode-operator');
       this.message(operator
         ? '3D preview could not start. Enable WebGL 2 or hardware acceleration, then retry. Download diagnostics for the exact error.'
         : '3D preview unavailable.', 'error');
