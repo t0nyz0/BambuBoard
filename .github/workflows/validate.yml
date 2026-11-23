@@ -63,7 +63,7 @@ jobs:
           RUN apk add --no-cache openssl
           USER node
           DOCKERFILE
-          docker run --platform "$PLATFORM" --rm -v "$GITHUB_WORKSPACE/test:/usr/src/app/test:ro" bambuboard:integration sh -ec 'test "$(id -u)" -eq 1000; node --test test/*.test.js'
+          docker run --platform "$PLATFORM" --rm -v "$GITHUB_WORKSPACE/test:/usr/src/app/test:ro" bambuboard:integration sh -ec 'test "$(id -u)" -eq 1000; node --import ./test/fixtures/container-browser-imports.mjs --test test/*.test.js'
       - name: Container health check and volume upgrade
         run: bash test/container-runtime-check.sh bambuboard:test
       - name: Native container WebGL toolpath preview

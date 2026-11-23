@@ -39,13 +39,13 @@ Have your printer's **IP address, serial number and LAN access code** ready. The
 
 ## Install BambuBoard
 
-Docker images are available for `linux/amd64` and `linux/arm64`. Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
+Docker images are available for `linux/amd64` and `linux/arm64`. [Version 3.3.3 release notes](docs/release-notes-3.3.3.md). Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
 
 ### Synology NAS (Container Manager)
 
 For a new install on DSM 7.2 or later, check that your NAS model supports [Synology Container Manager](https://www.synology.com/en-us/dsm/packages/ContainerManager).
 
-The image is also searchable as **t0nyz/bambuboard** in the default Docker Hub registry in Synology and QNAP. [Docker Hub listing](https://hub.docker.com/r/t0nyz/bambuboard)
+Docker Hub also lists the public image as **t0nyz/bambuboard**. [Docker Hub listing](https://hub.docker.com/r/t0nyz/bambuboard)
 
 1. Install **Container Manager** from **Package Center**.
 2. Open **Container Manager → Project → Create**, name the project `bambuboard`, and choose a project folder. Paste this Compose file in the editor, or save it as `docker-compose.yml` and upload it. [Synology Project guide](https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project)
@@ -74,7 +74,7 @@ Use the same Compose file for a new installation. Keep the named data volume whe
 
 - **QNAP Container Station** — Paste it under **Applications → Create**. Use `18080:8080` because QTS commonly uses port 8080 for NAS management, then open `http://<your-nas-ip>:18080`. [Container Station setup](https://www.qnap.com/en/how-to/tutorial/article/how-to-use-container-station-3) · [QNAP system ports](https://www.qnap.com/en-uk/how-to/faq/article/what-network-ports-are-used-by-qts-quts-hero-and-qutscloud-systems)
 - **Portainer** — Paste it in **Stacks → Add stack → Web editor**. [Portainer stack setup](https://docs.portainer.io/user/docker/stacks/add)
-- **TrueNAS** — Use **Apps → Install via YAML** on a version that supports Docker apps. [TrueNAS custom app setup](https://apps.truenas.com/managing-apps/installing-custom-apps/)
+- **TrueNAS** — From **Apps → Discover**, open the menu and choose **Install via YAML** on a version that supports Docker apps. [TrueNAS custom app setup](https://apps.truenas.com/managing-apps/installing-custom-apps/)
 
 ### Docker command line
 
@@ -140,13 +140,13 @@ Screenshots show the actual app in an isolated demo installation, with sample te
 
 - **Design and apply an overlay.** Arrange widgets with drag/resize, Layers, grid snapping and Undo/Redo. **Save draft** keeps your edits. **Apply to Live** updates the output with the saved revision and selected live scene. Use **Restore previous live** to bring back the previous output.
 - **Show printer telemetry and camera together.** Progress, temperatures, fans, AMS trays and reported drying status sit alongside a camera feed relayed by BambuBoard. Camera transport is selected from the printer's detected type.
-- **Preview the sliced toolpath.** The experimental G-code widget downloads the current print over FTPS, validates sliced archives and offers retries, diagnostics and manual file recovery. Nozzle motion is estimated from layers/progress and G-code timing; it can drift during complex or multi-color prints.
+- **Preview the sliced toolpath.** The G-code widget downloads the current print over FTPS, validates sliced archives, and loads dense plates incrementally. It shows estimated nozzle motion and a colored cooling trail behind fresh extrusion. Use **Test G-code connection** in Setup to check file access, or use the toolpath preview for retries, diagnostics, and manual file recovery. [Toolpath limits and recovery](docs/gcode-resilience.md).
 - **Run on your LAN.** App scripts, fonts and other assets are bundled locally. Core telemetry, camera and toolpath features do not require cloud sign-in. Optional Bambu Cloud data supplies MakerWorld content and extra print details.
 - **Stream directly to YouTube (beta).** The optional section at the bottom of Live can render `/live` on the server, continuing after you close the controls, or share a browser tab with optional tab audio. Choose quality, check setup, monitor encoding and download redacted diagnostics. Browser sharing needs HTTPS or localhost; server capture works from an HTTP LAN address. [Streaming setup and limitations](docs/youtube-streaming.md).
 
 ## Upgrading an existing Docker installation
 
-BambuBoard 3.3.2 runs as UID and GID `1000:1000` by default and reports its health using its local HTTP listener. A new named volume works with the default user. Keep your current volume when upgrading.
+Since 3.3.2, BambuBoard runs as UID and GID `1000:1000` by default and reports its health using its local HTTP listener. A new named volume works with the default user. Keep your current volume when upgrading.
 
 - For an existing writable mount, upgrade with the same mount. If the owner is a different non-root UID and GID, you can keep that ownership by setting Docker `--user UID:GID` or Compose `user: "UID:GID"`. The runtime user needs read and write access to BambuBoard's files and directories.
 - If an older root-run container owns the data, stop the old container and back up its data. Pull the new image, then run this one-time command. Replace `/absolute/path/to/current-data` with the actual bind path or existing Docker volume name.
@@ -194,7 +194,7 @@ The maintainer owns and tests **X1 Carbon and H2D**. Other entries are code mapp
 |---|---|---|
 | X1 Carbon | `X1C` | Maintainer-tested hardware |
 | H2D | `H2D` | Maintainer-tested hardware |
-| H3C | `H3C` | Dedicated profile; hardware verification pending |
+| H3C | `H3C` | Dedicated profile tested with fixtures. Hardware verification pending. |
 | X1 | `X1` | Dedicated capability entry; community feedback welcome |
 | P1P / P1S | `P1P` / `P1S` | Dedicated capability entries; community feedback welcome |
 | P2S | `P2S` | Dedicated capability entry; community feedback welcome |

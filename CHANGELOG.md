@@ -4,16 +4,26 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
-## Unreleased
+## 3.3.3
+
+### Added
+
+- Add an H3C profile with printer detection, camera, toolpath, and AMS 3H support exercised by fixtures. Physical H3C verification is pending.
+- Add **Test G-code connection** in Setup for the saved printer. The check signs in over FTPS and reads a directory listing.
+- Add camera angle and zoom controls to the G-code widget inspector. Save the chosen view with the draft.
 
 ### Changed
 
-- Guide Bambu Cloud sign-in one step at a time, with email resend and optional authenticator verification. Move manual MakerWorld token import into Troubleshooting.
-- Add a no-SSH Synology quickstart and document how to use the Compose example with QNAP, Portainer, and TrueNAS.
-- Add camera angle and zoom controls to the G-code toolpath inspector. Save the chosen view with the draft.
+- Stream sliced G-code up to 250 MiB and render dense plates incrementally. Buffer and seek nozzle motion by window, and reuse the loaded toolpath during widget edits.
+- Estimate nozzle motion from reported layers and measured layer timing when available. Show fresh extrusion in red and cool it through orange, yellow, and green to the tool color over 144 seconds.
+- Guide Bambu Cloud sign-in with email resend and optional authenticator verification. Place manual MakerWorld token import under Troubleshooting.
+- Add a no-SSH Synology quickstart and Compose setup guidance for QNAP, Portainer, and TrueNAS.
 
 ### Fixed
 
+- Recover stalled printer camera relays and individual viewers. Show **Calibrating** during recognized built-in calibration jobs and skip automatic toolpath retries for those jobs.
+- Preserve saved Docker settings and credentials across upgrades. Keep saved LAN access codes and cloud tokens on the server.
+- Handle stale telemetry, reconnects, and MQTT shutdown cleanly. Select the only reported AMS automatically and restrict legacy redirects to local Setup destinations.
 - Restore browser widgets in bundled layouts that use the portable host placeholder.
 
 ---
