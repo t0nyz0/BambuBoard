@@ -8,6 +8,7 @@ const express = require('express');
 const { chromium } = require('playwright');
 const { archive, ftpsFixture } = require('./ftps-fixture');
 const continuousBead = require('./fixtures/continuous-bead');
+const hotExtrusion = require('./fixtures/hot-extrusion');
 const { temporary, listen, until } = require('./helpers');
 const { fetchPlateGcode, LIMITS } = require('../src/services/printerFiles');
 const { buildGcodeRouter } = require('../src/routes/gcode');
@@ -133,6 +134,7 @@ const busyFilamentToolpath = Buffer.from(
   }).join('')
 );
 const precisionFilamentToolpath = continuousBead.fixture();
+const hotExtrusionToolpath = hotExtrusion.fixture();
 const mockCameraBackground = [54, 99, 122];
 const widgetStatus = '#gcodeDetail';
 
@@ -270,7 +272,7 @@ function onRasterMotion(plate, layer, position) {
       <iframe title="G-code toolpath" src="/widgets/gcode-viz/?${query}"></iframe></body></html>`);
   });
   app.get('/api/gcode/current', async (req, res, next) => {
-    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace', 'packed-busy-filament', 'packed-precision-filament'].includes(mode)) return next();
+    if (!['packed', 'packed-held', 'packed-window', 'packed-deposition', 'packed-pace', 'packed-busy-filament', 'packed-precision-filament', 'packed-hot-extrusion'].includes(mode)) return next();
     count++;
     // Stream one generated layer at a time. Neither the test server nor the
     // browser automation client holds or copies the whole synthetic source.
@@ -284,7 +286,8 @@ function onRasterMotion(plate, layer, position) {
     const windowed = mode === 'packed-window';
     const fixture = mode === 'packed-deposition' ? depositionToolpath :
       mode === 'packed-pace' ? pacedToolpath : mode === 'packed-busy-filament' ? busyFilamentToolpath :
-      mode === 'packed-precision-filament' ? precisionFilamentToolpath : null;
+      mode === 'packed-precision-filament' ? precisionFilamentToolpath :
+      mode === 'packed-hot-extrusion' ? hotExtrusionToolpath : null;
     const length = fixture ? fixture.length : windowed ? windowByteLength() : compactByteLength(packedFixture);
     res.set({ 'Content-Type': 'text/plain', 'Content-Length': String(length), 'X-Gcode-Job': encodeURIComponent(req.query.job) });
     try {
@@ -875,6 +878,17 @@ function onRasterMotion(plate, layer, position) {
       }, { virtualClock, holdFirstRead });
     }
 
+    async function paintObservedMotion(widget, offset, timeout) {
+      // Move the playhead in observed intervals and let each frame paint.
+      // A cold jump intentionally cannot give older extrusion a hot color.
+      for (let step = 0; step < offset;) {
+        step = Math.min(offset, step + 1000);
+        const before = await widget.evaluate(() => window.__diag().motion.animationDraws);
+        await widget.evaluate(ms => { window.__motionClockOffset = ms; }, step);
+        await widget.waitForFunction(draws => window.__diag()?.motion?.animationDraws > draws, before, { timeout });
+      }
+    }
+
     const packedEvidence = [];
     async function checkPackedPlate(plate, name, timeout) {
       await page.goto('about:blank');
@@ -1280,6 +1294,10 @@ function onRasterMotion(plate, layer, position) {
           { x: 110, y: 70, red: false, green: false },
         ]);
 
+        // Resume at the next authored color without claiming we observed
+        // the skipped extrusion. The thermal fixture exercises live heat.
+        await setLayer(1, 112_500, false, 'PAUSED');
+        await waitForMotion({ visible: false, state: 'paused', depositedEnd: 2, partialDeposited: false });
         await setLayer(1, 193_750);
         const green = await waitForMotion({ visible: true, state: 'ready', x: [183, 190], depositionStart: 1, depositedEnd: 2,
           depositedSegments: 1, partialDeposited: true, reportedLayer: 1 });
@@ -1475,26 +1493,27 @@ function onRasterMotion(plate, layer, position) {
           const exterior = Array.from(ctx.getImageData(image.width - 3, 2, 1, 1).data);
           const samples = Object.fromEntries(Object.entries(probes).map(([key, [x, y]]) => {
             const { data } = ctx.getImageData(x - 2, y - 2, 5, 5);
-            let outline = 0, gray = 0, cover = 0;
+            let hot = 0, gray = 0, cover = 0;
             const luma = [];
             for (let i = 0; i < data.length; i += 4) {
               const [r, g, b] = data.subarray(i, i + 3);
               const neutral = Math.max(r, g, b) - Math.min(r, g, b) <= 3;
               const value = (r + 2 * g + b) / 4;
-              if (neutral && value >= 35 && value <= 80) outline++;
+              if (r >= 136 && r - b >= 65 && r - g >= 20) hot++;
               if (neutral && Math.abs(value - 136) <= 4) gray++;
               if (r >= 140 && b >= 140 && g <= 95) cover++;
               luma.push(value);
             }
-            return [key, { x, y, outline, gray, cover, minLuma: Math.min(...luma) }];
+            return [key, { x, y, hot, gray, cover, minLuma: Math.min(...luma) }];
           }));
           return { exterior, samples };
         }, { png: png.toString('base64'), probes: projection.probes });
         return { ...projection, ...pixels };
       };
       try {
+        await attachPackedBrowserProbes(target, { virtualClock: true });
         await write('Busy same-color extrusion', 'RUNNING', {
-          layer_num: 6, total_layer_num: 7, mc_percent: 75, _bb_layer_elapsed_ms: 127_500,
+          layer_num: 6, total_layer_num: 7, mc_percent: 75, _bb_layer_elapsed_ms: 81_000,
           _bb_layer_advancing: true, ams: { ams: [{ id: '0', tray: [{ id: '0', tray_color: '888888FF' }] }] },
         });
         await target.setViewportSize({ width: 360, height: 270 });
@@ -1502,6 +1521,9 @@ function onRasterMotion(plate, layer, position) {
         const frame = await target.locator('iframe').contentFrame().locator('#gcodeCanvas').evaluate(element => element.ownerDocument.URL);
         const widget = target.frames().find(child => child.url() === frame);
         assert.ok(widget, 'The test must sample the actual OBS widget document');
+        await widget.waitForFunction(() => window.__diag?.().motion?.state === 'ready' &&
+          window.__diag()?.motion?.position?.[0] > 105 && window.__diag()?.motion?.position?.[0] < 115, null, { timeout });
+        await paintObservedMotion(widget, 46_500, timeout);
         await checkPose(widget, true);
         const narrow = await capture(widget, 'gcode-visible-filament-360', 'deposition');
         await target.setViewportSize({ width: 800, height: 600 });
@@ -1541,12 +1563,11 @@ function onRasterMotion(plate, layer, position) {
           assert.equal(result.zoom, 1, 'Recent extrusion must remain visible at the default zoom');
           assert.deepEqual(result.exterior, [...mockCameraBackground, 255], 'The mock camera remains visible outside the model');
           assert.ok(result.samples.plain.gray > 0, JSON.stringify(result.samples));
-          assert.ok(result.samples.tipBehind.outline >= 2 && result.samples.tipBehind.gray >= 1 &&
-            result.samples.plain.outline === 0 && result.samples.future.outline === 0, JSON.stringify(result.samples));
+          assert.ok(result.samples.tipBehind.hot >= 3 && result.samples.plain.hot === 0 && result.samples.future.hot === 0, JSON.stringify(result.samples));
         }
-        assert.ok(occluded.samples.tipBehind.cover >= 18 && occluded.samples.tipBehind.outline === 0,
+        assert.ok(occluded.samples.tipBehind.cover >= 18 && occluded.samples.tipBehind.hot === 0,
           JSON.stringify(occluded.samples));
-        assert.ok(travel.samples.tipBehind.outline === 0 && travel.samples.future.outline === 0,
+        assert.ok(travel.samples.tipBehind.hot === 0 && travel.samples.future.hot === 0,
           JSON.stringify(travel.samples));
         assert.equal(travel.motion.partialDeposited, false);
         assert.equal(count, before + 1);
@@ -1632,11 +1653,10 @@ function onRasterMotion(plate, layer, position) {
                 const samples = Array.from({ length: 9 }, (_, i) =>
                   pixel(cx + (i - 4) * dy / length, cy - (i - 4) * dx / length));
                 const cover = samples.filter(([r, g, b]) => r >= 140 && b >= 140 && g <= 95).length;
-                const outline = samples.filter(([r, g, b]) => r >= 158 && r <= 242 &&
-                  Math.max(r, g, b) - Math.min(r, g, b) <= 4).length;
+                const hot = samples.filter(([r, g, b]) => r >= 136 && r - b >= 65 && r - g >= 15).length;
                 const gray = samples.filter(([r, g, b]) => Math.abs(r - 63) <= 5 &&
                   Math.max(r, g, b) - Math.min(r, g, b) <= 4).length;
-                sections.push({ cover, outline, gray, x: cx, y: cy });
+                sections.push({ cover, hot, gray, x: cx, y: cy });
                 nextColumn++;
               }
               distance += length;
@@ -1653,7 +1673,7 @@ function onRasterMotion(plate, layer, position) {
             exterior: Array.from(pixel(image.width - 3, 2)),
           };
         }, { png: png.toString('base64'), projection });
-        const visibleColumns = data.sections.map(section => section.outline > 0);
+        const visibleColumns = data.sections.map(section => section.hot > 0);
         let longestRun = 0, run = 0;
         for (const visible of visibleColumns) {
           run = visible ? run + 1 : 0;
@@ -1665,8 +1685,9 @@ function onRasterMotion(plate, layer, position) {
       };
       try {
         await target.setViewportSize({ width: 640, height: 480 });
+        await attachPackedBrowserProbes(target, { virtualClock: true });
         await write('Precision dark continuous bead', 'RUNNING', {
-          layer_num: activeLayer, total_layer_num: layerCount, mc_percent: 75, _bb_layer_elapsed_ms: 152_000,
+          layer_num: activeLayer, total_layer_num: layerCount, mc_percent: 75, _bb_layer_elapsed_ms: 110_000,
           _bb_layer_advancing: true, ams: { ams: [{ id: '0', tray: [{ id: '0', tray_color: '3F3F3FFF' }] }] },
         });
         await target.goto(base + '/toolpath-camera-fixture/obs');
@@ -1674,6 +1695,9 @@ function onRasterMotion(plate, layer, position) {
         const widget = await handle.contentFrame();
         await handle.dispose();
         assert.ok(widget);
+        await widget.waitForFunction(() => window.__diag?.().motion?.state === 'ready' &&
+          window.__diag()?.motion?.position?.[0] > 113 && window.__diag()?.motion?.position?.[0] < 141, null, { timeout });
+        await paintObservedMotion(widget, 42_000, timeout);
         await drawPose(widget, true);
         const normal = await capture(widget, 'gcode-continuous-bead-640', 'deposition');
 
@@ -1713,15 +1737,17 @@ function onRasterMotion(plate, layer, position) {
         assert.ok(normal.coverage >= 0.90 && normal.longestRun >= 24, JSON.stringify({
           span: normal.spanPx, sections: normal.sections.length, coverage: normal.coverage, contiguous: normal.longestRun,
         }));
-        assert.ok(normal.sections.filter(section => section.gray > 0).length >= normal.sections.length * 0.8);
-        assert.ok([...normal.before.sections, ...normal.ahead.sections].every(section => !section.outline));
+        const unaffected = [...normal.before.sections, ...normal.ahead.sections];
+        assert.ok(unaffected.every(section => !section.hot));
+        assert.ok(unaffected.filter(section => section.gray > 0).length >= unaffected.length * 0.8,
+          'Already cool and future regions retain their gray base color');
         // A cross-section on the edge can contain both the cover and the
         // correctly visible bead beside it. Measure fully covered sections.
         const hidden = occluded.sections.map((section, index) => section.cover === 9 ? index : -1).filter(index => index >= 0);
-        assert.ok(hidden.length >= 7 && hidden.every(index => !occluded.sections[index].outline),
+        assert.ok(hidden.length >= 7 && hidden.every(index => !occluded.sections[index].hot),
           'Opaque obstruction removes the bead for a real span');
-        const left = occluded.sections.slice(0, hidden[0]).filter(section => section.outline > 0);
-        const right = occluded.sections.slice(hidden.at(-1) + 1).filter(section => section.outline > 0);
+        const left = occluded.sections.slice(0, hidden[0]).filter(section => section.hot > 0);
+        const right = occluded.sections.slice(hidden.at(-1) + 1).filter(section => section.hot > 0);
         assert.ok(left.length >= 5 && right.length >= 5, JSON.stringify({
           beforeObstruction: left.length, hidden: hidden.length, afterObstruction: right.length,
         }));
@@ -1733,6 +1759,226 @@ function onRasterMotion(plate, layer, position) {
     }
     await checkContinuousBead();
     passed.push('Dense same-color toolpath draws one continuous recent bead across subpixel chords without crossing opaque geometry or travel');
+
+    async function checkHotExtrusion() {
+      await page.goto('about:blank');
+      mode = 'packed-hot-extrusion';
+      const before = count;
+      const target = await context.newPage();
+      const timeout = 30_000;
+      const { activeLayer, layerCount, pathStart, pathEnd, firstY, secondY, z,
+        firstFeedMmPerSecond, retractLength, renderPace } = hotExtrusion;
+      const firstSeconds = (pathEnd - pathStart) / firstFeedMmPerSecond;
+      const line = [[68, firstY, z], [118, firstY, z]];
+      const travelStart = (firstSeconds + retractLength) * renderPace;
+      const secondStart = (firstSeconds + retractLength * 2 + secondY - firstY) * renderPace;
+      const poses = {
+        first: { minX: 46, maxX: 54, minY: firstY - 0.01, maxY: firstY + 0.01, partial: true },
+        early: { minX: 88, maxX: 110, minY: firstY - 0.01, maxY: firstY + 0.01, partial: true },
+        fresh: { minX: 137, maxX: 163, minY: firstY - 0.01, maxY: firstY + 0.01, partial: true },
+        nearEnd: { minX: 182, maxX: 204, minY: firstY - 0.01, maxY: firstY + 0.01, partial: true },
+        retract: { minX: pathEnd - 0.01, maxX: pathEnd + 0.01, minY: firstY - 0.01, maxY: firstY + 0.01, partial: false },
+        travel: { minX: pathEnd - 0.01, maxX: pathEnd + 0.01, minY: firstY + 11, maxY: firstY + 18, partial: false },
+        prime: { minX: pathEnd - 0.01, maxX: pathEnd + 0.01, minY: secondY - 0.01, maxY: secondY + 0.01, partial: false },
+        yellow: { minX: 202, maxX: 206, minY: secondY - 0.01, maxY: secondY + 0.01, partial: true },
+        settled: { minX: 128, maxX: 138, minY: secondY - 0.01, maxY: secondY + 0.01, partial: true },
+      };
+      const setTime = (widget, milliseconds) => widget.evaluate(ms => window.__hotClock.set(ms), milliseconds);
+      const waitForPose = (widget, name) => widget.waitForFunction(expected => {
+        const diag = window.__diag?.();
+        const motion = diag?.motion;
+        const p = motion?.position;
+        return Boolean(diag?.compact?.staticReady && motion?.state === 'ready' && motion.visible && motion.depositionReady &&
+          motion.partialDeposited === expected.partial && p &&
+          p[0] >= expected.minX && p[0] <= expected.maxX && p[1] >= expected.minY && p[1] <= expected.maxY);
+      }, poses[name], { timeout });
+      const paintNext = async (widget, milliseconds) => {
+        const draws = await widget.evaluate(() => window.__diag().motion.animationDraws);
+        await setTime(widget, milliseconds);
+        await widget.waitForFunction(previous => window.__diag()?.motion?.animationDraws > previous,
+          draws, { timeout });
+      };
+      const redraw = async widget => {
+        for (const width of [641, 640]) {
+          const before = await widget.evaluate(() => window.__diag().motion.staticDraws);
+          await target.setViewportSize({ width, height: 640 });
+          await widget.waitForFunction(({ width, before }) => innerWidth === width &&
+            window.__diag()?.compact?.staticReady && window.__diag().motion.staticDraws > before,
+          { width, before }, { timeout });
+        }
+      };
+      const capture = async (widget, name, age, probes = {}) => {
+        const projected = await widget.evaluate(points => {
+          const { camera, buildVolume } = window.__preview;
+          const bounds = document.querySelector('#gcodeCanvas').getBoundingClientRect();
+          const project = ([x, y, z]) => {
+            const p = new camera.position.constructor(x - buildVolume.x / 2, z, buildVolume.y / 2 - y).project(camera);
+            return [bounds.left + (p.x + 1) * bounds.width / 2, bounds.top + (1 - p.y) * bounds.height / 2];
+          };
+          return { zoom: camera.zoom, motion: window.__diag().motion,
+            probes: Object.fromEntries(Object.entries(points).map(([key, [a, b]]) => [key, [project(a), project(b)]])) };
+        }, { deposited: line, ...probes });
+        const png = await target.screenshot({ path: path.join(artifacts, 'gcode-hot-extrusion-' + name + '.png'), timeout });
+        const pixels = await target.evaluate(async ({ png, probes }) => {
+          const image = new Image();
+          image.src = 'data:image/png;base64,' + png;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(image, 0, 0);
+          const values = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          const scan = ([[ax, ay], [bx, by]]) => {
+            const length = Math.hypot(bx - ax, by - ay);
+            const dx = (bx - ax) / length, dy = (by - ay) / length;
+            const sections = [];
+            for (let distance = 0.5; distance < length; distance++) {
+              const colors = Array.from({ length: 7 }, (_, i) => {
+                const x = Math.floor(ax + distance * dx + (i - 3) * dy);
+                const y = Math.floor(ay + distance * dy - (i - 3) * dx);
+                const at = (y * canvas.width + x) * 4;
+                return Array.from(values.subarray(at, at + 3));
+              });
+              const dominant = colors.reduce((best, color) =>
+                color[0] - color[2] > best[0] - best[2] ? color : best, colors[3]);
+              const neutral = ([r, g, b]) => Math.max(r, g, b) - Math.min(r, g, b) <= 4;
+              const [r, g, b] = dominant;
+              const warm = r >= 145 && r - b >= 85 && r - g >= 4;
+              const hue = !warm ? null : g < r * 0.35 ? 'red' : g < r * 0.72 ? 'orange' : 'yellow';
+              const gray = colors.some(color => neutral(color) && Math.abs(color[0] - 63) <= 5);
+              const cover = colors.filter(([r, g, b]) => r >= 145 && g < 100 && b >= 145).length;
+              sections.push({ hue, gray, cover, dominant });
+            }
+            const hueBins = sections.reduce((count, sample) => {
+              if (sample.hue) count[sample.hue]++;
+              return count;
+            }, { red: 0, orange: 0, yellow: 0 });
+            let colorRun = 0, longestColorRun = 0;
+            for (const sample of sections) {
+              colorRun = sample.hue ? colorRun + 1 : 0;
+              longestColorRun = Math.max(longestColorRun, colorRun);
+            }
+            return { length, sections, hueBins, longestColorRun };
+          };
+          return Object.fromEntries(Object.entries(probes).map(([key, endpoints]) => [key, scan(endpoints)]));
+        }, { png: png.toString('base64'), probes: projected.probes });
+        return { age, zoom: projected.zoom, motion: projected.motion, ...pixels };
+      };
+      const checkHue = (capture, expected, coverage = 0.72) => assert.ok(
+        capture.deposited.hueBins[expected] >= capture.deposited.sections.length * coverage,
+        JSON.stringify({ expected, age: capture.age, hues: capture.deposited.hueBins, motion: capture.motion }));
+      try {
+        await target.addInitScript(() => {
+          const realtime = performance.now.bind(performance);
+          let origin;
+          let elapsed = 0;
+          performance.now = () => origin === undefined ? realtime() : origin + elapsed;
+          window.__hotClock = {
+            hold() { origin = realtime(); },
+            set(milliseconds) { elapsed = milliseconds; },
+          };
+        });
+        await write('Observed cooling extrusion', 'PAUSED', { layer_num: activeLayer, total_layer_num: layerCount,
+          _bb_layer_elapsed_ms: 30, _bb_layer_advancing: false,
+          ams: { ams: [{ id: '0', tray: [{ id: '0', tray_color: '3F3F3FFF' }] }] },
+        });
+        await target.goto(base + '/toolpath-camera-fixture/obs');
+        const handle = await target.locator('iframe').elementHandle();
+        const widget = await handle.contentFrame();
+        await handle.dispose();
+        assert.ok(widget);
+        await widget.waitForFunction(() => window.__diag?.().compact?.staticReady &&
+          window.__diag().motion.state === 'paused', null, { timeout });
+        await widget.evaluate(() => window.__hotClock.hold());
+        await writePacket({ ...print, gcode_state: 'RUNNING', _bb_layer_advancing: true });
+        await setTime(widget, 50);
+        await waitForPose(widget, 'first');
+        await setTime(widget, 1250);
+        await waitForPose(widget, 'early');
+        await setTime(widget, 2500);
+        await waitForPose(widget, 'fresh');
+        const fresh = await capture(widget, 'fresh', 2.5, {
+          future: [[174, firstY, z], [198, firstY, z]],
+        });
+        assert.equal(await widget.locator(widgetStatus).isVisible(), false);
+
+        await setTime(widget, 3700);
+        await waitForPose(widget, 'nearEnd');
+        const retractAge = (firstSeconds + retractLength / 2) * renderPace;
+        await setTime(widget, retractAge * 1000);
+        await waitForPose(widget, 'retract');
+        const retract = await capture(widget, 'retract', retractAge);
+
+        const travelAge = travelStart + 14 * renderPace;
+        await setTime(widget, travelAge * 1000);
+        await waitForPose(widget, 'travel');
+        const gap = [[pathEnd, firstY + 6, z], [pathEnd, firstY + 10, z]];
+        const travel = await capture(widget, 'travel', travelAge, { gap });
+
+        // An actual opaque scene mesh sits between the fixed deposited line
+        // and the camera. The visible hot line must stop at its silhouette.
+        await widget.evaluate(async ([x, y, z]) => {
+          const THREE = await import('/vendor/three.module.js');
+          const { camera, scene, buildVolume } = window.__preview;
+          const cover = new THREE.Mesh(new THREE.PlaneGeometry(12, 14),
+            new THREE.MeshBasicMaterial({ color: 0xbd35c7, side: THREE.DoubleSide }));
+          cover.name = 'hot-fixture-cover';
+          const p = new THREE.Vector3(x - buildVolume.x / 2, z, buildVolume.y / 2 - y);
+          cover.position.copy(p).addScaledVector(camera.position.clone().sub(p).normalize(), 6);
+          cover.quaternion.copy(camera.quaternion);
+          scene.add(cover);
+        }, [93, firstY, z]);
+        await setTime(widget, travelAge * 1000 + 80);
+        await redraw(widget);
+        const occluded = await capture(widget, 'occluded', travelAge);
+        await widget.evaluate(() => {
+          const cover = window.__preview.scene.getObjectByName('hot-fixture-cover');
+          cover.removeFromParent();
+          cover.geometry.dispose();
+          cover.material.dispose();
+        });
+        await setTime(widget, travelAge * 1000 + 160);
+        await redraw(widget);
+
+        await setTime(widget, (secondStart - 1.3) * 1000);
+        await waitForPose(widget, 'prime');
+        await setTime(widget, (secondStart + 0.2) * 1000);
+        await waitForPose(widget, 'yellow');
+        const yellowAge = secondStart + 2;
+        await paintNext(widget, yellowAge * 1000);
+        await waitForPose(widget, 'yellow');
+        const yellow = await capture(widget, 'yellow', yellowAge);
+
+        for (let at = yellowAge * 1000 + 1500; at < 151_000; at += 1500) await paintNext(widget, at);
+        await setTime(widget, 151_000);
+        await waitForPose(widget, 'settled');
+        const settled = await capture(widget, 'settled', 151);
+        await fs.writeFile(path.join(artifacts, 'gcode-hot-extrusion-results.json'),
+          JSON.stringify({ fresh, retract, travel, occluded, yellow, settled, httpDownloads: count - before }, null, 2));
+
+        assert.equal(fresh.zoom, 1);
+        checkHue(fresh, 'red');
+        assert.ok(fresh.deposited.longestColorRun >= 36, 'The observed fresh line extends beyond the former 34 px accent');
+        assert.equal(fresh.future.longestColorRun, 0, 'Future extrusion is still gray');
+        assert.equal(fresh.motion.partialDeposited, true);
+        checkHue(retract, 'red');
+        assert.equal(retract.motion.partialDeposited, false, 'An E-only retract lays no geometry');
+        checkHue(travel, 'orange');
+        assert.ok(travel.gap.sections.length >= 4 && travel.gap.longestColorRun === 0, 'No heat trail through actual G0 travel');
+        const fullyCovered = occluded.deposited.sections.filter(section => section.cover === 7);
+        assert.ok(fullyCovered.length >= 7 && fullyCovered.every(section => !section.hue), 'Opaque cover occludes hot deposited filament');
+        checkHue(yellow, 'yellow');
+        assert.ok(settled.deposited.sections.filter(section => section.gray).length >= settled.deposited.sections.length * 0.92);
+        assert.equal(settled.deposited.longestColorRun, 0);
+        assert.equal(count, before + 1, 'Thermal ages and travel reuse the same download');
+        assert.equal(await widget.locator(widgetStatus).isVisible(), false);
+      } finally {
+        await target.close();
+      }
+    }
+    await checkHotExtrusion();
+    passed.push('Deposited filament cools from red through orange and yellow to its tool color across real retract and travel');
 
     async function checkLabelFreeSurfaces() {
       const results = [];

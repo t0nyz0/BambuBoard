@@ -1,25 +1,32 @@
 import * as THREE from '../../vendor/three.module.js';
+import { MAX_RECENT_DEPOSITION_SEGMENTS } from './hot-deposition-history.js';
 import { RECENT_DEPOSITION_SEGMENTS } from './recent-deposition-path.js';
 
 const OUTLINE_RADIUS = 3.6; // CSS pixels
 const CORE_RADIUS = 1.8;
 
-export function createRecentDepositionRibbon() {
+export function createRecentDepositionRibbon({ thermal = false } = {}) {
+  const capacity = thermal ? MAX_RECENT_DEPOSITION_SEGMENTS : RECENT_DEPOSITION_SEGMENTS;
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([
     0, -1, 0, 0, 1, 0, 1, -1, 0, 1, 1, 0,
   ], 3));
   geometry.setIndex([0, 2, 1, 1, 2, 3]);
   geometry.instanceCount = 0;
-  const attribute = name => {
-    const buffer = new THREE.InstancedBufferAttribute(new Float32Array(RECENT_DEPOSITION_SEGMENTS * 3), 3)
+  const attribute = (name, size) => {
+    const buffer = new THREE.InstancedBufferAttribute(new Float32Array(capacity * size), size)
       .setUsage(THREE.DynamicDrawUsage);
+    buffer.onUpload(() => buffer.clearUpdateRanges());
     geometry.setAttribute(name, buffer);
     return buffer;
   };
-  const start = attribute('segmentStart');
-  const end = attribute('segmentEnd');
-  const color = attribute('filamentColor');
+  const start = attribute('segmentStart', 3);
+  const end = attribute('segmentEnd', 3);
+  const color = attribute('filamentColor', 3);
+  const times = thermal ? attribute('depositedAt', 2) : null;
+  const attributes = thermal ? [start, end, color, times] : [start, end, color];
+  const elapsed = { value: 0 };
+  let previousSegments = null;
 
   const viewport = new THREE.Vector2(1, 1);
   const depthSize = new THREE.Vector2(1, 1);
@@ -35,17 +42,24 @@ export function createRecentDepositionRibbon() {
   };
   function capsule(radius, outline) {
     const material = new THREE.ShaderMaterial({
-      uniforms: { ...depth, viewport: { value: viewport }, radius: { value: radius }, outline: { value: outline } },
+      defines: thermal ? { THERMAL_RECENT_DEPOSITION: 1 } : {},
+      uniforms: { ...depth, elapsed, viewport: { value: viewport }, radius: { value: radius }, outline: { value: outline } },
       vertexShader: `
         attribute vec3 segmentStart;
         attribute vec3 segmentEnd;
         attribute vec3 filamentColor;
+        #ifdef THERMAL_RECENT_DEPOSITION
+          attribute vec2 depositedAt;
+        #endif
         uniform vec2 viewport;
         uniform float radius;
         varying vec4 segment;
         varying vec4 endpointHeightsAndW;
         varying vec4 expanded;
         varying vec3 toolColor;
+        #ifdef THERMAL_RECENT_DEPOSITION
+          varying vec2 birth;
+        #endif
         void main() {
           vec4 viewFrom = modelViewMatrix * vec4(segmentStart, 1.0);
           vec4 viewTo = modelViewMatrix * vec4(segmentEnd, 1.0);
@@ -84,12 +98,18 @@ export function createRecentDepositionRibbon() {
           endpointHeightsAndW = vec4(dot(worldUpInView, viewFrom.xyz), dot(worldUpInView, viewTo.xyz), from.w, to.w);
           expanded = gl_Position;
           toolColor = filamentColor;
+          #ifdef THERMAL_RECENT_DEPOSITION
+            birth = depositedAt;
+          #endif
         }
       `,
       fragmentShader: `
         uniform vec2 viewport;
         uniform float radius;
         uniform bool outline;
+        #ifdef THERMAL_RECENT_DEPOSITION
+          uniform float elapsed;
+        #endif
         uniform bool usePackedDepth;
         uniform sampler2D opaqueDepth;
         uniform sampler2D plateDepth;
@@ -101,6 +121,9 @@ export function createRecentDepositionRibbon() {
         varying vec4 endpointHeightsAndW;
         varying vec4 expanded;
         varying vec3 toolColor;
+        #ifdef THERMAL_RECENT_DEPOSITION
+          varying vec2 birth;
+        #endif
         float depthOnLayer(vec2 uv, float height) {
           vec2 ndc = 2.0 * uv - 1.0;
           vec3 up = viewMatrix[1].xyz;
@@ -121,6 +144,20 @@ export function createRecentDepositionRibbon() {
           return 0.5 + 0.5 * clip.z / clip.w;
         }
 
+        #ifdef THERMAL_RECENT_DEPOSITION
+        vec3 coolingColor(float age) {
+          vec3 hot = vec3(1.0, 0.05, 0.02);
+          vec3 orange = vec3(1.0, 0.45, 0.0);
+          vec3 yellow = vec3(0.95, 0.85, 0.10);
+          vec3 green = vec3(0.10, 0.85, 0.20);
+          if (age <= 7.2) return hot;
+          if (age < 28.8) return mix(hot, orange, (age - 7.2) / 21.6);
+          if (age < 57.6) return mix(orange, yellow, (age - 28.8) / 28.8);
+          if (age < 100.8) return mix(yellow, green, (age - 57.6) / 43.2);
+          return mix(green, toolColor, clamp((age - 100.8) / 43.2, 0.0, 1.0));
+        }
+        #endif
+
         void main() {
           vec2 uv = usePackedDepth ? gl_FragCoord.xy / bufferSize : expanded.xy / expanded.w * 0.5 + 0.5;
           vec2 v = segment.zw - segment.xy;
@@ -128,15 +165,22 @@ export function createRecentDepositionRibbon() {
           float along = clamp(dot(q, v) / max(dot(v, v), 0.00000001), 0.0, 1.0);
           float distance = length(q - along * v);
           float alpha = 1.0 - smoothstep(radius - 0.75, radius, distance);
+          vec4 endpoints = endpointHeightsAndW;
+          float fromWeight = (1.0 - along) / max(endpoints.z, 0.00001);
+          float toWeight = along / max(endpoints.w, 0.00001);
+          float totalWeight = fromWeight + toWeight;
+          #ifdef THERMAL_RECENT_DEPOSITION
+            // Interpolate when the tool laid down each point. The weights
+            // undo perspective so age follows the physical chord.
+            float age = max(0.0, elapsed - dot(vec2(fromWeight, toWeight), birth) / totalWeight);
+            alpha *= 1.0 - smoothstep(129.6, 144.0, age);
+          #endif
           if (alpha <= 0.0) discard;
           if (usePackedDepth) {
             // Evaluate the physical ribbon plane at the sampled texel, not
             // the rasterizer's interpolant for a widened subpixel chord.
             vec2 texel = (floor(uv * depthSize) + 0.5) / depthSize;
-            vec4 endpoints = endpointHeightsAndW;
-            float fromWeight = (1.0 - along) / max(endpoints.z, 0.00001);
-            float toWeight = along / max(endpoints.w, 0.00001);
-            float height = (fromWeight * endpoints.x + toWeight * endpoints.y) / (fromWeight + toWeight);
+            float height = (fromWeight * endpoints.x + toWeight * endpoints.y) / totalWeight;
             float z = depthOnLayer(texel, height);
             float quantization = 1.0 / 16777215.0;
             if (z > texture2D(opaqueDepth, texel).r + quantization) discard;
@@ -148,9 +192,16 @@ export function createRecentDepositionRibbon() {
               abs(depthOnLayer(texel + vec2(0.0, 1.0 / depthSize.y), height) - z) + quantization;
             if (z > min(texture2D(plateDepth, texel).r, texture2D(depositionDepth, texel).r) + tolerance) discard;
           }
-          float luminance = dot(toolColor, vec3(0.2126, 0.7152, 0.0722));
-          vec3 edge = luminance > 0.20 ? vec3(0.025) : vec3(0.64);
-          gl_FragColor = vec4(outline ? edge : toolColor, alpha);
+          #ifdef THERMAL_RECENT_DEPOSITION
+            vec3 hotColor = coolingColor(age);
+            // A tinted edge keeps the rounded joins visible over the model.
+            vec3 edge = mix(toolColor, hotColor, 0.78);
+            gl_FragColor = vec4(outline ? edge : hotColor, outline ? alpha * 0.8 : alpha);
+          #else
+            float luminance = dot(toolColor, vec3(0.2126, 0.7152, 0.0722));
+            vec3 edge = luminance > 0.20 ? vec3(0.025) : vec3(0.64);
+            gl_FragColor = vec4(outline ? edge : toolColor, alpha);
+          #endif
           #include <colorspace_fragment>
         }
       `,
@@ -168,8 +219,8 @@ export function createRecentDepositionRibbon() {
     return mesh;
   }
 
-  // Lay down the continuous silhouette first, then the tool-colored
-  // center. Rounded neighbors can overlap without cutting up the core.
+  // Rounded edges are drawn before the center so overlapping neighbors
+  // preserve a continuous path.
   const outline = capsule(OUTLINE_RADIUS, true);
   const core = capsule(CORE_RADIUS, false);
   const mesh = new THREE.Group();
@@ -195,23 +246,50 @@ export function createRecentDepositionRibbon() {
         depth.beadProjection.value.copy(occlusion.projectionMatrix);
       }
     },
+    setElapsed(seconds) {
+      if (Number.isFinite(seconds)) elapsed.value = seconds;
+    },
     setSegments(segments) {
+      // The caller can submit the last immutable path while only time
+      // advances; this makes age-only frames a uniform update.
+      if (segments === previousSegments) return geometry.instanceCount;
+      previousSegments = segments;
+      const changed = attributes.map(() => ({ start: Infinity, end: 0 }));
       let count = 0;
-      for (const { from, to, color: rgb } of segments) {
-        if (count >= RECENT_DEPOSITION_SEGMENTS) break;
+      function write(buffer, range, component, value) {
+        const stored = Math.fround(value);
+        const index = count * buffer.itemSize + component;
+        if (buffer.array[index] === stored) return;
+        buffer.array[index] = stored;
+        range.start = Math.min(range.start, index);
+        range.end = Math.max(range.end, index + 1);
+      }
+      for (const { from, to, color: rgb, fromTime, toTime } of segments) {
+        if (count >= capacity) break;
+        if (thermal && (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime > toTime)) continue;
         if (!from.every(Number.isFinite) || !to.every(Number.isFinite) || !rgb.every(Number.isFinite) ||
             from.every((value, axis) => value === to[axis])) continue;
-        start.array.set(from, count * 3);
-        end.array.set(to, count * 3);
-        color.array.set(rgb, count * 3);
+        for (let axis = 0; axis < 3; axis++) {
+          write(start, changed[0], axis, from[axis]);
+          write(end, changed[1], axis, to[axis]);
+          write(color, changed[2], axis, rgb[axis]);
+        }
+        if (thermal) {
+          write(times, changed[3], 0, fromTime);
+          write(times, changed[3], 1, toTime);
+        }
         count++;
       }
       mesh.visible = count > 0;
       geometry.instanceCount = count;
-      if (count > 0) {
-        for (const buffer of [start, end, color]) {
+      for (const [index, buffer] of attributes.entries()) {
+        const { start, end } = changed[index];
+        if (end > start) {
+          const pending = buffer.updateRanges[0];
+          const first = pending ? Math.min(start, pending.start) : start;
+          const last = pending ? Math.max(end, pending.start + pending.count) : end;
           buffer.clearUpdateRanges();
-          buffer.addUpdateRange(0, count * 3);
+          buffer.addUpdateRange(first, last - first);
           buffer.needsUpdate = true;
         }
       }

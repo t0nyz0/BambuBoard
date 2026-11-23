@@ -250,6 +250,7 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
 
   return {
     get available() { return available; },
+    get hasRecent() { return Boolean(depositionRenderer?.hasRecent); },
     get building() { return Boolean(building || pending || depositionRenderer?.building); },
     draw({ refreshStatic = false, drawNozzle = true, deposition = null } = {}) {
       const size = displaySize();
@@ -311,9 +312,7 @@ export function createPackedNozzleRenderer(preview, nozzle, { lights = [], extra
           useDirectFallback(building ?? snapshot(size));
           return;
         }
-        const showBead = matchesCurrent && deposition && deposition.highlight !== false &&
-          (deposition.partial || deposition.end > deposition.start) &&
-          drawNozzle && nozzle.visible && depositionRenderer?.ready;
+        const showBead = matchesCurrent && depositionRenderer?.ready && depositionRenderer.hasRecent;
         const occlusion = showBead ? beadOcclusion(view, shown) : null;
         material.uniforms.cachedColor.value = shown.texture;
         material.uniforms.cachedDepth.value = shown.depthTexture;

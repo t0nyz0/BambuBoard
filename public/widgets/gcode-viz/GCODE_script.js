@@ -1406,11 +1406,13 @@ function drawPackedFrame() {
 
   const point = packedCompositor.available ? frame.position : null;
   const pose = frame.deposition;
+  const trackingHeat = frame.state === 'ready' || frame.state === 'awaiting-layer';
+  const heatMode = frame.mode === 'manual' ? 'clear'
+    : trackingHeat && (frame.mode === 'live' || frame.mode === 'replay') ? frame.mode : 'hold';
   const deposition = active ? {
     start: active.start,
     end: Math.max(active.start, Math.min(active.end, pose?.deposited ?? active.start)),
-    highlight: Boolean(point?.extruding),
-    tip: point ? [point.x, point.y, point.z] : null,
+    heatMode, at: timing / 1000, layer: frame.layer, layerAge: frame.layerAge,
     partial: pose?.partial && pose.deposited >= active.start && pose.deposited < active.end ? {
       from: [pose.partial.x, pose.partial.y, pose.partial.z],
       to: [pose.x, pose.y, pose.z],
@@ -1426,7 +1428,8 @@ function drawPackedFrame() {
     (deposition?.partial && (deposition.partial.tool !== former.partial.tool ||
       deposition.partial.from.some((value, axis) => value !== former.partial.from[axis]) ||
       deposition.partial.to.some((value, axis) => value !== former.partial.to[axis])));
-  if (dirty || rebuild || !packedFrame || packedCompositor.building ||
+  const cooling = packedCompositor.hasRecent && timing - lastDrawAt >= 100;
+  if (dirty || rebuild || !packedFrame || packedCompositor.building || cooling || deposition?.heatMode !== former?.heatMode ||
       ((moved || deposited) && (Boolean(point) !== Boolean(previous) || timing - lastDrawAt >= 33))) {
     if (point) {
       nozzleGroup.position.set(point.x - buildCenter.x, point.z, buildCenter.y - point.y);

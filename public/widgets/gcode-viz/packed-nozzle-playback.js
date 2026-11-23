@@ -106,7 +106,8 @@ export function createPackedNozzlePlayback(source, yieldTask, now = () => perfor
       return { ...snapshot, state: 'unavailable' };
     }
     buffer.select(target.index);
-    const result = { ...snapshot, window: target.index, layerMoves: track.moves, fraction: progress, paceFactor: pacing?.factor };
+    const result = { ...snapshot, window: target.index, layerMoves: track.moves, fraction: progress,
+      layerAge: startingReplay ? fraction * track.duration : wallAge, paceFactor: pacing?.factor };
     const path = buffer.current();
     if (path === undefined) return { ...result, state: mode === 'paused' ? 'paused' : 'buffering' };
     if (path === null || path.unavailable) {

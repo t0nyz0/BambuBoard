@@ -1,6 +1,6 @@
 import * as THREE from '../../vendor/three.module.js';
 import { createRecentDepositionRibbon } from './recent-deposition-ribbon.js';
-import { createRecentDepositionPath, RECENT_DEPOSITION_SEGMENTS } from './recent-deposition-path.js';
+import { createHotDepositionHistory } from './hot-deposition-history.js';
 
 const BATCHES_PER_FRAME = 2;
 
@@ -14,26 +14,19 @@ function copyTransform(target, source) {
   target.scale.copy(source.scale);
 }
 
-function recentDeposition(packed, display, partial, path) {
-  // Read only the tail of the existing exact extrusion buffer. Travel and
-  // extrusion-only commands leave no vertices in this buffer.
-  const completeLimit = RECENT_DEPOSITION_SEGMENTS - Number(Boolean(partial));
-  if (partial) {
-    const color = packed.colorForTool(partial.tool).map(component => component / 255);
-    if (!path.add(partial.from, partial.to, color)) return path.segments();
-  }
-  const start = Math.max(display.start, display.end - completeLimit);
-  const { items } = packed.depositionBatches(start, display.end, completeLimit);
+function readCompletedDeposition(packed, start, end) {
+  const { items, end: reached } = packed.depositionBatches(start, end, end - start);
+  if (reached !== end) return null;
+  const segments = [];
   const xyz = (attribute, vertex) => [attribute.getX(vertex), attribute.getY(vertex), attribute.getZ(vertex)];
-  for (let index = items.length - 1; index >= 0; index--) {
-    const item = items[index];
+  for (const item of items) {
     const positions = item.geometry.getAttribute('position');
     const colors = item.geometry.getAttribute('color');
-    for (let vertex = item.start + item.count - 2; vertex >= item.start; vertex -= 2) {
-      if (!path.add(xyz(positions, vertex), xyz(positions, vertex + 1), xyz(colors, vertex))) return path.segments();
+    for (let vertex = item.start; vertex < item.start + item.count; vertex += 2) {
+      segments.push({ from: xyz(positions, vertex), to: xyz(positions, vertex + 1), color: xyz(colors, vertex) });
     }
   }
-  return path.segments();
+  return segments;
 }
 
 export function createPackedDepositionRenderer(renderer, packed) {
@@ -59,7 +52,11 @@ export function createPackedDepositionRenderer(renderer, packed) {
   partialScene.add(partialLine);
 
   const highlightScene = new THREE.Scene();
-  const highlight = createRecentDepositionRibbon();
+  const highlight = createRecentDepositionRibbon({ thermal: true });
+  const history = createHotDepositionHistory(
+    (start, end) => readCompletedDeposition(packed, start, end),
+    tool => packed.colorForTool(tool).map(component => component / 255),
+  );
   copyTransform(highlight.mesh, packed.group);
   highlightScene.add(highlight.mesh);
 
@@ -72,8 +69,7 @@ export function createPackedDepositionRenderer(renderer, packed) {
   let ready = true;
   let draws = 0;
   let segmentsDrawn = 0;
-  let highlightAllowed = false;
-  let highlightTip = null;
+  let heatAt = 0;
   let recentSegments = 0;
   let highlightDraws = 0;
 
@@ -118,13 +114,14 @@ export function createPackedDepositionRenderer(renderer, packed) {
     get building() { return pending; },
     get ready() { return ready; },
     get visible() { return visible; },
+    get hasRecent() { return history.size > 0; },
     target: active,
     update(deposition, display, matchesCurrent, holdDisplayed) {
       pending = false;
       partial = null;
       partialDrawn = false;
-      highlightAllowed = false;
-      highlightTip = null;
+      history.update(deposition);
+      if (Number.isFinite(deposition?.at)) heatAt = deposition.at;
       recentSegments = 0;
       displayed = null;
       ready = !deposition;
@@ -170,8 +167,6 @@ export function createPackedDepositionRenderer(renderer, packed) {
       ready = !pending;
       partial = ready && deposition.partial?.from.every(Number.isFinite) &&
         deposition.partial.to.every(Number.isFinite) ? deposition.partial : null;
-      highlightAllowed = ready && deposition.highlight !== false;
-      highlightTip = deposition.tip ?? null;
       visible = Boolean(cache && cache.end > cache.start);
       displayed = { start: deposition.start, end: visible ? cache.end : deposition.start };
       return true;
@@ -189,11 +184,11 @@ export function createPackedDepositionRenderer(renderer, packed) {
       partialDrawn = true;
     },
     drawRecent(view, width, height, occlusion) {
-      if (!highlightAllowed || !displayed) return;
+      if (!history.size) return;
       highlight.setViewport(width, height);
       highlight.setOcclusion(occlusion);
-      const path = createRecentDepositionPath(view, packed.group.matrixWorld, width, height, highlightTip);
-      recentSegments = highlight.setSegments(recentDeposition(packed, displayed, partial, path));
+      highlight.setElapsed(heatAt);
+      recentSegments = highlight.setSegments(history.segments());
       if (!recentSegments) return;
       renderer.render(highlightScene, view);
       highlightDraws++;
