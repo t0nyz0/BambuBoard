@@ -107,7 +107,15 @@ async function runEngine(name, artifactDir) {
       if (route === '/setup') {
         await page.route('**/auth/status', request => request.fulfill({ json: { enabled: true, signedIn: true, tokenSaved: true, email: 'demo@example.test' } }));
       }
-      await page.goto(base + route); await page.waitForSelector('.nav-brand'); await page.evaluate(() => document.fonts.ready);
+      if (route === '/login') {
+        await page.goto(base + route, { waitUntil: 'commit' });
+        await page.waitForURL(base + '/setup#cloud-section');
+        await page.locator('#cloud-section').waitFor();
+      } else {
+        await page.goto(base + route);
+      }
+      await page.waitForSelector('.nav-brand');
+      await page.evaluate(() => document.fonts.ready);
       if (route === '/setup') {
         await page.waitForFunction(() => document.getElementById('cloud-status-pill').textContent !== 'Checking…');
         assert.equal(await page.locator('#cloud-check').isVisible(), true, 'The saved account actions are visible without opening an accordion');
@@ -576,8 +584,11 @@ async function runEngine(name, artifactDir) {
       const settings = document.querySelector('iframe[title="Toolpath preview"]')?.contentWindow?.fixtureView;
       return !!settings && settings.view === view && settings.zoom === zoom;
     }, { view, zoom });
+    const waitForToolpathDownload = () => page.waitForFunction(() => {
+      return document.querySelector('iframe[title="Toolpath preview"]')?.contentWindow?.fixtureToolpathReady;
+    });
     await waitForView('front', '125');
-    await page.waitForFunction(() => document.querySelector('iframe[title="Toolpath preview"]')?.contentWindow?.fixtureToolpathReady);
+    await waitForToolpathDownload();
     const frameId = await frame.evaluate(node => node.contentWindow.fixtureFrameId);
     const downloadCount = toolpathRequests;
     await select('First AMS');
@@ -639,6 +650,8 @@ async function runEngine(name, artifactDir) {
     const outputToolpath = new URL(await frame.getAttribute('src'), base);
     assert.equal(outputToolpath.searchParams.get('view'), 'side');
     assert.equal(outputToolpath.searchParams.get('zoom'), '150');
+    // Verify the published preview loaded before leaving Live and cancelling its request.
+    await waitForToolpathDownload();
     passed.push('Toolpath camera previews without loading a new iframe; shared locks, Undo, Reset, Save and Apply preserve the source settings');
 
     const repeatedFixture = structuredClone(toolpathFixture);
