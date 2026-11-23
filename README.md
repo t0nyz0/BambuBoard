@@ -90,7 +90,15 @@ Open `http://localhost:8080`, or use `http://<your-host-ip>:8080` if Docker runs
 
 ### From source
 
-Use **Node.js 24** (see [`.nvmrc`](.nvmrc)) and **npm 11 or newer**:
+Use **Node.js 24** (see [`.nvmrc`](.nvmrc)) and **npm 11 or newer**. Source installs use the npm-bundled FFmpeg by default. On Ubuntu 26.04, use Ubuntu’s FFmpeg because the bundled binary can crash when opening an RTSPS camera stream. Set `FFMPEG_BIN` in the shell where you install and start BambuBoard.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg
+export FFMPEG_BIN=/usr/bin/ffmpeg
+```
+
+With Node.js and npm ready, install and start BambuBoard.
 
 ```bash
 git clone https://github.com/t0nyz0/BambuBoard.git
@@ -99,7 +107,7 @@ npm ci
 npm start
 ```
 
-Open **http://localhost:8080**. Source installs use `ffmpeg-static`, or an explicit `FFMPEG_BIN` path; Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs; see [streaming setup](docs/youtube-streaming.md#requirements).
+Open **http://localhost:8080**. If you start BambuBoard from a service or a new shell, set `FFMPEG_BIN` there too when using system FFmpeg. Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs. [Streaming setup](docs/youtube-streaming.md#requirements)
 
 ## Layout and OBS tips
 
