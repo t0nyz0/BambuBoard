@@ -6,7 +6,9 @@
   let capabilities = null, remote = null, active = false, owned = null, stopping = false, checking = false, selectedOnce = false;
   let lastClient = { state: 'idle', events: [] }, statusSequence = 0;
   let setupFeedback = null;
-  const messages = { idle: 'Ready when you are.', starting: 'Preparing the stream…', connecting: 'Connecting to YouTube and encoding the first frames…', sending: 'Sending video. Confirm the broadcast in YouTube Studio.', reconnecting: 'Connection interrupted. Reconnecting…', stopping: 'Stopping the stream…', stopped: 'Stream stopped.' };
+  const streamKeyPattern = /^[A-Za-z0-9_-]{4,128}$/;
+  const idleMessage = () => streamKeyPattern.test($('yt-key').value.trim()) ? 'Ready to send a preview.' : 'Enter your YouTube stream key to continue.';
+  const messages = { starting: 'Preparing the stream…', connecting: 'Connecting to YouTube and encoding the first frames…', sending: 'Sending video. Confirm the broadcast in YouTube Studio.', reconnecting: 'Connection interrupted. Reconnecting…', stopping: 'Stopping the stream…', stopped: 'Stream stopped.' };
   const setText = (id, text) => { if ($(id).textContent !== text) $(id).textContent = text; };
   function supportProblem() {
     if ($('yt-mode').value === 'server') return capabilities?.serverCapture ? '' : 'Server capture needs Chromium. Use the current Docker image with Chromium, or configure BAMBUBOARD_CHROMIUM_BIN.';
@@ -24,8 +26,9 @@
     $('yt-stop').disabled = !busy || stopping;
     $('yt-active-controls').hidden = !busy;
     for (const id of ['yt-mode', 'yt-quality', 'yt-key', 'yt-show-key', 'yt-bitrate', 'yt-destination']) $(id).disabled = busy || checking;
-    $('yt-audio').disabled = busy || checking || $('yt-mode').value === 'server';
     const server = $('yt-mode').value === 'server';
+    $('yt-audio').disabled = busy || checking || server;
+    $('yt-audio-field').hidden = server;
     for (const option of $('yt-quality').options) option.disabled = server && option.value === '1080p60';
     if (server && $('yt-quality').value === '1080p60') { $('yt-quality').value = '1080p30'; qualityChanged(); }
     setText('yt-mode-help', server ? 'Runs on your BambuBoard host. You can close this control page; the server keeps streaming until you stop it.' : 'Share the /live tab. Keep both this control page and the shared tab open while streaming.');
@@ -35,7 +38,8 @@
     const state = session.state || 'idle';
     const slow = state === 'sending' && session.elapsedMs > 15000 && session.speed > 0 && session.speed < 0.9;
     const recovery = state === 'reconnecting' && session.attempt ? `Connection interrupted. Retrying ${session.attempt} of ${capabilities?.retries || delays.length}…` : '';
-    const text = message || (state === 'reconnecting' ? recovery : session.error?.message) || (slow ? 'Encoding is falling behind. Stop and choose a lower quality or bitrate. Check YouTube Studio for stream health.' : messages[state]) || 'Checking streaming status…';
+    const messageForState = state === 'idle' ? idleMessage() : messages[state];
+    const text = message || (state === 'reconnecting' ? recovery : session.error?.message) || (slow ? 'Encoding is falling behind. Stop and choose a lower quality or bitrate. Check YouTube Studio for stream health.' : messageForState) || 'Checking streaming status…';
     setText('yt-status', text); setText('yt-active-status', text);
     setText('yt-state-badge', state === 'sending' ? 'Sending video' : state[0].toUpperCase() + state.slice(1));
     $('yt-state-badge').className = 'pill' + (state === 'sending' ? ' pill-ok' : state === 'error' ? ' pill-error' : state === 'reconnecting' ? ' pill-warn' : '');
@@ -88,7 +92,7 @@
   }
   function options() {
     const key = $('yt-key').value.trim(), bitrate = Number($('yt-bitrate').value);
-    if (!/^[A-Za-z0-9_-]{4,128}$/.test(key)) throw Object.assign(new Error('Paste the stream key from YouTube Studio, without a URL or spaces.'), { field: 'yt-key' });
+    if (!streamKeyPattern.test(key)) throw Object.assign(new Error('Paste the stream key from YouTube Studio, without a URL or spaces.'), { field: 'yt-key' });
     if (!Number.isInteger(bitrate) || bitrate < 1000 || bitrate > 25000) throw Object.assign(new Error('Video bitrate must be between 1,000 and 25,000 kbps.'), { field: 'yt-bitrate' });
     return { key, profile: $('yt-quality').value, bitrate, destination: $('yt-destination').value, source: $('yt-mode').value };
   }
@@ -233,7 +237,11 @@
   $('yt-quality').addEventListener('change', qualityChanged);
   $('yt-mode').addEventListener('change', () => { controls(); clearFeedbackForInput('yt-mode'); });
   $('yt-destination').addEventListener('change', () => clearFeedbackForInput('yt-destination'));
-  for (const id of ['yt-key', 'yt-bitrate']) $(id).addEventListener('input', () => clearFeedbackForInput(id));
+  $('yt-key').addEventListener('input', () => {
+    clearFeedbackForInput('yt-key');
+    if (!owned && !active && !stopping && !setupFeedback && lastClient.state === 'idle' && (!remote?.state || remote.state === 'idle')) render({ state: 'idle' });
+  });
+  $('yt-bitrate').addEventListener('input', () => clearFeedbackForInput('yt-bitrate'));
   $('yt-show-key').addEventListener('click', () => {
     const show = $('yt-key').type === 'password'; $('yt-key').type = show ? 'text' : 'password';
     setText('yt-show-key', show ? 'Hide' : 'Show'); $('yt-show-key').setAttribute('aria-label', show ? 'Hide stream key' : 'Show stream key'); $('yt-show-key').setAttribute('aria-pressed', String(show));

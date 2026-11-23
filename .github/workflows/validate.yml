@@ -37,7 +37,7 @@ jobs:
           BB_BROWSERS: chromium,firefox,webkit
       - run: npm audit --audit-level=low
       - run: npm run build:vendor
-      - run: git diff --exit-code -- public/vendor public/assets/js
+      - run: git diff --exit-code -- public/vendor public/assets/js public/assets/fonts
   container:
     # Run capture/encoding checks on each architecture's native CPU rather
     # than measuring browser and video performance under QEMU emulation.
@@ -57,9 +57,21 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          pull: true
+          no-cache-filters: system-packages
           push: false
           load: true
           tags: bambuboard:test
+      - name: Record installed runtime dependencies
+        run: |
+          docker run --rm bambuboard:test sh -ec '
+            cat /etc/alpine-release
+            apk --print-arch
+            node -p "JSON.stringify(process.versions)"
+            "$FFMPEG_BIN" -version | head -n 1
+            "$BAMBUBOARD_CHROMIUM_BIN" --version
+            apk info -v | sort
+          '
       - name: Server integration tests inside the image
         env:
           PLATFORM: ${{ matrix.platform }}

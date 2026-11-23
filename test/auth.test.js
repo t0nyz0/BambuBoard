@@ -226,6 +226,36 @@ test('account replacement invalidates cloud widget caches and a failed settings 
   assert.equal((await concurrent.call('/auth/status')).body.signedIn, true, 'an old account check cannot reject a newly saved sign-in');
 });
 
+test('confirmed widget failures and embedded expiry change the saved cloud status', async t => {
+  let widgetStatus = 503;
+  const f = await fixture(t, url => url.endsWith('/my/tasks') ? Response.json({ code: 4, error: 'Please login.' }, { status: widgetStatus }) : Response.json({ uid: 'fixture' }));
+  await f.call('/auth/manual-token', { token: TOKEN_A });
+  await f.call('/login-and-fetch-image');
+  assert.equal((await f.call('/auth/status')).body.signedIn, true, 'Service outages do not mark credentials as expired');
+  widgetStatus = 401;
+  await f.call('/login-and-fetch-image');
+  const rejected = (await f.call('/auth/status')).body;
+  assert.equal(rejected.signedIn, false);
+  assert.equal(rejected.needsSignIn, true);
+  assert.equal(rejected.connection.code, 'TOKEN_REJECTED');
+  assert.equal((await f.token()).accessToken, TOKEN_A);
+  const beforeProfile = f.requests.length;
+  assert.equal((await f.call('/profile-info')).body.signedIn, false);
+  assert.equal(f.requests.length, beforeProfile, 'Widget polling does not continually send a known rejected credential');
+
+  await f.call('/auth/manual-token', { token: TOKEN_B });
+  assert.equal((await f.call('/auth/status')).body.signedIn, true);
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ exp: Date.now() / 1000 - 60 })).toString('base64url');
+  const expired = `${header}.${payload}.fixture`;
+  await fs.writeFile(path.join(f.data, 'accessToken.json'), JSON.stringify({ accessToken: expired }));
+  const beforeExpiry = f.requests.length;
+  assert.equal((await f.call('/auth/status')).body.signedIn, false);
+  assert.match((await f.call('/auth/status')).body.connection.error, /has expired/);
+  assert.equal((await f.call('/auth/check', {})).body.code, 'TOKEN_REJECTED');
+  assert.equal(f.requests.length, beforeExpiry, 'Expiry does not require an upstream check');
+});
+
 test('delayed sign-ins cannot undo a newer sign-out or account replacement', async t => {
   for (const method of ['token', 'email', 'mfa']) {
     let started, release;

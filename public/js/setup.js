@@ -1,26 +1,37 @@
 // Setup page — printer config + display prefs + cloud auth.
 
 (async function init() {
-  const types = await fetch('/api/printer-types').then(r => r.json()).catch(() => []);
-  const cfg = await fetch('/api/settings').then(r => r.json()).catch(() => null);
-  if (!cfg) { window.toast('Could not load settings. Reload to try again.', 'error'); return; }
+  // Cloud sign-in is optional and has its own recovery path.
+  setupCloudPanel();
+  const loadNotice = document.getElementById('settings-load');
+  const loadMessage = document.getElementById('settings-load-message');
+  const loadRetry = document.getElementById('settings-retry');
+  async function loadSettings() {
+    loadRetry.disabled = true;
+    loadMessage.textContent = 'Loading saved settings…';
+    try {
+      const response = await fetch('/api/settings', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw new Error();
+      const settings = await response.json();
+      if (!settings?.printer || typeof settings.printer !== 'object' || Array.isArray(settings.printer)) throw new Error();
+      return settings;
+    } catch (_) {
+      loadMessage.textContent = 'Could not load saved settings. Retry to edit the printer or display preferences.';
+      loadRetry.hidden = false;
+      loadRetry.disabled = false;
+      return null;
+    }
+  }
+  let cfg = await loadSettings();
+  let retryHeldFocus = false;
+  while (!cfg) {
+    await new Promise(resolve => loadRetry.addEventListener('click', resolve, { once: true }));
+    retryHeldFocus = document.activeElement === loadRetry;
+    cfg = await loadSettings();
+  }
+  loadNotice.hidden = true;
   const recoveryNotice = document.getElementById('config-recovery');
   recoveryNotice.hidden = !cfg._meta?.configRecovery;
-
-  // Printer type — used to be a visible dropdown but the type is auto-detected
-  // from MQTT once the printer connects (see src/lib/caps.js#printerTypeFromMqtt
-  // and the onPrinterDetected hook in src/server.js). Send a manual type only
-  // if the optional selector is present, so changing printers can start
-  // with fresh model detection.
-  const typeEl = document.getElementById('p-type');
-  if (typeEl && typeEl.tagName === 'SELECT') {
-    types.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.value; opt.textContent = `${t.label} (${t.value})`;
-      typeEl.appendChild(opt);
-    });
-  }
-  if (typeEl) typeEl.value = cfg.printer?.type || 'X1';
 
   // Hydrate fields
   document.getElementById('p-name').value = cfg.printer?.name || '';
@@ -45,36 +56,34 @@
     t.addEventListener('click', () => { t.classList.toggle('on'); t.setAttribute('aria-checked', String(t.classList.contains('on'))); });
   });
 
-  // Bambu Cloud sign-in — wired inline in this page (was a separate /login page).
-  // Two methods: email+code (Method 1) and manual token paste (Method 2, fallback
-  // when Cloudflare blocks the email API). Cloud auth auto-enables when either
-  // method succeeds, so the user doesn't have to flip a toggle first.
-  setupCloudPanel();
-
   const testButton = document.getElementById('test-btn');
   const testResult = document.getElementById('test-result');
   const testGcodeButton = document.getElementById('test-gcode-btn');
   const testGcodeHint = document.getElementById('test-gcode-hint');
   const testGcodeResult = document.getElementById('test-gcode-result');
   const saveButton = document.getElementById('save-btn');
+  const printerForm = document.getElementById('printer-form');
   const connectSection = document.getElementById('connect-step');
   const connectTitle = document.getElementById('connect');
   const continueButton = document.getElementById('continue-btn');
+  const connectRetry = document.getElementById('connect-retry');
   const nextHint = document.getElementById('connect-next');
   let savedConnection = connectionKey(readPrinterFields());
   let configured = !printerDetailsError(readPrinterFields());
   const isFirst = new URLSearchParams(location.search).get('firstRun') === '1' || !configured;
-  let latestStatus = null, statusUnavailable = false, reconnectUntil = 0;
-  let statusVersion = 0, statusTimer, checkingCamera = false;
+  let latestStatus = null, statusUnavailable = false, waitDeadline = Date.now() + 10000;
+  let statusVersion = 0, statusTimer, cameraStatusVersion;
   let testing = false, saving = false, testVersion = 0;
+  let retryingConnection = false, retryError = false;
   let testingGcode = false, gcodeTestVersion = 0;
 
   if (isFirst) {
     document.body.classList.add('first-run');
     document.getElementById('setup-title').textContent = 'Set up your printer';
-    document.getElementById('setup-intro').textContent = 'Find the printer IP address, serial number, and LAN access code in Bambu Studio under Device → Access Code.';
-    saveButton.textContent = 'Save and connect';
+    document.getElementById('setup-intro').textContent = 'Enter your printer’s connection details to open a live preview. Bambu Cloud sign-in is optional.';
   }
+  for (const id of ['printer-fields', 'preferences-fields', 'diagnostics-fields']) document.getElementById(id).disabled = false;
+  if (retryHeldFocus && document.activeElement === document.body) document.getElementById('p-url').focus();
 
   showAccessCode.addEventListener('click', () => setAccessCodeVisible(accessCodeInput.type === 'password'));
   updateAccessCodeStatus();
@@ -110,10 +119,13 @@
       const j = await r.json();
       if (attempt !== testVersion) return;
       if (r.ok && j.ok) {
-        setTestResult(testResult, 'Connection test passed. ' + (hasUnsavedCredentials() || !configured ?
-          'Save to connect with these credentials.' : 'See the saved printer connection below.'), 'ok');
+        const next = hasUnsavedCredentials() || !configured ? 'Save to check that data comes from this serial number.' : 'Check the printer status below for incoming data.';
+        setTestResult(testResult, 'LAN credentials accepted. ' + next, 'ok');
       } else {
-        setTestResult(testResult, j.error || 'Connection test failed.', 'error');
+        const message = j.code === 'AUTHENTICATION' ? 'The printer rejected the LAN access code. Copy the current code from your printer and try again.'
+          : j.code === 'UNREACHABLE' ? 'BambuBoard could not reach this printer. Check its address and network connection.'
+          : j.error || 'Could not test this printer connection.';
+        setTestResult(testResult, message, 'error');
       }
     } catch (_) {
       if (attempt === testVersion) setTestResult(testResult, 'Could not complete the test. Try again.', 'error');
@@ -147,19 +159,11 @@
     }
   });
 
-  saveButton.addEventListener('click', async () => {
-    const body = {
-      BambuBoard_tempSetting: document.getElementById('temp').value,
-      BambuBoard_displayFanPercentages: isOn('fan-pct'),
-      BambuBoard_displayFanIcons: isOn('fan-icons'),
-      BambuBoard_logging: isOn('logging'),
-      // cloudAuth.enabled is auto-managed by the cloud panel itself —
-      // pasting a token / completing email login enables it; the
-      // Sign out disables it. We don't include
-      // it in the main settings save so we don't accidentally clobber.
-      printer: readPrinterFields(),
-    };
-    const missingDetails = printerDetailsError(body.printer);
+  printerForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (saving || testing || retryingConnection) return;
+    const printer = readPrinterFields();
+    const missingDetails = printerDetailsError(printer);
     if (missingDetails) {
       setTestResult(testResult, missingDetails, 'error');
       return;
@@ -169,42 +173,96 @@
     setTestResult(testResult, '');
     updateButtons();
     try {
-      const r = await fetch('/api/settings', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        window.toast('Save failed: ' + (j.error || r.status), 'error');
-        return;
-      }
-      savedConnection = connectionKey(body.printer);
+      await saveSettings({ printer });
+      savedConnection = connectionKey(printer);
       accessCodeSet = true;
-      if (accessCodeInput.value === body.printer.accessCode) accessCodeInput.value = '';
+      if (accessCodeInput.value === printer.accessCode) accessCodeInput.value = '';
       updateAccessCodeStatus();
       recoveryNotice.hidden = true;
       configured = true;
-      reconnectUntil = Date.now() + 5000;
       latestStatus = null;
       statusUnavailable = false;
+      retryError = false;
       revealConnectSection();
       if (changedConnection) {
         const setupUrl = isFirst ? '/setup?firstRun=1#connect' : '/setup#connect';
         history.replaceState(history.state, '', setupUrl);
-        connectTitle.focus();
       }
-      window.toast('Settings saved');
-      window.dispatchEvent(new Event('bambuboard:settings-saved'));
+      connectTitle.focus();
+      window.toast('Printer settings saved');
     } catch (e) {
-      window.toast('Could not save settings: ' + e.message, 'error');
+      setTestResult(testResult, 'Could not save printer settings. ' + e.message, 'error');
     } finally {
       saving = false;
       updateButtons();
     }
   });
 
+  async function saveSettings(body) {
+    let response;
+    try {
+      response = await fetch('/api/settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
+      });
+    } catch (_) { throw new Error('Check your connection to BambuBoard and try again.'); }
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Check your connection to BambuBoard and try again.');
+    }
+    window.dispatchEvent(new Event('bambuboard:settings-saved'));
+  }
+
+  function bindPreferenceForm(formId, fieldsetId, resultId, fields, success) {
+    const result = document.getElementById(resultId);
+    const fieldset = document.getElementById(fieldsetId);
+    document.getElementById(formId).addEventListener('submit', async event => {
+      event.preventDefault();
+      if (fieldset.disabled) return;
+      fieldset.disabled = true;
+      setTestResult(result, 'Saving…');
+      try {
+        await saveSettings(fields());
+        setTestResult(result, success, 'ok');
+      } catch (e) {
+        setTestResult(result, 'Could not save. ' + e.message, 'error');
+      } finally {
+        fieldset.disabled = false;
+      }
+    });
+  }
+  bindPreferenceForm('preferences-form', 'preferences-fields', 'preferences-result', () => ({
+    BambuBoard_tempSetting: document.getElementById('temp').value,
+    BambuBoard_displayFanPercentages: isOn('fan-pct'),
+    BambuBoard_displayFanIcons: isOn('fan-icons'),
+  }), 'Display preferences saved.');
+  bindPreferenceForm('diagnostics-form', 'diagnostics-fields', 'diagnostics-result', () => ({
+    BambuBoard_logging: isOn('logging'),
+  }), 'Logging preference saved.');
+
   continueButton.addEventListener('click', () => {
-    location.href = isFirst ? '/scene-editor?firstRun=1' : '/scene-editor';
+    location.href = '/';
+  });
+  connectRetry.addEventListener('click', async () => {
+    if (retryingConnection || saving || hasUnsavedCredentials()) return;
+    retryingConnection = true;
+    retryError = false;
+    updateButtons();
+    try {
+      const response = await fetch('/api/retry-printer-connection', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) throw new Error();
+      latestStatus = null;
+      statusUnavailable = false;
+      revealConnectSection();
+    } catch (_) {
+      retryError = true;
+    } finally {
+      retryingConnection = false;
+      updateButtons();
+    }
   });
   updateButtons();
   if (configured) {
@@ -243,7 +301,7 @@
     if (showAccessCode.disabled) setAccessCodeVisible(false);
     const sameConnection = connectionKey(readPrinterFields()) === savedConnection;
     accessCodeStatus.textContent = sameConnection && accessCodeSet
-      ? 'Saved. Leave blank to keep it.' : 'Enter the code from your printer.';
+      ? 'Saved. Leave blank to keep it.' : 'Find the code in the printer’s LAN settings or the Device tab in Bambu Studio.';
   }
 
   function setTestResult(field, message, tone = '') {
@@ -253,8 +311,9 @@
   }
 
   function updateButtons() {
-    testButton.disabled = saveButton.disabled = testing || saving;
+    testButton.disabled = saveButton.disabled = testing || saving || retryingConnection;
     const dirty = hasUnsavedCredentials();
+    document.getElementById('gcode-diagnostics').hidden = !configured;
     testGcodeButton.disabled = !configured || dirty || saving || testingGcode;
     testGcodeHint.textContent = dirty
       ? 'Save the printer changes before checking G-code access.'
@@ -264,22 +323,34 @@
 
   function updateContinue() {
     const dirty = hasUnsavedCredentials();
-    const online = !!latestStatus?.connected;
-    continueButton.disabled = !configured || saving || dirty || !online;
+    const connection = latestStatus?.telemetryConnection;
+    const receiving = connection === 'online';
+    const hasOlderReport = !!latestStatus?.status?.lastTelemetryUpdate;
+    const timedOut = Date.now() >= waitDeadline;
+    continueButton.disabled = !configured || saving || retryingConnection || dirty || !receiving;
+    connectRetry.hidden = !configured || dirty || receiving || (!timedOut && !retryingConnection && !retryError);
+    connectRetry.disabled = retryingConnection || saving;
+    const printer = latestStatus?.printer;
     const hint = saving ? 'Saving printer settings…'
+      : retryingConnection ? 'Retrying the saved printer connection…'
       : dirty ? 'Save your credential changes to connect with them.'
+      : receiving ? 'Receiving data from ' + (printer?.name || printer?.model || 'your printer') + '. Open the built-in live preview now.'
+      : retryError ? 'Could not retry the printer connection. Check your connection to BambuBoard and try again.'
       : statusUnavailable ? 'Printer status is unavailable. Retrying…'
-      : online ? (latestStatus.printer?.detectedFrom === 'mqtt'
-        ? 'The printer is connected. Continue to choose a layout.'
-        : 'The printer is connected. Model detection is still in progress. You can continue to Layout.')
-      : Date.now() < reconnectUntil ? 'BambuBoard is connecting with the saved credentials.'
-      : latestStatus ? 'Check that the printer is on and the saved credentials are correct.'
-      : 'Checking the saved printer connection.';
-    if (nextHint.textContent !== hint) nextHint.textContent = hint;
+      : connection === 'waiting' ? (timedOut
+        ? hasOlderReport ? 'Printer data stopped arriving. Check the printer’s network connection or retry.'
+          : 'The LAN credentials were accepted, but no printer data arrived. Check the serial number above, then save or retry.'
+        : hasOlderReport ? 'Waiting for fresh printer data…' : 'LAN credentials accepted. Waiting for the first printer data…')
+      : timedOut ? 'Check that the printer is on and its address and LAN access code are current.'
+      : 'Connecting with the saved printer details…';
+    setText(nextHint, hint);
   }
 
   function revealConnectSection() {
     connectSection.hidden = false;
+    waitDeadline = Date.now() + 10000;
+    setText(document.getElementById('connect-camera'), 'Waiting for printer data');
+    setText(document.getElementById('connect-camera-hint'), '');
     updateConnectionStatus();
     clearTimeout(statusTimer);
     pollStatus(++statusVersion);
@@ -291,55 +362,70 @@
       if (!r.ok) throw new Error('Status unavailable');
       const s = await r.json();
       if (version !== statusVersion) return;
+      if (latestStatus?.telemetryConnection === 'online' && s.telemetryConnection !== 'online') {
+        waitDeadline = Date.now() + 10000;
+      }
       latestStatus = s;
       statusUnavailable = false;
-      if (s.connected) reconnectUntil = 0;
+      if (s.telemetryConnection === 'online') retryError = false;
     } catch (_) {
       if (version !== statusVersion) return;
       latestStatus = null;
       statusUnavailable = true;
     }
     updateConnectionStatus();
-    updateCameraStatus();
+    updateCameraStatus(version);
     statusTimer = setTimeout(() => pollStatus(version), 1500);
   }
 
-  async function updateCameraStatus() {
-    if (checkingCamera) return;
-    checkingCamera = true;
+  async function updateCameraStatus(version) {
+    const label = document.getElementById('connect-camera');
+    const hint = document.getElementById('connect-camera-hint');
+    if (latestStatus?.telemetryConnection !== 'online') {
+      setText(label, 'Waiting for printer data');
+      setText(hint, '');
+      return;
+    }
+    if (cameraStatusVersion === version) return;
+    cameraStatusVersion = version;
     try {
-      const response = await fetch('/api/printer/video/status', { signal: AbortSignal.timeout(4000) });
+      const response = await fetch('/api/printer/video/status', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
       const video = response.ok ? await response.json() : null;
+      if (version !== statusVersion || latestStatus?.telemetryConnection !== 'online') return;
       const states = { idle: 'Ready when opened', connecting: 'Connecting…', streaming: 'Streaming', reconnecting: 'Reconnecting…', unavailable: 'Unavailable' };
-      document.getElementById('connect-camera').textContent = video?.available
-        ? video.cameraType === 'rtsp' ? states[video.state] || 'Ready when opened' : 'Chamber image available'
-        : 'Unavailable';
-      document.getElementById('connect-camera-hint').textContent = video?.hint || (video?.available ? '' : 'Camera availability does not affect the printer connection.');
+      setText(label, video?.available
+        ? video.cameraType === 'rtsp' ? states[video.state] || 'Ready when opened' : 'Ready when opened'
+        : video?.waitingForReport ? 'Waiting for camera status' : video ? 'Unavailable' : 'Status unavailable');
+      setText(hint, video?.hint || '');
     } catch (_) {
-      document.getElementById('connect-camera').textContent = 'Status unavailable';
-      document.getElementById('connect-camera-hint').textContent = '';
+      if (version === statusVersion && latestStatus?.telemetryConnection === 'online') {
+        setText(label, 'Status unavailable');
+        setText(hint, '');
+      }
     } finally {
-      checkingCamera = false;
+      if (cameraStatusVersion === version) cameraStatusVersion = undefined;
     }
   }
 
   function updateConnectionStatus() {
     const pill = document.getElementById('connect-mqtt');
-    const online = !!latestStatus?.connected;
-    pill.className = 'pill ' + (online ? 'pill-ok' : 'pill-warn');
-    pill.textContent = statusUnavailable ? 'Status unavailable'
-      : online ? 'Connected'
-      : Date.now() < reconnectUntil ? 'Connecting…'
-      : !latestStatus ? 'Checking…'
-      : 'Disconnected';
+    const connection = latestStatus?.telemetryConnection;
+    const receiving = connection === 'online';
+    pill.className = 'pill ' + (receiving ? 'pill-ok' : 'pill-warn');
+    setText(pill, statusUnavailable ? 'Status unavailable'
+      : receiving ? 'Receiving printer data'
+      : connection === 'waiting' ? 'Waiting for printer data'
+      : Date.now() < waitDeadline ? 'Connecting…'
+      : 'Disconnected');
     const printer = latestStatus?.printer;
-    document.getElementById('connect-detected').textContent = printer?.detectedFrom === 'mqtt'
+    setText(document.getElementById('connect-detected'), receiving && printer?.detectedFrom === 'mqtt'
       ? (printer.model || printer.type || 'Detected')
-      : printer?.model ? `${printer.model} (saved)`
-      : online ? 'Detecting…' : '—';
-    document.getElementById('connect-last').textContent = latestStatus?.status?.lastUpdate || 'No telemetry yet';
+      : printer?.model ? `${printer.model} (saved)` : receiving ? 'Detecting…' : '—');
+    setText(document.getElementById('connect-last'), latestStatus?.status?.lastTelemetryUpdate || 'No printer data yet');
     updateContinue();
   }
+
+  function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
 
   function readPrinterFields() {
     return {
@@ -348,7 +434,6 @@
       port: document.getElementById('p-port').value.trim() || '8883',
       serialNumber: document.getElementById('p-sn').value.trim(),
       accessCode: accessCodeInput.value,
-      ...(typeEl?.tagName === 'SELECT' ? { type: typeEl.value } : {}),
     };
   }
   function toggle(id, on) { const node = document.getElementById(id); node.classList.toggle('on', !!on); node.setAttribute('aria-checked', String(!!on)); }
@@ -358,6 +443,15 @@
   function setupCloudPanel() {
     const node = id => document.getElementById(id);
     const section = node('cloud-section');
+    function openFromLink() {
+      if (location.hash !== '#cloud-section') return;
+      section.open = true;
+    }
+    openFromLink();
+    window.addEventListener('hashchange', openFromLink);
+    document.addEventListener('click', event => {
+      if (event.target.closest('a.cloud-pill') && location.hash === '#cloud-section') section.open = true;
+    });
     const controls = [...section.querySelectorAll('button, input')];
     let busy = false, action = '', tfaKey = null, requestedEmail = '';
     const forms = { email: 'cloud-email-form', code: 'cloud-code-step', mfa: 'cloud-mfa', token: 'cloud-method-token' };
@@ -424,12 +518,13 @@
       node('cloud-fallback').hidden = true;
       return inputs[step];
     }
-    async function refresh(resetStep = false) {
+    async function refresh(resetStep = false, openSavedAccount = false) {
       try {
         const status = await request('/auth/status');
         const recovered = status.signedIn && !signedInAccount;
         tokenSaved = status.tokenSaved;
         signedInAccount = status.signedIn;
+        if (openSavedAccount && tokenSaved) section.open = true;
         const rejected = status.needsSignIn || status.connection?.code === 'TOKEN_REJECTED';
         const pill = node('cloud-status-pill');
         pill.className = 'pill ' + (status.signedIn ? 'pill-ok' : rejected ? 'pill-warn' : '');
@@ -615,6 +710,10 @@
         return 'cloud-email';
       });
     });
-    refresh(true);
+    window.addEventListener('bambuboard:cloud-status', event => {
+      // A normal cloud widget request may confirm the account needs a new sign-in.
+      if (!busy && step === 'account' && signedInAccount && event.detail?.needsSignIn) refresh();
+    });
+    refresh(true, true);
   }
 })();

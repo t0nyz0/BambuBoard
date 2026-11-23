@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>BambuBoard — Gcode Toolpath</title>
     <link rel="stylesheet" type="text/css" href="../styles.css" />
     <script src="../_customizer.js"></script>
@@ -16,6 +17,15 @@
          widgets/styles.css applies a dark body color by default. */
       html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent !important; }
       .gcode-stage { position: relative; width: 100vw; height: 100vh; background: transparent; }
+      .gcode-operator { display: grid; grid-template-rows: auto minmax(0,1fr); color-scheme: dark; }
+      .gcode-operator .gcode-stage { height: 100%; }
+      .gcode-view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 12px;
+        border-bottom: 1px solid #42575e; background: #152227; color: #e2edef; font-size: 13px; }
+      .gcode-view-controls[hidden], #gcodeConnection[hidden] { display: none; }
+      .gcode-view-controls label { display: flex; align-items: center; gap: 6px; }
+      .gcode-view-controls select { font: inherit; padding: 4px 6px; }
+      .gcode-view-controls input { width: 68px; font: inherit; padding: 4px 6px; }
+      #gcodeConnection { color: #b9e7d8; text-decoration: underline; text-underline-offset: 3px; }
       .gcode-stage canvas { display: block; width: 100% !important; height: 100% !important;
         position: absolute; inset: 0; background: transparent; }
       /* Centered loading/error message — large enough to read at a glance
@@ -147,6 +157,13 @@
     </script>
   </head>
   <body>
+    <div class="gcode-view-controls" id="gcodeViewControls" role="group" aria-label="Toolpath view" hidden>
+      <label for="gcodeView">Print angle
+        <select id="gcodeView"><option value="angled">Angled</option><option value="top">Top</option><option value="front">Front</option><option value="side">Side</option></select>
+      </label>
+      <label for="gcodeZoom">Print zoom (%)<input id="gcodeZoom" type="number" min="50" max="200" value="100" title="100% fits the print" /></label>
+      <a id="gcodeConnection" href="/setup#connect" hidden>Check printer connection</a>
+    </div>
     <div class="gcode-stage">
       <canvas id="gcodeCanvas" role="img" aria-label="Print toolpath" aria-describedby="gcodeEstimateDescription"></canvas>
       <p id="gcodeEstimateDescription">The nozzle position is estimated from printer telemetry and the toolpath.</p>

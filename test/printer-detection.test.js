@@ -113,13 +113,16 @@ test('printer setup preserves H3C across address changes and clears old detectio
     name: 'Fixture', type: 'H3C', model: 'Bambu Lab H3C', detectedFrom: 'mqtt',
     url: '192.0.2.1', serialNumber: 'FIXTURE', accessCode: 'fixture-only',
   } };
+  let telemetryConnection = 'offline';
+  let retries = 0;
   const app = express();
   app.use(express.json());
   app.use('/api', buildApiRouter({
     getConfig: () => config,
     saveConfig: update => { config = update(config); },
     reloadPrinter: () => {},
-    getStatus: () => ({ connection: 'offline' }),
+    retryPrinter: () => { retries++; },
+    getStatus: () => ({ connection: telemetryConnection === 'waiting' ? 'online' : telemetryConnection, telemetryConnection }),
     paths: { data },
   }));
   const base = await listen(t, app);
@@ -132,6 +135,20 @@ test('printer setup preserves H3C across address changes and clears old detectio
   };
   const types = await (await fetch(base + '/api/printer-types')).json();
   assert.deepEqual(types.find(entry => entry.value === 'H3C').caps, capsFor('H3C'));
+  const retry = (body = {}) => fetch(base + '/api/retry-printer-connection', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  assert.equal((await retry({ url: '192.0.2.2' })).status, 400, 'Retries only use the saved printer');
+  telemetryConnection = 'online';
+  assert.equal((await retry()).status, 200);
+  assert.equal(retries, 0, 'Retry is harmless while receiving printer data');
+  telemetryConnection = 'waiting';
+  const waiting = await (await fetch(base + '/api/status')).json();
+  assert.equal(waiting.connected, true, 'The legacy broker-connected flag keeps its semantics');
+  assert.equal(waiting.telemetryConnection, 'waiting');
+  await Promise.all([retry(), retry()]);
+  assert.equal(retries, 1, 'Concurrent retries are bounded');
+  telemetryConnection = 'offline';
   await save({ serialNumber: 'FIXTURE', url: '192.0.2.2' }, 400);
   await save({ serialNumber: 'FIXTURE', port: 8884 }, 400);
   assert.equal(config.printer.url, '192.0.2.1');

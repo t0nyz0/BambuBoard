@@ -9,20 +9,22 @@
   const fileButton = document.getElementById('gcodeFileButton');
   const cancelButton = document.getElementById('gcodeCancel');
   const downloadButton = document.getElementById('gcodeDownloadLog');
+  const connectionLink = document.getElementById('gcodeConnection');
   window.BBGcodeUI = {
     log,
     operator,
-    message(text, kind, canCancel = false) {
+    message(text, kind, canCancel = false, connectionIssue = false) {
       const stage = document.querySelector('.gcode-stage');
       stage.classList.toggle('error-state', kind === 'error');
       stage.classList.toggle('calibration-state', kind === 'calibration');
       stage.setAttribute('aria-busy', String(kind === 'loading'));
       overlay.textContent = text;
+      connectionLink.hidden = !operator || !connectionIssue;
       const waiting = kind === 'waiting' || kind === 'calibration';
       overlay.classList.toggle('waiting', waiting);
       for (const name of ['loading', 'error']) overlay.classList.toggle(name, kind === name);
       overlay.style.display = text ? (waiting ? 'flex' : 'block') : 'none';
-      tools.hidden = !operator || (kind !== 'error' && !canCancel);
+      tools.hidden = !operator || connectionIssue || (kind !== 'error' && !canCancel);
       cancelButton.hidden = !operator || !canCancel;
       downloadButton.hidden = !operator || kind !== 'error';
       this.recovery(kind === 'error');

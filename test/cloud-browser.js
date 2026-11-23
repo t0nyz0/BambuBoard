@@ -44,7 +44,13 @@ async function runEngine(name, artifacts) {
     });
     const page = await context.newPage();
     await page.clock.install();
-    const load = async () => { await page.goto(base + '/setup'); await page.waitForFunction(() => document.getElementById('cloud-status-pill').textContent !== 'Checking…'); };
+    const load = async () => {
+      await page.goto(base + '/setup');
+      await page.waitForFunction(() => document.getElementById('cloud-status-pill').textContent !== 'Checking…');
+      if (!await page.locator('#cloud-section').evaluate(section => section.open)) {
+        await page.locator('#cloud-heading').click();
+      }
+    };
     const waitText = (id, text) => page.waitForFunction(({ id, text }) => document.getElementById(id).textContent.includes(text), { id, text });
     const audit = async label => {
       const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();

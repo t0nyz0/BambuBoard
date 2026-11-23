@@ -33,7 +33,7 @@
   let CANVAS_W = 1920;
   let CANVAS_H = 1080;
 
-  function showMsg(html) { msg.innerHTML = html; msg.classList.remove('hidden'); }
+  function showMsg(text) { msg.textContent = text; msg.classList.remove('hidden'); }
   function hideMsg() { msg.classList.add('hidden'); }
 
   // ---- OBS geometry helpers (ported verbatim from scene-editor.js) ----
@@ -79,14 +79,6 @@
     const g = (n >>> 8) & 0xFF;
     const r = n & 0xFF;
     return `rgba(${r},${g},${b},${a})`;
-  }
-
-  function looksLikeImageUrl(url) {
-    if (!url) return false;
-    const p = url.split(/[?#]/)[0].toLowerCase();
-    if (/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/.test(p)) return true;
-    if (/^https?:\/\/[^/]*\.s3[.-]?[a-z0-9-]*\.amazonaws\.com\/[^/?#]+$/.test(url)) return true;
-    return false;
   }
 
   // Inject OBS browser-source settings.css into same-origin widget iframes,
@@ -151,6 +143,7 @@
     if (id === 'image_source' || id === 'image_source_v2') {
       return { kind: 'image', url: settings.file || settings.url || '', css };
     }
+    if (BBSceneContent.isText(src)) return { kind: 'text', value: settings };
     if (id === 'ffmpeg_source' || id === 'rtsp_source' || id === 'vlc_source') {
       // Swap the OBS media source for the configured printer's camera widget.
       return { kind: 'camera', url: '/widgets/camera/index.html' };
@@ -161,7 +154,7 @@
     const url = /^\/(widgets|assets)\//.test(parsed.pathname)
       ? location.origin + parsed.pathname + parsed.search + parsed.hash
       : parsed.href;
-    if (looksLikeImageUrl(url)) {
+    if (BBSceneContent.looksLikeImageUrl(url)) {
       // The old H2D logo used an opaque trademark JPEG. Keep the local
       // transparent replacement without reapplying that image's old backdrop.
       if (/019117180|eu-trademark\.s3\.amazonaws\.com/.test(url)) {
@@ -235,13 +228,15 @@
 
     if (!reuse) {
       if (kind === 'color') wrap.style.background = value;
+      if (kind === 'text') wrap.appendChild(BBSceneContent.renderText(value, obsColorToCss));
       if (kind === 'image') {
         if (css) applyObsCssApprox(wrap, css);
         const image = document.createElement('img');
         image.src = url;
         image.style.width = '100%';
         image.style.height = '100%';
-        image.style.objectFit = 'contain';
+        image.alt = item.name || '';
+        image.style.display = 'block';
         wrap.appendChild(image);
       }
       if (kind === 'camera' || kind === 'widget') {
@@ -257,6 +252,7 @@
         wrap.appendChild(frame);
       }
     }
+    if (kind === 'image') BBSceneContent.renderImage(wrap.firstElementChild, item, src);
     if (kind === 'widget') {
       const frame = wrap.firstElementChild;
       // Paint at the source's natural viewport, then scale to the rendered box.

@@ -91,7 +91,9 @@ function reloadPrinter() {
 function getStatus() {
   return {
     connection: printer.status,
+    telemetryConnection: printer.telemetryConnection,
     lastUpdate: printer.lastUpdate,
+    lastTelemetryUpdate: printer.lastTelemetryUpdate,
     detectedType: printer.detectedType,
     detectedModel: printer.detectedModel,
   };
@@ -128,7 +130,7 @@ app.get('/data.json', async (_req, res) => {
   res.json(snapshot);
 });
 
-app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, getStatus, paths }));
+app.use('/api', buildApiRouter({ getConfig, saveConfig, reloadPrinter, retryPrinter: () => printer.connect(), getStatus, paths }));
 app.use('/api/obs', buildObsSceneRouter({ paths, getConfig }));
 const gcodeRoutes = buildGcodeRouter({ getConfig, paths });
 app.use('/api/gcode', gcodeRoutes.router);

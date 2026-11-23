@@ -1,13 +1,13 @@
 # Direct YouTube streaming
 
-Live keeps the published preview first, OBS setup next, and this optional beta section collapsed below them. A running stream has a visible **Stop stream** button even when the section is collapsed.
+Live puts the preview and OBS setup together, with this optional beta section collapsed below them. A running stream has a visible **Stop stream** button even when the section is collapsed.
 
 ## Start a stream
 
-1. Publish the layout you want to broadcast and check `/live`, including its camera and widgets.
+1. Check `/live`, including its camera and widgets. Use the built-in layout or apply a custom layout first.
 2. Create an encoder stream in YouTube Studio. Enable live streaming on your channel first if needed, then copy its stream key.
-3. In BambuBoard → Live → **Direct YouTube streaming**, choose the source and quality. **Check setup** verifies FFmpeg, capture requirements and a trusted TLS connection to the selected ingest server; it sends no key or video and cannot validate channel permissions.
-4. Paste the key and select **Start stream**. With browser capture, choose the `/live` tab in the share picker. Include tab audio in both the controls and picker if you want it.
+3. Open **Direct YouTube streaming** on BambuBoard's Live page. It selects an available source and 720p at 30 fps to start. Use **Stream settings and diagnostics** to change the source or quality. **Check setup** verifies FFmpeg, capture requirements and a trusted TLS connection to the selected ingest server without sending a key or video.
+4. Paste the key and select **Send preview to YouTube**. With browser capture, choose the `/live` tab in the share picker. Include tab audio in both the controls and picker if you want it.
 5. Wait for **Sending video**, check the preview and health in YouTube Studio, and start the public broadcast there. Studio can also auto-start a broadcast if you configured that option.
 6. Stop the encoder with **Stop stream**, and confirm the broadcast has ended in Studio. Studio's auto-stop setting affects broadcast behavior independently.
 
@@ -30,7 +30,7 @@ Server capture renders the **published** output, never an editor draft. Publishe
 
 The Dockerfile includes Chromium, FFmpeg and CA certificates for both image architectures. Adding Chromium increases image size and runtime resource needs. Upgrade by rebuilding/pulling the image after this change is released; an older image lacks server capture.
 
-For a source install, use an installed Chromium/Google Chrome or run `npx playwright install chromium` after `npm ci`. Set `BAMBUBOARD_CHROMIUM_BIN=/absolute/path/to/chromium` to select a binary explicitly. Detection also checks common Linux Chromium/Chrome paths, macOS Google Chrome and the installed Playwright Chromium. `FFMPEG_BIN` can select an FFmpeg build; it must support libx264, AAC and TLS.
+For a source install, use an installed Chromium/Google Chrome or run `npx playwright install chromium` after `npm ci`. Set `BAMBUBOARD_CHROMIUM_BIN=/absolute/path/to/chromium` to select a binary explicitly. Detection also checks common Linux Chromium/Chrome paths, macOS Google Chrome and the installed Playwright Chromium. Install a maintained FFmpeg build that supports libx264, AAC and TLS. BambuBoard finds it on the server's PATH, or you can set `FFMPEG_BIN=/absolute/path/to/ffmpeg` in the environment that starts BambuBoard.
 
 Server capture launches a fresh isolated browser with no desktop profile or cookies, using only this installation's loopback `/live` address. Its widgets and custom sources still make their normal requests. The Chromium process uses software rendering and runs with `--no-sandbox` in the app container. Treat the installation and its custom source configuration as trusted, as with existing unauthenticated LAN controls; keep it on a trusted network or behind authenticated access.
 

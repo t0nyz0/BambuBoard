@@ -50,12 +50,13 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayO
     const enabled = isH3c ? !!endpoint : rtsp.enabled;
     const state = relay.state();
     const available = hasCredentials && enabled && !!endpoint && rtspReady;
+    const waitingForReport = hasCredentials && rtspReady && !available && !rtsp.reported;
     let hint = null;
     if (!hasCredentials) hint = 'Printer credentials not set. Finish Setup first.';
-    else if (!rtspReady) hint = 'The video relay (FFmpeg) failed to initialize on the server.';
-    else if (!enabled) hint = isH3c
-      ? 'On the H3C touchscreen, turn on Settings → Network → LAN Only Liveview.'
-      : 'Camera reports RTSP disabled. On the printer touchscreen: Settings → Network → LAN Only Liveview → ON, then reboot. Some firmware versions may require an update.';
+    else if (!rtspReady) hint = 'The video relay is unavailable. Install FFmpeg on the BambuBoard server or set FFMPEG_BIN, then restart BambuBoard.';
+    else if (waitingForReport) hint = 'Waiting for the printer to report its camera status.';
+    else if (rtsp.rtspField === 'disable') hint = 'The printer reports LAN Only Liveview is off. Enable it in the printer’s network settings.';
+    else if (!available) hint = 'BambuBoard could not use the liveview address reported by this printer.';
     else if (state === 'reconnecting') hint = 'Waiting for new camera video. Reconnecting automatically.';
     else if (state === 'unavailable') hint = 'The printer is not sending video. Check its network connection and LAN Only Liveview setting.';
     return {
@@ -65,6 +66,7 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayO
       cameraType: 'rtsp',
       relayReady: rtspReady,
       rtspEnabled: enabled,
+      waitingForReport,
       resolution: rtsp.resolution,
       url: hasCredentials && !isH3c ? endpoint?.href || null : null,
       hint,
@@ -93,10 +95,13 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayO
 
   // Read current MQTT data to check ipcam.rtsp_url status.
   function getRtspStatus(type) {
+    const liveCamera = getCameraTelemetry?.();
+    const liveRtsp = liveCamera?.rtsp_url;
+    const reported = typeof liveRtsp === 'string' && !!liveRtsp.trim();
     try {
       // H3C needs the endpoint supplied by its own MQTT session. A saved
       // data.json may still belong to a different printer after Setup.
-      let ipcam = getCameraTelemetry?.();
+      let ipcam = liveCamera;
       if (type !== 'H3C' && (ipcam === undefined || (ipcam && !Object.hasOwn(ipcam, 'rtsp_url')))) {
         // Preserve startup behavior before the first live camera report. Once
         // received, that report survives partial print snapshots on reconnect.
@@ -106,9 +111,9 @@ function buildVideoRouter({ app, getConfig, dataPath, getCameraTelemetry, relayO
       const rtspField = ipcam?.rtsp_url || '';
       // rtsp_url is either "disable" or an actual URL like "rtsps://ip/streaming/live/1"
       const enabled = rtspField !== 'disable' && rtspField !== '';
-      return { enabled, rtspField, resolution: ipcam?.resolution || null };
+      return { enabled, rtspField, reported, resolution: ipcam?.resolution || null };
     } catch (_) {
-      return { enabled: false, rtspField: null, resolution: null };
+      return { enabled: false, rtspField: null, reported, resolution: null };
     }
   }
 

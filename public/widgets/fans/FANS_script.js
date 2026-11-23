@@ -76,3 +76,17 @@ function updateFan(index, rawSpeed) {
 BBTelemetry.poll(print => FAN_KEYS.forEach((key, i) => updateFan(i, print[key])), {
   ready: print => FAN_KEYS.some(key => pct(print[key]) !== null),
 });
+
+async function updateFanPreferences() {
+  try {
+    const response = await fetch('/settings', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+    if (!response.ok) return;
+    const settings = await response.json();
+    for (const fan of fanCells) {
+      if (typeof settings.BambuBoard_displayFanPercentages === 'boolean') fan.pctEl.hidden = !settings.BambuBoard_displayFanPercentages;
+      if (typeof settings.BambuBoard_displayFanIcons === 'boolean') fan.icon.hidden = !settings.BambuBoard_displayFanIcons;
+    }
+  } catch (_) { /* Keep the previous appearance if settings are temporarily unavailable. */ }
+  finally { setTimeout(updateFanPreferences, 5000); }
+}
+updateFanPreferences();

@@ -65,10 +65,18 @@ test('Cancelling a pending MQTT client preserves cleanup and leaves its replacem
   assert.equal(client.status, 'online');
   assert.equal(log.mock.calls.some(call => call.arguments[0].includes('Reconnecting')), false);
 
+  replacement.emit('message', 'device/OTHER/report', JSON.stringify({ print: { gcode_state: 'IDLE' } }));
+  replacement.emit('message', 'device/FIXTURE/report', JSON.stringify({ info: { command: 'get_version' } }));
+  assert.equal(client.telemetryConnection, 'waiting', 'Wrong-serial and version-only responses do not unlock Live');
+  assert.equal(client.lastTelemetryUpdate, null);
+
   replacement.emit('message', 'device/FIXTURE/report', JSON.stringify({ print: { gcode_state: 'IDLE', bed_temper: 27 } }));
   await until(() => client.telemetryConnection === 'online');
   const reading = JSON.parse(await fs.readFile(dataPath, 'utf8'));
   assert.equal(reading.print.bed_temper, 27);
+  assert.ok(client.lastTelemetryUpdate);
+  t.mock.method(Date, 'now', () => reading._bb_received_at + 330_001);
+  assert.equal(client.telemetryConnection, 'waiting', 'A quiet printer is considered waiting after its refresh grace period');
 });
 
 test('MQTT connects, detects a printer, persists telemetry and reconnects', async t => {

@@ -3,6 +3,15 @@
   const $ = id => document.getElementById(id);
   const obsUrl = $('live-url');
   const copyUrl = $('copy-url');
+  function showLayout() {
+    if (!$('live-frame').hasAttribute('src')) $('live-frame').src = '/live';
+    $('preview-viewport').hidden = false;
+    $('preview-loading').hidden = true;
+  }
+  $('show-layout').addEventListener('click', () => {
+    showLayout();
+    $('live-frame').focus();
+  });
   copyUrl.addEventListener('click', async () => {
     if (!obsUrl.value) return;
     try {
@@ -16,7 +25,7 @@
   });
   async function refreshActive() {
     try {
-      const r = await fetch('/api/obs/active', { cache: 'no-store' });
+      const r = await fetch('/api/obs/active', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
       if (!r.ok) throw new Error();
       const a = await r.json();
       const url = a.obsUrl || '';
@@ -24,12 +33,10 @@
       obsUrl.placeholder = 'Source URL unavailable';
       copyUrl.disabled = !obsUrl.value;
       $('active-line').textContent = a.name || a.label || a.slug || 'Default scene';
-      $('publication-state').textContent = a.slug ? 'Published' : 'Default layout';
+      $('publication-state').textContent = a.slug ? 'Published' : 'Using the built-in layout';
       $('publication-state').className = 'pill' + (a.slug ? ' pill-ok' : '');
-      $('output-label').textContent = a.slug ? 'Published output' : 'Default output · nothing published yet';
       const { x = 1920, y = 1080 } = a.resolution || {};
       $('preview-viewport').style.aspectRatio = `${x} / ${y}`;
-      $('preview-dimensions').textContent = `${x} × ${y}`;
       $('obs-dimensions').textContent = `${x} × ${y}`;
     } catch (_) {
       obsUrl.placeholder = 'Source URL unavailable';
@@ -39,14 +46,16 @@
     }
   }
   window.addEventListener('bambuboard:status', ({ detail: s }) => {
-    $('app-version').textContent = s.version || '';
-    $('printer-notice').hidden = !!s.connected;
-    $('printer-notice').replaceChildren();
-    if (!s.connected) {
-      $('printer-notice').append('Printer disconnected. Your output remains available. ');
-      const link = document.createElement('a'); link.href = '/setup#connect'; link.textContent = 'Check connection';
-      $('printer-notice').appendChild(link);
+    if (s?.version) $('app-version').textContent = s.version;
+    const ready = s?.telemetryConnection === 'online';
+    $('printer-notice').hidden = ready;
+    if (ready) {
+      showLayout();
+      return;
     }
+    const message = !s ? 'Printer status is temporarily unavailable.' : s.telemetryConnection === 'waiting'
+      ? 'Waiting for printer data.' : 'Printer disconnected. Your layout is still available.';
+    if ($('printer-status-message').textContent !== message) $('printer-status-message').textContent = message;
   });
   refreshActive();
   setInterval(() => { if (!document.hidden) refreshActive(); }, 4000);

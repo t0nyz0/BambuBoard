@@ -21,8 +21,33 @@ for (const [name, dir] of [['jquery', 'public/assets/js'], ['three', 'public/ven
   const source = ['LICENSE', 'LICENSE.txt', 'LICENSE.md'].find(file => fs.existsSync(path.join(root, 'node_modules', name, file)));
   if (source) copy(`node_modules/${name}/${source}`, `${dir}/${name}-LICENSE.txt`);
 }
-const files = ['public/assets/js/jquery.min.js', 'public/assets/js/jsmpeg.min.js', 'public/vendor/three.module.js', 'public/vendor/three.core.js', 'public/vendor/lil-gui.esm.js', 'public/vendor/gcode-preview.esm.js'];
+// Versions of checked-in font binaries come from their OpenType name tables.
+const fontFolder = 'public/assets/fonts';
+const fonts = {
+  'ibm-plex-mono-100.ttf': '2.3',
+  'ibm-plex-mono-400.ttf': '2.3',
+  'manrope-variable.ttf': '4.505',
+  'material-symbols-outlined.ttf': '2.846',
+  'open-sans-400.ttf': '3.003',
+  'open-sans-600.ttf': '3.003',
+  'oxygen-400.ttf': '0.2.3',
+  'red-hat-display-300.ttf': '1.030',
+  'red-hat-display-400.ttf': '1.030',
+};
+const fontFiles = fs.readdirSync(path.join(root, fontFolder)).filter(file => /\.(ttf|otf|woff2?)$/i.test(file)).sort();
+if (fontFiles.join('\n') !== Object.keys(fonts).sort().join('\n')) throw new Error('Update the bundled font inventory');
+const files = ['public/assets/js/jquery.min.js', 'public/assets/js/jsmpeg.min.js', 'public/vendor/three.module.js', 'public/vendor/three.core.js', 'public/vendor/lil-gui.esm.js', 'public/vendor/gcode-preview.esm.js',
+  ...fontFiles.map(file => `${fontFolder}/${file}`)];
 const versions = Object.fromEntries(['jquery', 'three', 'lil-gui', 'gcode-preview'].map(name => [name, require(path.join(root, 'node_modules', name, 'package.json')).version]));
 const sha256 = Object.fromEntries(files.map(file => [file, crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')]));
-fs.writeFileSync(path.join(root, 'public/vendor/manifest.json'), JSON.stringify({ versions, jsmpeg: { repository: 'https://github.com/phoboslab/jsmpeg', commit: '924acfbd96fdf15e6748d1368a36d79d8f4cecf6' }, patches: ['gcode-preview: WebGLRenderer alpha=true', 'gcode-preview: BatchedMesh addInstance for current Three.js'], sha256 }, null, 2) + '\n');
+const jsmpeg = {
+  repository: 'https://github.com/phoboslab/jsmpeg',
+  commit: '924acfbd96fdf15e6748d1368a36d79d8f4cecf6',
+};
+const patches = [
+  'gcode-preview: WebGLRenderer alpha=true',
+  'gcode-preview: BatchedMesh addInstance for current Three.js',
+];
+const manifest = { versions, jsmpeg, fonts, patches, sha256 };
+fs.writeFileSync(path.join(root, 'public/vendor/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 console.log('Bundled', versions);

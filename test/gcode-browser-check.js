@@ -367,6 +367,13 @@ function onRasterMotion(plate, layer, position) {
     };
     await write('Root job'); files['/Root job.gcode.3mf'] = archive({ 'Metadata/plate_1.gcode': sample });
     await open(); await rendered(); assert.equal(count, 1);
+    await page.getByLabel('Print angle').selectOption('top');
+    const printZoom = page.getByLabel('Print zoom (%)');
+    await printZoom.fill('125'); await printZoom.press('Tab');
+    await page.waitForFunction(() => window.__diag().orbit.view === 'top' && window.__preview.camera.zoom === 1.25);
+    assert.equal(count, 1, 'Operator angle and zoom do not reload the toolpath');
+    await page.getByLabel('Print angle').selectOption('angled');
+    await printZoom.fill('100'); await printZoom.press('Tab');
     await page.screenshot({ path: path.join(artifacts, 'gcode-rendered.png') });
     passed.push('Real HTTP/FTPS/ZIP/WebGL path renders a zero-ID LAN job');
 
@@ -400,7 +407,7 @@ function onRasterMotion(plate, layer, position) {
     await write('Public missing file', 'FINISH', { mc_percent: 100 });
     await page.goto(base + '/widgets/gcode-viz/?debug=1');
     await page.getByText('Print preview unavailable.', { exact: true }).waitFor();
-    for (const id of ['gcodeRetry', 'gcodeDownloadLog', 'gcodeFileButton', 'gcodeCancel', 'gcodeDebug', 'gcodeLog']) {
+    for (const id of ['gcodeRetry', 'gcodeDownloadLog', 'gcodeFileButton', 'gcodeCancel', 'gcodeDebug', 'gcodeLog', 'gcodeViewControls', 'gcodeConnection']) {
       assert.equal(await page.locator('#' + id).isVisible(), false, `Public widget exposed ${id}`);
     }
     await write(calibrationName, 'RUNNING', { gcode_file: calibrationPath, stg_cur: 25, mc_percent: 16 });
@@ -532,10 +539,13 @@ function onRasterMotion(plate, layer, position) {
     await page.evaluate(() => { window.__timeOffset = 0; });
     telemetryBroken = true;
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('telemetry is unavailable'));
+    assert.equal(await page.getByRole('link', { name: 'Check printer connection' }).getAttribute('href'), '/setup#connect');
+    assert.equal(await page.locator('#gcodeRecovery').isVisible(), false, 'Printer diagnostics take precedence over file recovery while disconnected');
     assert.equal(await page.evaluate(() => window.__nozzle.visible), false, 'Do not simulate nozzle motion with missing telemetry');
     assert.ok(await page.evaluate(() => window.__preview.layers.length > 0), 'The loaded model remains available');
     telemetryBroken = false;
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').style.display === 'none');
+    assert.equal(await page.locator('#gcodeConnection').isVisible(), false);
     telemetryStale = true;
     await page.waitForFunction(() => document.getElementById('gcodeOverlay').textContent.includes('stopped updating'));
     assert.equal(await page.evaluate(() => window.__nozzle.visible), false);
@@ -706,7 +716,10 @@ function onRasterMotion(plate, layer, position) {
       if (state === 'FINISH') assert.equal(await page.evaluate(() => window.__nozzle.visible), false);
       for (const viewport of viewports) {
         await page.setViewportSize(viewport);
-        await page.waitForFunction(aspect => Math.abs(window.__preview.camera.aspect - aspect) < 0.001, viewport.width / viewport.height);
+        await page.waitForFunction(() => {
+          const canvas = document.getElementById('gcodeCanvas');
+          return Math.abs(window.__preview.camera.aspect - canvas.clientWidth / canvas.clientHeight) < 0.001;
+        });
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const bounds = await page.evaluate(async () => {
           const { Vector3 } = await import('/vendor/three.module.js'), preview = window.__preview;

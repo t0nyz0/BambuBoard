@@ -6,53 +6,54 @@
     if (text) node.textContent = text;
     return node;
   };
-  let stepper, stepperState, refreshId = 0;
+  let stepper, stepperState, printerStatus, cloudLink, refreshId = 0, cloudRefreshId = 0;
+  async function getJSON(path) {
+    const reply = await fetch(path, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+    if (!reply.ok) throw new Error('Status unavailable');
+    return reply.json();
+  }
   async function refreshStatus() {
     const revision = ++refreshId;
     try {
-      const results = await Promise.all([
-        fetch('/api/status', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(); return r.json(); }),
-        fetch('/api/obs/active', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
-        fetch('/api/obs/scenes').then(r => r.json()).catch(() => []),
-        fetch('/auth/status', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => null),
-      ]);
+      const status = await getJSON('/api/status');
       if (revision !== refreshId) return;
-      const [status, active, scenes, cloudStatus] = results;
-      if (cloudStatus) status.cloudAuth = { ...status.cloudAuth, ...cloudStatus };
-      const meta = document.getElementById('nav-meta');
-      meta.replaceChildren();
-      const online = status.connected;
-      meta.appendChild(make('span', 'pill ' + (online ? 'pill-ok' : 'pill-warn'),
-        `${status.printer?.name || status.printer?.type || 'Printer'} · ${online ? 'connected' : 'disconnected'}`));
-      const cloud = make('a', 'pill cloud-pill' + (cloudStatus?.needsSignIn ? ' pill-warn' : cloudStatus?.signedIn ? ' pill-info' : ''),
-        !cloudStatus ? 'Cloud status unavailable' : cloudStatus.needsSignIn ? 'Cloud sign-in needed' : cloudStatus.signedIn ? 'Cloud signed in' : 'Cloud optional');
-      cloud.href = '/setup#cloud-section'; cloud.title = 'Open Bambu Cloud settings';
-      meta.appendChild(cloud);
-      renderStepper(status, active, scenes);
+      const ready = status.telemetryConnection === 'online';
+      const label = ready ? 'receiving data' : status.telemetryConnection === 'waiting' ? 'waiting for data' : 'disconnected';
+      printerStatus.className = 'pill ' + (ready ? 'pill-ok' : 'pill-warn');
+      printerStatus.textContent = !status.setupComplete ? 'Printer setup required' : `${status.printer?.name || status.printer?.type || 'Printer'} · ${label}`;
+      renderStepper(status);
       window.dispatchEvent(new CustomEvent('bambuboard:status', { detail: status }));
     } catch (_) {
       if (revision !== refreshId) return;
-      const meta = document.getElementById('nav-meta');
-      meta.replaceChildren(make('span', 'pill pill-warn', 'Connection status unavailable'));
+      printerStatus.className = 'pill pill-warn';
+      printerStatus.textContent = 'Connection status unavailable';
+      window.dispatchEvent(new CustomEvent('bambuboard:status', { detail: null }));
     }
   }
-  function renderStepper(status, active, scenes) {
+  async function refreshCloud() {
+    const revision = ++cloudRefreshId;
+    const cloud = await getJSON('/auth/status').catch(() => null);
+    if (revision !== cloudRefreshId) return;
+    cloudLink.className = 'pill cloud-pill' + (cloud?.needsSignIn ? ' pill-warn' : cloud?.signedIn ? ' pill-info' : '');
+    cloudLink.textContent = !cloud ? 'Cloud status unavailable' : cloud.needsSignIn ? 'Cloud sign-in needed' : cloud.signedIn ? 'Cloud signed in' : 'Cloud optional';
+    window.dispatchEvent(new CustomEvent('bambuboard:cloud-status', { detail: cloud }));
+  }
+  function renderStepper(status) {
     const firstRun = new URLSearchParams(location.search).get('firstRun') === '1';
     stepper.hidden = location.pathname === '/login' || (status.setupComplete && !firstRun);
     if (stepper.hidden) return;
-    const current = location.pathname + location.hash;
+    const current = location.pathname + (location.hash === '#connect' ? '#connect' : '');
+    const ready = status.telemetryConnection === 'online';
     const steps = [
-      ['Setup', '/setup', status.setupComplete],
-      ['Connect', '/setup#connect', status.connected],
-      ['Layout', '/scene-editor', Array.isArray(scenes) && scenes.length > 0],
-      ['Apply to Live', '/scene-editor#golive-btn', !!active?.slug],
+      ['Setup', '/setup', status.setupComplete, false],
+      ['Printer data', '/setup#connect', ready, !status.setupComplete],
+      ['Live preview', '/', ready && current === '/', !ready],
     ];
-    const state = JSON.stringify([current, steps.map(step => step[2])]);
+    const state = JSON.stringify([current, steps]);
     if (state === stepperState) return;
     stepperState = state;
     stepper.replaceChildren();
-    steps.forEach(([label, href, done], i) => {
-      const locked = i > 0 && !status.setupComplete;
+    steps.forEach(([label, href, done, locked], i) => {
       const item = make(locked ? 'span' : 'a', 'bb-step' + (done ? ' is-complete' : '') + (locked ? ' is-locked' : ''));
       if (!locked) {
         const url = new URL(href, location.origin);
@@ -66,8 +67,9 @@
       const circle = make('span', 'bb-step-circle', done ? '✓' : String(i + 1));
       circle.setAttribute('aria-hidden', 'true');
       item.append(circle, make('span', 'bb-step-label', label));
+      if (done) item.append(make('span', 'sr-only', ' (completed)'));
       stepper.appendChild(item);
-      if (i < 3) stepper.appendChild(make('span', 'bb-step-connector' + (done ? ' is-complete' : '')));
+      if (i < steps.length - 1) stepper.appendChild(make('span', 'bb-step-connector' + (done ? ' is-complete' : '')));
     });
   }
   function build() {
@@ -85,16 +87,20 @@
       link.append(symbol, document.createTextNode(label)); links.appendChild(link);
     });
     const meta = make('div', 'nav-meta'); meta.id = 'nav-meta';
-    meta.append(make('span', 'pill', 'Checking printer…'));
+    printerStatus = make('span', 'pill', 'Checking printer…');
+    cloudLink = make('a', 'pill cloud-pill', 'Cloud optional');
+    cloudLink.href = '/setup#cloud-section'; cloudLink.title = 'Open Bambu Cloud settings';
+    meta.append(printerStatus, cloudLink);
     nav.append(brand, links, make('div', 'nav-spacer'), meta);
     stepper = make('nav', 'bb-stepper'); stepper.id = 'bb-stepper'; stepper.hidden = true;
     stepper.setAttribute('aria-label', 'Printer setup progress');
     document.body.prepend(skip, nav, stepper);
     refreshStatus();
-    setInterval(refreshStatus, 5000);
-    window.addEventListener('bambuboard:published', refreshStatus);
+    refreshCloud();
+    setInterval(() => { if (!document.hidden) { refreshStatus(); refreshCloud(); } }, 5000);
+    window.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshStatus(); refreshCloud(); } });
     window.addEventListener('bambuboard:settings-saved', refreshStatus);
-    window.addEventListener('bambuboard:cloud-updated', refreshStatus);
+    window.addEventListener('bambuboard:cloud-updated', refreshCloud);
     window.addEventListener('hashchange', refreshStatus);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);

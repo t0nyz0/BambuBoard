@@ -1,5 +1,5 @@
 .setup-page { max-width: 1180px; }
-.setup-main { display: grid; gap: 20px; min-width: 0; }
+.setup-main, .setup-side { display: grid; gap: 20px; min-width: 0; }
 .setup-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -24,7 +24,16 @@
 .firstrun-hero h1 { font-size: 32px; }
 .firstrun-hero p { color: var(--color-text-dim); font-size: 15px; max-width: 520px; margin: 0 auto; }
 
+.setup-page fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
+.setup-page fieldset:disabled { opacity: .55; }
+.settings-load { margin-bottom: var(--space-4); }
+.settings-load p { margin: 0 0 var(--space-2); }
+.setup-help, .setup-field small { display: block; margin-top: var(--space-2); }
+.setup-field { margin-bottom: var(--space-4); }
+.setup-field label { display: block; margin-bottom: 6px; color: var(--color-text-dim); font-size: 13px; }
 .access-code-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }
+.setup-save-extra, .connect-actions { margin-top: var(--space-3); }
+.gcode-diagnostics { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
 
 .cloud-section .cloud-status { font-size: 13px; color: var(--color-text-dim); margin-bottom: var(--space-3); }
 
@@ -34,15 +43,16 @@
 
 .setup-grid .card + .card { margin-top: 0; }
 .advanced-connection { margin: 16px 0; }
-.display-preferences > summary { margin-bottom: 0; }
-.display-preferences[open] > summary { margin-bottom: 20px; }
+.setup-page details.card > summary { margin-bottom: 0; }
+.setup-page details.card[open] > summary { margin-bottom: 20px; }
 #connect-camera-hint { margin-top: 12px; }
+#connect-camera-hint:empty { display: none; }
+#connect { scroll-margin-top: 160px; }
 #connect-detected { overflow-wrap: anywhere; }
 #cloud-status-pill { white-space: normal; overflow-wrap: anywhere; }
 
 .cloud-section { min-width: 0; scroll-margin-top: 100px; }
-.cloud-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
-.cloud-heading .card-title { margin: 0; }
+#cloud-heading small { margin-left: var(--space-2); }
 .cloud-account-row { margin-bottom: 8px; }
 .cloud-status-note, .cloud-help { margin: 0 0 16px; font-size: 13px; }
 .cloud-status-note, .cloud-feedback { overflow-wrap: anywhere; }

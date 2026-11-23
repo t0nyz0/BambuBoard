@@ -4,7 +4,7 @@ The widget downloads the current print's sliced file, extracts its plate and ren
 
 ## Recover a failed preview
 
-1. Select the G-code widget in the Scene Editor and choose **Open toolpath preview**, or open `/widgets/gcode-viz/?mode=preview` directly. Append `&debug=1` to see the layer scrubber and event log. The broadcast view keeps recovery controls hidden.
+1. Choose **Open toolpath preview** on Live or from the G-code widget in Layout. **Print angle** and **Print zoom** adjust this preview. Append `&debug=1` to `/widgets/gcode-viz/?mode=preview` to see the layer scrubber and event log. The broadcast view keeps recovery controls hidden.
 2. Use **Download diagnostics**. The JSON includes the widget timeline, renderer/browser information and the last server attempt, with stages, paths checked, reply/error codes, sizes and timing. The server also stores the last report in `data/gcode-diagnostics.json` and logs failures to Docker output. LAN access codes and signed cloud URLs are excluded. Job filenames remain in the report.
 3. Correct the address/access code in Setup or make file transfer reachable, then use **Retry now**. The widget makes at most five automatic attempts per job. Server cooldowns prevent multiple widgets from repeatedly opening connections to the same failing printer.
 4. If the printer cannot expose its sliced file, use **Load sliced file** with the exact sliced `.3mf` or `.gcode` used for this print. A design-only 3MF has no toolpath. The file is checked and saved under this print's cache identity; other widgets can then retrieve it. A different print or a reprint starts a new identity. A mismatched plate or bad upload preserves the existing valid cache.

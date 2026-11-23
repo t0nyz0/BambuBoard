@@ -1,7 +1,7 @@
 const tls = require('node:tls');
 const { promisify } = require('node:util');
 const execFile = promisify(require('node:child_process').execFile);
-const ffmpeg = require('ffmpeg-static');
+const { ffmpeg } = require('../lib/ffmpeg');
 const { browserPath } = require('./streamCapture');
 const { StreamError } = require('./streamEncoder');
 async function checkSetup(input) {

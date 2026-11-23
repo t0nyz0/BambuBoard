@@ -62,6 +62,8 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          pull: true
+          no-cache-filters: system-packages
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

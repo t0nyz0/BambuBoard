@@ -14,7 +14,9 @@ Based on `origin/main` at `2ab9d2735a65232440a4d0020a3d84b9ad412ef7` (3.1.5), ve
 - Browser tab capture explains the HTTPS/localhost requirement on an HTTP NAS URL. Relay messages distinguish the running encoder from YouTube’s public broadcast status, and cancellation/connection failure stops capture and recording.
 - The relay paces its silent audio in real time and ends it when video ends. Disconnect gives FFmpeg time to flush, then escalates shutdown if the encoder remains running. Native Ubuntu release checks cover this cleanup as well as the production-image checks.
 
-## Dependency and runtime changes
+## Dependency and runtime changes in 3.2.0
+
+For the current inventory, see [package-lock.json](../package-lock.json) and the [bundled asset manifest](../public/vendor/manifest.json). Follow the current [source install instructions](../README.md#from-source) for FFmpeg.
 
 `package-lock.json` now controls npm installs and Docker’s `npm ci --omit=dev`; the stale pnpm lock is removed. Supported runtime is Node 24 LTS. Docker uses `node:24-alpine3.24`, applies available Alpine patch updates and installs Alpine FFmpeg 8.1.2, rather than the older binaries downloaded by ffmpeg-static. Source installs retain the portable static fallback, whose embedded FFmpeg version differs by platform; set `FFMPEG_BIN` to a maintained native binary when needed. The production image removes npm, npx and Yarn after installation; run the server with its existing Node command, and rebuild the image to change packages.
 

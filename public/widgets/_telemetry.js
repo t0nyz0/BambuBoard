@@ -104,6 +104,6 @@
     refresh();
   }
 
-  if (typeof module === 'object' && module.exports) module.exports = { reading, number, nozzleTemps };
+  if (typeof module === 'object' && module.exports) module.exports = { reading, isStale, number, nozzleTemps };
   else root.BBTelemetry = { poll, isStale, number, hasPrintState, nozzleTemps, hasNozzleDetails };
 })(globalThis);

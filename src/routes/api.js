@@ -53,11 +53,12 @@ const printerChecks = {
 };
 
 function buildApiRouter({
-  getConfig, saveConfig, reloadPrinter, getStatus, paths,
+  getConfig, saveConfig, reloadPrinter, retryPrinter = reloadPrinter, getStatus, paths,
   checkPrinterConnection = testConnection, checkGcodeConnection = probePrinterFiles,
 }) {
   const router = express.Router();
   let checkingGcode = false;
+  let printerRetryAfter = 0;
 
   router.get('/settings', (req, res) => {
     const c = getConfig();
@@ -137,6 +138,21 @@ function buildApiRouter({
     return res.json(await checkPrinterConnection({ ...printerConnection(saved), accessCode: saved.accessCode }));
   });
 
+  router.post('/retry-printer-connection', (req, res) => {
+    if (!isRecord(req.body) || Object.keys(req.body).length || Object.keys(req.query).length) {
+      return res.status(400).json({ ok: false, error: 'Retry the saved printer connection from Setup.' });
+    }
+    if (isFirstRun(getConfig())) {
+      return res.status(422).json({ ok: false, error: 'Save the printer connection first.' });
+    }
+    const now = Date.now();
+    if (getStatus().telemetryConnection !== 'online' && now >= printerRetryAfter) {
+      printerRetryAfter = now + 10000;
+      retryPrinter();
+    }
+    return res.json({ ok: true });
+  });
+
   router.post('/test-gcode-connection', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     // This is an explicit check of the saved printer. Unlike the Setup MQTT
@@ -174,10 +190,8 @@ function buildApiRouter({
     const c = getConfig();
     const tok = readTokenSync(paths);
     const st = getStatus();
-    // Top-level setupComplete / connected flags drive the workflow stepper UI
-    // (Step 1 done if setupComplete, Step 2 done if connected). The
-    // printer.detectedFrom field tells the Setup page whether the type came
-    // from MQTT auto-detection or from the user's manual selection.
+    // Preserve legacy broker connection fields. Onboarding waits until a
+    // current-session printer snapshot is available to the widgets.
     const detectedFrom = c.printer.detectedFrom || 'config';
     res.json({
       printer: {
@@ -188,9 +202,14 @@ function buildApiRouter({
         detectedFrom,
       },
       caps: capsFor(c.printer.type),
-      status: { connection: st.connection, lastUpdate: st.lastUpdate },
+      status: {
+        connection: st.connection,
+        lastUpdate: st.lastUpdate,
+        lastTelemetryUpdate: st.lastTelemetryUpdate,
+      },
       setupComplete: !isFirstRun(c),
       connected: st.connection === 'online',
+      telemetryConnection: st.telemetryConnection,
       version: require('../../package.json').version,
       cloudAuth: {
         enabled: !!c.cloudAuth?.enabled,

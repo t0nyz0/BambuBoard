@@ -13,42 +13,51 @@
   <main class="page live-page">
     <header class="page-heading">
       <div>
-        <p class="eyebrow">Your broadcast workspace</p>
         <h1>Live preview</h1>
         <p class="text-dim"><span id="active-line">Loading scene…</span> <span id="publication-state" class="pill">Checking…</span></p>
       </div>
-      <a class="btn btn-primary" href="/scene-editor"><span class="nav-icon" aria-hidden="true">tune</span>Edit layout</a>
+      <a class="btn" href="/scene-editor"><span class="nav-icon" aria-hidden="true">tune</span>Customize layout</a>
     </header>
-    <p id="printer-notice" class="connection-notice" role="status" hidden></p>
-    <section class="preview-card" aria-label="Published output preview">
-      <div class="preview-heading">
-        <span><span class="output-dot" aria-hidden="true"></span><span id="output-label">Published output</span> <small>/live</small></span>
-        <a href="/live" target="_blank" rel="noopener"><span class="nav-icon" aria-hidden="true">open_in_full</span>Open output</a>
-      </div>
-      <div id="preview-viewport" class="preview-viewport">
-        <iframe id="live-frame" src="/live" title="Broadcast output preview"></iframe>
-      </div>
-      <div class="preview-footer"><span id="preview-dimensions">Loading canvas…</span><span>Camera + widgets · One Browser Source</span></div>
-    </section>
-    <section class="card obs-card">
-      <div class="card-row"><h2>Use this scene in OBS</h2><span class="pill pill-ok">One Browser Source</span></div>
-      <p class="text-dim">Copy the source URL once. Published changes update automatically.</p>
-      <div class="obs-controls">
-        <label class="sr-only" for="live-url">OBS Browser Source URL</label>
-        <input id="live-url" class="input text-mono" type="text" placeholder="Loading source URL…" readonly>
-        <button id="copy-url" class="btn" type="button" disabled><span class="nav-icon" aria-hidden="true">content_copy</span>Copy URL</button>
-        <a id="download-obs" class="btn" href="/api/obs/single-source"><span class="nav-icon" aria-hidden="true">download</span>Download OBS scene</a>
-      </div>
-      <details class="obs-help">
-        <summary>First time using OBS?</summary>
-        <ol class="text-dim">
-          <li>In OBS, add a <strong>Browser Source</strong> and paste this URL.</li>
-          <li>Set its width and height to <strong id="obs-dimensions">your scene dimensions</strong>. Match OBS → Settings → Video → Base (Canvas) Resolution to those dimensions.</li>
-          <li>Or download the scene and choose <strong>Scene Collection → Import</strong> in OBS.</li>
-          <li>Save your draft in Layout, then choose <strong>Apply to Live</strong>. Start your broadcast in OBS.</li>
-        </ol>
-      </details>
-    </section>
+    <div class="live-workspace">
+      <section class="preview-card" aria-label="Broadcast output preview">
+        <div class="preview-heading">
+          <span id="output-label">Broadcast output</span>
+          <a href="/live" target="_blank" rel="noopener"><span class="nav-icon" aria-hidden="true">open_in_full</span>Open output</a>
+        </div>
+        <div id="printer-notice" class="connection-notice" hidden>
+          <p id="printer-status-message" role="status"></p>
+          <a href="/setup#connect">Check printer connection</a>
+        </div>
+        <div id="preview-viewport" class="preview-viewport" hidden>
+          <iframe id="live-frame" title="Broadcast output preview"></iframe>
+        </div>
+        <div id="preview-loading" class="preview-loading">
+          <button id="show-layout" class="btn" type="button">Show layout anyway</button>
+        </div>
+        <footer class="preview-footer"><a href="/widgets/gcode-viz/?mode=preview">Open toolpath preview</a></footer>
+      </section>
+      <section class="card obs-card" aria-labelledby="obs-title">
+        <h2 id="obs-title">Use in OBS</h2>
+        <p class="text-dim">Add one Browser Source. Layout changes appear after you apply them.</p>
+        <div class="obs-controls">
+          <label class="sr-only" for="live-url">OBS Browser Source URL</label>
+          <input id="live-url" class="input text-mono" type="text" placeholder="Loading source URL…" readonly>
+          <span class="obs-dimensions">Width × height <strong id="obs-dimensions">—</strong></span>
+          <button id="copy-url" class="btn btn-primary" type="button" disabled><span class="nav-icon" aria-hidden="true">content_copy</span>Copy Browser Source URL</button>
+        </div>
+        <details class="obs-help">
+          <summary>OBS setup instructions</summary>
+          <ol class="text-dim">
+            <li>In OBS, add a <strong>Browser Source</strong> and paste this URL.</li>
+            <li>Use the width and height shown above for the Browser Source and for <strong>Settings → Video → Base (Canvas) Resolution</strong>.</li>
+          </ol>
+        </details>
+        <div class="obs-import">
+          <a id="download-obs" class="btn" href="/api/obs/single-source"><span class="nav-icon" aria-hidden="true">download</span>Download an OBS scene</a>
+          <p class="text-dim">In OBS, choose <strong>Scene Collection → Import</strong>.</p>
+        </div>
+      </section>
+    </div>
     <section class="youtube-section" aria-label="Optional YouTube relay">
       <div id="yt-active-controls" class="yt-active-controls" hidden>
         <div class="yt-active-copy"><span id="yt-state-badge" class="pill">Starting</span><span id="yt-active-status">Preparing stream…</span></div>
@@ -56,20 +65,25 @@
       </div>
       <details id="youtube-details">
         <summary>Direct YouTube streaming <span class="beta-label">Beta · optional</span></summary>
-        <div class="yt-heading"><div><h2>Stream your published scene</h2><p class="text-dim">Choose where to run the stream, then confirm the broadcast in YouTube Studio.</p></div><a class="btn" href="https://www.youtube.com/live_dashboard" target="_blank" rel="noopener">Open YouTube Studio <span class="nav-icon" aria-hidden="true">open_in_new</span></a></div>
-        <ol class="yt-steps"><li>Create an encoder stream in YouTube Studio.</li><li>Copy its stream key below and choose your quality.</li><li>Start here, then check the preview and go live in Studio.</li></ol>
-        <div class="yt-settings">
-          <div class="yt-field"><label for="yt-mode">Stream source</label><select id="yt-mode" class="input"><option value="server">Run on BambuBoard server</option><option value="browser">Share a browser tab</option></select><p id="yt-mode-help" class="text-dim">Checking server capture…</p></div>
-          <div class="yt-field"><label for="yt-quality">Video quality</label><select id="yt-quality" class="input"><option value="720p30">720p · 30 fps</option><option value="1080p30">1080p · 30 fps</option><option value="1080p60">1080p · 60 fps</option></select><p class="text-dim">720p is the best starting point for a NAS. Higher resolutions need more processing capacity.</p></div>
+        <div class="yt-heading"><div><h2>Send a preview to YouTube</h2><p class="text-dim">Create an encoder stream in Studio and copy its stream key.</p></div><a class="btn" href="https://www.youtube.com/live_dashboard" target="_blank" rel="noopener">Open YouTube Studio <span class="nav-icon" aria-hidden="true">open_in_new</span></a></div>
+        <div class="yt-settings yt-quick-setup">
           <div class="yt-field yt-key-field"><label for="yt-key">YouTube stream key</label><div class="yt-key-controls"><input id="yt-key" class="input" type="password" placeholder="Paste the key from YouTube Studio" aria-describedby="yt-key-help" autocomplete="off" spellcheck="false"><button id="yt-show-key" class="btn" type="button" aria-label="Show stream key" aria-pressed="false">Show</button></div><p id="yt-key-help" class="text-dim">Used for this session only. It is not saved to settings or diagnostics.</p></div>
-          <div class="yt-field"><label for="yt-audio">Audio</label><select id="yt-audio" class="input"><option value="silence">Silent print stream</option><option value="tab">Include shared tab audio</option></select><p id="yt-audio-help" class="text-dim">Tab audio is available with browser capture.</p></div>
+          <div class="yt-actions"><button id="yt-start" class="btn btn-primary" type="button" disabled>Send preview to YouTube</button></div>
         </div>
-        <details class="yt-advanced"><summary>Advanced stream settings</summary><div class="yt-settings"><div class="yt-field"><label for="yt-bitrate">Video bitrate (kbps)</label><input id="yt-bitrate" class="input" type="number" min="1000" max="25000" step="100" value="8000" aria-describedby="yt-bitrate-help"><p id="yt-bitrate-help" class="text-dim">YouTube recommends 8,000 kbps for this H.264 preset.</p></div><div class="yt-field"><label for="yt-destination">YouTube ingest server</label><select id="yt-destination" class="input"><option value="primary">Primary · encrypted RTMPS</option><option value="backup">Backup · encrypted RTMPS</option></select><p class="text-dim">Use the primary server normally. Both use an encrypted connection on port 443.</p></div></div></details>
         <p id="yt-support" class="connection-notice" hidden></p>
-        <div class="yt-actions"><button id="yt-start" class="btn btn-primary" type="button" disabled>Start stream</button><button id="yt-check" class="btn" type="button">Check setup</button><a id="yt-diagnostics" class="btn" href="/api/stream/youtube/diagnostics" download><span class="nav-icon" aria-hidden="true">download</span>Diagnostics</a></div>
         <p id="yt-status" class="text-dim" role="status">Checking streaming support…</p>
+        <p class="yt-studio-note text-dim">Check the preview in YouTube Studio, then choose <strong>Go Live</strong>. If Studio's auto-start is enabled, sending video can make the stream public immediately.</p>
+        <details class="yt-advanced"><summary>Stream settings and diagnostics</summary>
+          <div class="yt-settings">
+            <div class="yt-field"><label for="yt-mode">Stream source</label><select id="yt-mode" class="input"><option value="server">Run on BambuBoard server</option><option value="browser">Share a browser tab</option></select><p id="yt-mode-help" class="text-dim">Checking server capture…</p></div>
+            <div class="yt-field"><label for="yt-quality">Video quality</label><select id="yt-quality" class="input"><option value="720p30">720p · 30 fps (recommended)</option><option value="1080p30">1080p · 30 fps</option><option value="1080p60">1080p · 60 fps</option></select><p class="text-dim">Higher resolutions need more processing capacity.</p></div>
+            <div class="yt-field" id="yt-audio-field" hidden><label for="yt-audio">Audio</label><select id="yt-audio" class="input"><option value="silence">Silent print stream</option><option value="tab">Include shared tab audio</option></select><p id="yt-audio-help" class="text-dim">Tab audio is available with browser capture.</p></div>
+            <div class="yt-field"><label for="yt-bitrate">Video bitrate (kbps)</label><input id="yt-bitrate" class="input" type="number" min="1000" max="25000" step="100" value="8000" aria-describedby="yt-bitrate-help"><p id="yt-bitrate-help" class="text-dim">YouTube recommends 8,000 kbps for this H.264 preset.</p></div>
+            <div class="yt-field"><label for="yt-destination">YouTube ingest server</label><select id="yt-destination" class="input"><option value="primary">Primary · encrypted RTMPS</option><option value="backup">Backup · encrypted RTMPS</option></select><p class="text-dim">Use the primary server normally. Both use an encrypted connection on port 443.</p></div>
+          </div>
+          <div class="yt-actions"><button id="yt-check" class="btn" type="button">Check setup</button><a id="yt-diagnostics" class="btn" href="/api/stream/youtube/diagnostics" download><span class="nav-icon" aria-hidden="true">download</span>Download diagnostics</a></div>
+        </details>
         <dl id="yt-metrics" class="yt-metrics" hidden><div><dt>Output</dt><dd id="yt-metric-quality">—</dd></div><div><dt>Duration</dt><dd id="yt-metric-duration">—</dd></div><div><dt>Encoder fps</dt><dd id="yt-metric-fps">—</dd></div><div><dt>Encoding speed</dt><dd id="yt-metric-speed">—</dd></div><div><dt>Video sent</dt><dd id="yt-metric-bytes">—</dd></div></dl>
-        <p class="text-muted">Sending video confirms the encoder is working. YouTube Studio shows stream health and whether the broadcast is public.</p>
       </details>
     </section>
     <footer class="workspace-footer"><span>Local connection · Cloud optional</span><span>BambuBoard <span id="app-version"></span></span></footer>

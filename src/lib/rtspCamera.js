@@ -1,5 +1,5 @@
 const { spawn } = require('node:child_process');
-const ffmpeg = require('ffmpeg-static');
+const { ffmpeg } = require('./ffmpeg');
 
 const packetBytes = 188;
 const videoPid = 0x100;

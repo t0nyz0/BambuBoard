@@ -95,13 +95,6 @@ async function runEngine(name, artifactDir) {
     assert.ok(samplePixels[0].every((value, index) => Math.abs(value - samplePixels[1][index]) < 5), `Transparent widget backdrop differs between Layout and /live: ${JSON.stringify(samplePixels)}`);
     await output.close(); passed.push('Transparent widget pixels match between the dark editor and published output');
     await audit('Layout inspector');
-    await page.locator('#bindings-block').evaluate(node => {
-      node.open = true;
-      for (let ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        if (ancestor.tagName === 'DETAILS') ancestor.open = true;
-      }
-    });
-    await audit('Telemetry bindings');
     await page.locator('#widget-drawer-btn').click(); await audit('Widget library'); await page.locator('#widget-drawer-close').click();
     for (const route of ['/', '/setup', '/login']) {
       if (route === '/setup') {
@@ -316,6 +309,7 @@ async function runEngine(name, artifactDir) {
     await page.locator('#golive-btn').click();
     await page.waitForFunction(() => document.querySelector('#live-state').textContent.includes('Renamed fixture / Second scene'));
     assert.equal((await request('/api/obs/published')).current_program_scene, 'Second scene');
+    await page.locator('.editor-publish-details summary').click();
     page.once('dialog', dialog => dialog.dismiss());
     await page.locator('#restore-live-btn').click();
     assert.equal((await request('/api/obs/published')).current_program_scene, 'Second scene');
@@ -333,13 +327,15 @@ async function runEngine(name, artifactDir) {
         if (route === '/scene-editor') { await page.waitForSelector('.scene-item'); await page.locator('#widget-drawer-btn').click(); }
         if (route === '/setup') {
           await page.waitForFunction(() => document.getElementById('p-name').value === 'QA H2D');
-          await page.locator('#cloud-email').waitFor({ state: 'visible' });
+          assert.equal(await page.locator('#cloud-email').isVisible(), false, 'Cloud sign-in is optional and starts collapsed');
           if (width >= 1000) {
-            const printer = await page.locator('.setup-main').boundingBox(), cloud = await page.locator('#cloud-section').boundingBox();
-            assert.ok(Math.abs(printer.y - cloud.y) < 2 && cloud.x > printer.x + printer.width, 'Cloud sits alongside the printer at the top');
+            const printer = await page.locator('#printer-settings').boundingBox(), status = await page.locator('#connect-step').boundingBox();
+            assert.ok(Math.abs(printer.y - status.y) < 2 && status.x > printer.x + printer.width, 'Printer status sits beside the connection form');
           } else {
-            await page.locator('a[href="#cloud-section"]').click();
-            await page.waitForFunction(() => { const box = document.getElementById('cloud-heading').getBoundingClientRect(); return box.top >= 0 && box.bottom < innerHeight; });
+            const printer = await page.locator('#printer-settings').boundingBox(), status = await page.locator('#connect-step').boundingBox();
+            assert.ok(status.y > printer.y + printer.height, 'Printer status follows the connection form on narrow screens');
+            await page.locator('#cloud-heading').click();
+            await page.locator('#cloud-email').waitFor({ state: 'visible' });
           }
         }
         await page.evaluate(() => document.fonts.ready);
@@ -379,6 +375,60 @@ async function runEngine(name, artifactDir) {
     await page.locator('#widget-drawer-list .drawer-widget').first().waitFor();
     await page.unroute('**/api/widgets');
     passed.push('Widget catalog shows an error and Retry recovers without reloading the editor');
+
+    const search = page.getByRole('searchbox', { name: 'Search widgets' });
+    await search.fill('impossible widget');
+    assert.equal(await page.locator('.drawer-widget').count(), 0);
+    assert.match(await page.locator('#widget-drawer-list').innerText(), /No widgets match/);
+    await search.fill('bed temperature');
+    const bedWidget = page.getByRole('button', { name: 'Add Bed temperature', exact: true });
+    assert.equal(await page.locator('.drawer-widget').count(), 1);
+    await page.evaluate(() => Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true }));
+    await bedWidget.press('Enter');
+    await bedWidget.click();
+    assert.equal(await page.evaluate(() => {
+      const ids = Object.values(state.sources).filter(source => /^Bed temperature/.test(source.name)).map(source => source.uuid);
+      return new Set(ids).size === 2 && ids.every(id => /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id));
+    }), true, 'Adding widgets on LAN HTTP still creates distinct valid source UUIDs');
+    await page.evaluate(() => delete crypto.randomUUID);
+    const added = await page.locator('.scene-item').filter({ has: page.locator('iframe[title^="Bed temperature"]') }).evaluateAll(items =>
+      items.map(el => ['left', 'top', 'width', 'height'].map(key => parseFloat(el.style[key]))));
+    assert.equal(added.length, 2);
+    const [[ax, ay, aw, ah], [bx, by, bw, bh]] = added;
+    assert.ok(ax + aw <= bx || bx + bw <= ax || ay + ah <= by || by + bh <= ay, 'Adding the same widget twice must find separate spots');
+    const zoomLabel = page.locator('#zoom-label');
+    const wholeZoom = parseInt(await zoomLabel.textContent(), 10);
+    await page.getByRole('button', { name: 'Zoom to selected' }).click();
+    assert.ok(parseInt(await zoomLabel.textContent(), 10) > wholeZoom);
+    await page.getByRole('button', { name: 'Fit whole canvas' }).click();
+    assert.equal(parseInt(await zoomLabel.textContent(), 10), wholeZoom);
+    const beforePreview = await request('/api/obs/published');
+    await page.getByRole('button', { name: 'Live preview', exact: true }).click();
+    const livePreview = page.frameLocator('iframe[title="Published live output"]');
+    await livePreview.locator('.live-item').first().waitFor();
+    assert.equal(await livePreview.locator('iframe[title^="Bed temperature"]').count(), 0);
+    await page.getByRole('button', { name: 'Draft preview', exact: true }).click();
+    assert.equal(await page.locator('#live-preview-shell iframe').count(), 0);
+    assert.equal(await page.locator('.scene-item iframe[title^="Bed temperature"]').count(), 2);
+    if (name === 'chromium') {
+      await search.clear();
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.screenshot({ path: path.join(artifactDir, 'editor-widget-library-desktop.png') });
+    }
+    const arrangement = page.locator('#autolayout-btn');
+    await arrangement.click();
+    const layout = await page.locator('.scene-item:has(iframe)').evaluateAll(items =>
+      items.map(el => ['left', 'top', 'width', 'height'].map(key => parseFloat(el.style[key]))));
+    layout.forEach(([x, y, w, h], index) => {
+      assert.ok(x >= 0 && y >= 0 && x + w <= 2560 && y + h <= 1440);
+      for (const [otherX, otherY, otherW, otherH] of layout.slice(index + 1)) {
+        assert.ok(x + w <= otherX || otherX + otherW <= x || y + h <= otherY || otherY + otherH <= y, 'Auto-layout must preserve space between widgets');
+      }
+    });
+    for (let change = 0; change < 3; change++) await page.locator('#undo-btn').click();
+    assert.equal(await page.locator('.scene-item iframe[title^="Bed temperature"]').count(), 0);
+    assert.deepEqual(await request('/api/obs/published'), beforePreview);
+    passed.push('Widget search and placement, zoom, live preview and Auto-layout stay separate from publication');
 
     const removalFixture = fixture();
     const removalSlug = 'Removal fixture';
@@ -537,7 +587,7 @@ async function runEngine(name, artifactDir) {
     assert.equal(await page.locator('.scene-item').count(), 0);
     assert.equal(await page.locator('#layers-panel-list .empty-hint').innerText(), 'No widgets in this scene. Open Widgets to add one.');
     await page.locator('#widget-drawer-btn').click();
-    await page.locator('#widget-drawer-list').getByRole('button', { name: /^Progress/ }).press('Enter');
+    await page.getByRole('button', { name: 'Add Progress', exact: true }).press('Enter');
     assert.deepEqual(await layers(), ['Progress']);
     await undoRemoval();
     assert.deepEqual(await layers(), []);
@@ -564,8 +614,8 @@ async function runEngine(name, artifactDir) {
     await select('First AMS');
     assert.equal(await page.locator('#gcode-view-block').isVisible(), false);
     await select('Toolpath preview');
-    const viewControl = page.getByRole('combobox', { name: 'Camera angle' });
-    const zoomControl = page.getByRole('slider', { name: 'Toolpath zoom' });
+    const viewControl = page.getByRole('combobox', { name: 'Print angle' });
+    const zoomControl = page.getByRole('slider', { name: 'Print zoom' });
     assert.equal(await viewControl.inputValue(), 'front');
     assert.equal(await zoomControl.inputValue(), '125');
     assert.equal(await viewControl.isDisabled(), true, 'A locked copy in another scene protects the shared camera');
@@ -656,10 +706,16 @@ async function runEngine(name, artifactDir) {
 
     const repeatedFixture = structuredClone(toolpathFixture);
     const repeatedSlug = 'Repeated preview fixture';
+    repeatedFixture.sources = repeatedFixture.sources.filter(source => source.id !== 'scene' || source.name === 'Main');
     main(repeatedFixture).splice(0, main(repeatedFixture).length,
-      item('Toolpath preview', 380, 200), item('Toolpath preview', 980, 200), item('Test logo', 300, 700));
+      item('Toolpath preview', 380, 200), item('Toolpath preview', 980, 200),
+      { ...item('Test logo', 300, 700), bounds_type: 2, bounds: { x: 100, y: 100 } },
+      item('Test caption', 300, 850));
     repeatedFixture.sources.push({ name: 'Test logo', id: 'image_source', settings: {
-      width: 80, height: 70, file: 'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2280%22%20height=%2270%22/%3E',
+      width: 80, height: 40, file: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="red"/></svg>'),
+    } });
+    repeatedFixture.sources.push({ name: 'Test caption', id: 'text_gdiplus_v2', settings: {
+      width: 400, height: 64, text: 'Sample broadcast caption', color: 0xFF00FFFF, font: { size: 18 },
     } });
     await fs.writeFile(path.join(data, 'scenes', repeatedSlug + '.json'), JSON.stringify(repeatedFixture));
     await openEditor();
@@ -670,6 +726,8 @@ async function runEngine(name, artifactDir) {
     });
     const identityAt = idx => page.locator(`.scene-item[data-idx="${idx}"] iframe`).evaluate(node => node.contentWindow.fixtureFrameId);
     await repeatsReady();
+    assert.equal(await page.locator('#scene-picker').isVisible(), false);
+    assert.equal(await page.locator('#live-scene-picker').isVisible(), false);
     const survivor = await identityAt(1);
     const beforeRestoring = toolpathRequests;
     await page.locator('.layer-row[data-idx="0"] button[data-action="remove"]').click();
@@ -700,6 +758,45 @@ async function runEngine(name, artifactDir) {
     await redoRemoval();
     assert.equal(await scaleFilter(), 'pixelated');
     passed.push('Undo preserves repeated preview identity and restores crop and image filtering in place');
+    await page.locator('#inspector-advanced').evaluate(node => { node.open = true; });
+    await page.getByRole('combobox', { name: 'Content anchor' }).selectOption('5');
+    const draftImage = page.locator('.scene-item.selected img');
+    assert.match(await draftImage.evaluate(node => node.style.objectPosition), /left top|0% 0%/);
+    const caption = page.locator('.scene-item .body').getByText('Sample broadcast caption');
+    assert.equal(await caption.evaluate(node => getComputedStyle(node).color), 'rgb(255, 255, 0)');
+    await save();
+    await page.locator('#golive-btn').click();
+    await page.waitForFunction(() => document.querySelector('#draft-state').textContent === 'Draft saved · Live');
+    await page.goto(base + '/live');
+    const liveImage = page.getByRole('img', { name: 'Test logo' });
+    await liveImage.waitFor();
+    assert.equal(await liveImage.evaluate(node => getComputedStyle(node).imageRendering), 'pixelated');
+    assert.match(await liveImage.evaluate(node => node.style.objectPosition), /left top|0% 0%/);
+    const redAt = async (locator, position) => {
+      const bytes = await locator.screenshot();
+      return page.evaluate(async ({ png, y }) => {
+        const image = new Image(); image.src = 'data:image/png;base64,' + png;
+        await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+        const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0);
+        const [red, green, blue] = ctx.getImageData(Math.floor(image.width * 0.5), Math.floor(image.height * y), 1, 1).data;
+        return red > 200 && green < 30 && blue < 30;
+      }, { png: bytes.toString('base64'), y: position });
+    };
+    assert.equal(await redAt(liveImage, 0.12), true, 'Top-aligned image paints in the top part of the visible bounds');
+    assert.equal(await redAt(liveImage, 0.88), false, 'Top-aligned image leaves the bottom part of the visible bounds empty');
+    assert.equal(await page.getByText('Sample broadcast caption').evaluate(node => getComputedStyle(node).color), 'rgb(255, 255, 0)');
+    passed.push('A single-scene draft hides redundant selectors; bitmap anchor, filtering and text render in the published output');
+    const label = 'Layout <demo>';
+    const forcedSource = `${base}/api/obs/scenes/${encodeURIComponent(label)}`;
+    await page.route(forcedSource, route => route.fulfill({ json: { sources: [] } }));
+    await page.goto(base + '/live?scene=' + encodeURIComponent(label));
+    const status = page.locator('#live-msg');
+    await page.waitForFunction(label => document.getElementById('live-msg').textContent.includes(label), label);
+    assert.equal(await status.textContent(), `Scene "${label}" has no renderable scene source.`);
+    assert.equal(await status.locator('*').count(), 0);
+    await page.unroute(forcedSource);
+    passed.push('Live shows imported labels as literal text in fallback status');
     await page.unroute(mediaFixture);
     await page.unroute(toolpathDownload);
 
@@ -710,6 +807,64 @@ async function runEngine(name, artifactDir) {
     const config = JSON.parse(await fs.readFile(path.join(data, 'config.json'), 'utf8'));
     assert.equal(config.printer.serialNumber, 'QA');
     passed.push('Expanded responsive controls, reduced motion and incomplete Setup validation');
+
+    let failSetupLoad = true;
+    await page.route(base + '/api/settings', route => {
+      if (failSetupLoad && route.request().method() === 'GET') {
+        failSetupLoad = false;
+        return route.fulfill({ status: 503, json: { error: 'Settings fixture unavailable' } });
+      }
+      return route.continue();
+    });
+    let connection = 'waiting';
+    let saves = 0, retries = 0;
+    await page.route(base + '/api/status', route => route.fulfill({ json: {
+      setupComplete: true, connected: true, telemetryConnection: connection,
+      printer: { name: 'QA H2D', model: 'H2D', detectedFrom: 'mqtt' },
+      status: { lastUpdate: 'Version reply only', lastTelemetryUpdate: connection === 'online' ? 'A real fixture snapshot' : null },
+    } }));
+    await page.route(base + '/api/retry-printer-connection', route => {
+      retries++;
+      assert.deepEqual(route.request().postDataJSON(), {});
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route(base + '/api/printer/video/status', route => route.fulfill({ json: {
+      available: false, waitingForReport: true, hint: 'Waiting for the printer to report its camera status.',
+    } }));
+    page.on('request', request => { if (request.url() === base + '/api/settings' && request.method() === 'PUT') saves++; });
+    await page.clock.install();
+    await page.goto(base + '/setup?firstRun=1');
+    const settingsRetry = page.getByRole('button', { name: 'Retry loading settings' });
+    await settingsRetry.waitFor();
+    assert.equal(await page.locator('#test-btn').isDisabled(), true);
+    await page.locator('#cloud-heading').click();
+    await page.locator('#cloud-email').waitFor();
+    await page.locator('#cloud-heading').click();
+    await settingsRetry.click();
+    await page.locator('#connect-mqtt').filter({ hasText: 'Waiting for printer data' }).waitFor();
+    assert.equal(await page.locator('#connect-last').innerText(), 'No printer data yet');
+    assert.equal(await page.locator('#connect-camera').innerText(), 'Waiting for printer data');
+    assert.equal(await page.locator('#connect-camera-hint').isVisible(), false);
+    assert.equal(await page.locator('#continue-btn').isDisabled(), true);
+    assert.equal(await page.locator('#test-btn').isEnabled(), true);
+    await page.locator('#p-name').press('Enter');
+    await page.locator('.toast').filter({ hasText: 'Printer settings saved' }).waitFor();
+    assert.equal(saves, 1);
+    await page.clock.fastForward(12_000);
+    await page.locator('#connect-next').filter({ hasText: 'Check the serial number' }).waitFor();
+    await page.locator('#connect-retry').click();
+    await page.waitForFunction(() => document.getElementById('connect-next').textContent.includes('Waiting for the first printer data'));
+    assert.equal(retries, 1);
+    connection = 'online';
+    await page.clock.runFor(2_000);
+    await page.locator('#connect-mqtt').filter({ hasText: 'Receiving printer data' }).waitFor();
+    await page.locator('#connect-camera').filter({ hasText: 'Waiting for camera status' }).waitFor();
+    assert.equal(await page.locator('#connect-last').innerText(), 'A real fixture snapshot');
+    assert.equal(await page.getByRole('link', { name: 'Customize layout' }).getAttribute('href'), '/scene-editor');
+    assert.equal(await page.locator('#cloud-email').isVisible(), false);
+    await page.locator('#continue-btn').click();
+    await page.waitForURL(base + '/');
+    passed.push('Setup recovers from failed settings load, waits for actual printer data, retries, and opens Live without cloud or a new layout');
     assert.deepEqual(errors, [], 'Browser JavaScript errors'); assert.deepEqual([...external], [], 'Management pages must work without external assets');
     const result = { engine: name, passed, layouts, accessibility, errors, externalRequests: [...external] };
     await fs.writeFile(path.join(artifactDir, `ui-${name}.json`), JSON.stringify(result, null, 2));

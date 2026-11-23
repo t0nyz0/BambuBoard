@@ -259,6 +259,7 @@ test('archive validation catches corruption, unsliced projects, checksums and de
   const corrupt = archive({ 'Metadata/plate_1.gcode': gcode }); corrupt[30 + Buffer.byteLength('Metadata/plate_1.gcode') + 2] ^= 1;
   await assert.rejects(extractPlateGcode(corrupt), { code: 'FILE_CORRUPT' });
   await assert.rejects(extractPlateGcode(Buffer.from('PKbroken')), { code: 'ARCHIVE_INVALID' });
+  await assert.rejects(extractPlateGcode('G90\n'), { code: 'GCODE_INVALID', stage: 'validate' });
   await assert.rejects(extractPlateGcode(archive({ '3D/model.model': '<model />' })), { code: 'PLATE_NOT_FOUND' });
   const plate = archive({ 'Metadata/plate_1.gcode': gcode });
   await assert.rejects(extractPlateGcode(plate, { limits: { ...LIMITS, gcode: 10 } }), { code: 'FILE_TOO_LARGE', stage: 'extract', status: 413, retryable: false });

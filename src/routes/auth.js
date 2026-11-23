@@ -7,6 +7,16 @@ const path = require('path');
 const { randomUUID } = require('node:crypto');
 const { version } = require('../../package.json');
 
+function tokenIsExpired(token) {
+  // Treat an embedded expiry only as a reason to stop using a token. It does
+  // not verify the account or replace Bambu's live credential check.
+  if (typeof token !== 'string' || token.length > 8192 || !/^[\w-]+\.[\w-]+\.[\w-]+$/.test(token)) return false;
+  try {
+    const expiry = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')).exp;
+    return Number.isFinite(expiry) && expiry <= Date.now() / 1000;
+  } catch (_) { return false; }
+}
+
 function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) => fetch(...args), requestTimeoutMs = 15_000 }) {
   const router = express.Router();
   const TOKEN_PATH = path.join(paths.data, 'accessToken.json');
@@ -34,6 +44,18 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
 
   function failure(code, message, status = 502, extra = {}) {
     return Object.assign(new Error(message), { code, status, ...extra });
+  }
+  function rejectedToken(expired = false) {
+    const message = expired ? 'The saved cloud sign-in has expired. Sign in again, or copy a fresh token from MakerWorld.'
+      : 'Bambu did not accept this sign-in. Sign in again, or copy a fresh token from MakerWorld.';
+    return failure('TOKEN_REJECTED', message, 401, { tryManual: true });
+  }
+  function recordTokenRejection(error, revision) {
+    if (error.code !== 'TOKEN_REJECTED' || revision !== accountRevision) return;
+    credentialRejected = true;
+    imageCache = { time: 0, data: null };
+    profileCache = { time: 0, data: null };
+    connectionCheck = { ok: false, code: error.code, error: error.message, checkedAt: new Date().toISOString() };
   }
   function report(res, error, action) {
     // Never include upstream bodies, tokens, cookies, email addresses or codes.
@@ -73,7 +95,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
         if (/expired/i.test(String(data?.message || data?.error || ''))) throw failure('MFA_EXPIRED', 'This verification attempt has expired. Request a fresh email code to start again.', 400);
         throw failure('CODE_INCORRECT', 'Bambu did not accept the authenticator code. Try the current six-digit code from your app.', 400);
       }
-      if (r.status === 401 && data?.code === 4 && /login/i.test(String(data?.error || ''))) throw failure('TOKEN_REJECTED', 'Bambu did not accept this sign-in. Sign in again, or copy a fresh token from MakerWorld.', 401, { tryManual: true });
+      if (r.status === 401 && data?.code === 4 && /login/i.test(String(data?.error || ''))) throw rejectedToken();
       if (r.status === 401 || r.status === 403) throw failure('CLOUD_ACCESS_DENIED', 'Bambu did not allow this connection check. Try again, or use a fresh MakerWorld token.', 401, { tryManual: true });
       if (!r.ok || data?.error || data?.success === false || (data?.code != null && data.code !== 0 && data.code !== '0')) {
         throw failure('CLOUD_REJECTED', 'Bambu did not accept the request. Check your account and code, or use a MakerWorld token.', 400, { tryManual: true });
@@ -138,6 +160,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     });
   }
   async function probeToken(token) {
+    if (tokenIsExpired(token)) throw rejectedToken(true);
     const { data } = await requestCloud(`${API}/v1/design-user-service/my/preference`, { headers: { Authorization: `Bearer ${token}` } });
     if (!data?.uid) throw failure('INVALID_RESPONSE', 'Bambu did not return an account for this token. Copy the full token from a fresh MakerWorld sign-in.', 502);
   }
@@ -145,7 +168,10 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
   // Status: signed-in or not
   router.get('/auth/status', async (req, res) => {
     const t = await readToken();
-    res.json({ enabled: cloudEnabled(), signedIn: cloudEnabled() && !!t?.accessToken && !credentialRejected, tokenSaved: !!t?.accessToken, needsSignIn: credentialRejected, email: t?.email || null, connection: connectionCheck });
+    const expired = tokenIsExpired(t?.accessToken);
+    const needsSignIn = cloudEnabled() && !!t?.accessToken && (credentialRejected || expired);
+    const connection = expired ? { ok: false, code: 'TOKEN_REJECTED', error: rejectedToken(true).message } : connectionCheck;
+    res.json({ enabled: cloudEnabled(), signedIn: cloudEnabled() && !!t?.accessToken && !needsSignIn, tokenSaved: !!t?.accessToken, needsSignIn, email: t?.email || null, connection });
   });
 
   // Compatibility route for older clients. Setup uses /auth/status to show sign-in state.
@@ -223,7 +249,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
       res.json({ ok: true, ...connectionCheck });
     } catch (e) {
       if (revision !== accountRevision) return report(res, failure('SESSION_CHANGED', 'The saved account changed while checking. Check the new sign-in again.', 409), 'check-connection');
-      if (e.code === 'TOKEN_REJECTED') credentialRejected = true;
+      recordTokenRejection(e, revision);
       connectionCheck = { ok: false, code: e.code, error: e.message, checkedAt: new Date().toISOString() };
       report(res, e, 'check-connection');
     }
@@ -286,6 +312,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     const revision = accountRevision;
     const t = await readToken();
     if (!t?.accessToken) return res.json({ imageUrl: 'NOTENROLLED' });
+    if (credentialRejected || tokenIsExpired(t.accessToken)) return res.json({ imageUrl: '/assets/plate.png' });
     const now = Date.now();
     if (imageCache.data && (now - imageCache.time) < IMAGE_CACHE_MS) return res.json(imageCache.data);
     try {
@@ -308,6 +335,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
       imageCache = { time: now, data: out };
       res.json(out);
     } catch (e) {
+      recordTokenRejection(e, revision);
       log(`login-and-fetch-image error: ${e.message}`);
       res.json({ imageUrl: '/assets/plate.png' });
     }
@@ -321,7 +349,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
     if (!cloudEnabled()) return res.json({ enabled: false });
     const revision = accountRevision;
     const t = await readToken();
-    if (!t?.accessToken) return res.json({ enabled: true, signedIn: false });
+    if (!t?.accessToken || credentialRejected || tokenIsExpired(t.accessToken)) return res.json({ enabled: true, signedIn: false });
     const now = Date.now();
     if (profileCache.data && (now - profileCache.time) < PROFILE_CACHE_MS) return res.json(profileCache.data);
     try {
@@ -351,6 +379,7 @@ function buildAuthRouter({ getConfig, saveConfig, paths, fetchCloud = (...args) 
       profileCache = { time: now, data: out };
       res.json(out);
     } catch (e) {
+      recordTokenRejection(e, revision);
       log(`profile-info error: ${e.message}`);
       res.json({ enabled: true, error: e.message });
     }

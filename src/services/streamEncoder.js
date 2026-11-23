@@ -1,7 +1,7 @@
 const { EventEmitter } = require('node:events');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
-const ffmpeg = require('ffmpeg-static');
+const { ffmpeg } = require('../lib/ffmpeg');
 
 // H.264/CBR presets from YouTube's encoder guidance, reviewed October 2026.
 const PROFILES = [

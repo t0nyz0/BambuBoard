@@ -5,6 +5,7 @@ const { printerTypeFromMqtt } = require('./lib/caps');
 const { mergePrint, reconnectJob, reuseJobId, createLayerClock } = require('./lib/printTelemetry');
 const { publicTelemetry } = require('./lib/cameraTelemetry');
 const { describe: describeGcodeJob } = require('../public/js/gcode-job');
+const { isStale } = require('../public/widgets/_telemetry');
 
 const PUSHALL_INTERVAL_MS = 5 * 60 * 1000;
 const JOB_RECOVERY_GRACE_MS = 10_000;
@@ -34,7 +35,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
   let refreshTimer = null;
   let sequenceID = 20000;
   let status = 'offline';
-  let telemetryPublished = false;
+  let publishedTelemetry = null;
   let lastUpdate = null;
   let printSnapshot = {};
   const layerClock = createLayerClock();
@@ -58,7 +59,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
     // ignore events from a client once it is no longer current.
     try { retiringClient?.end(true); } catch (_) {}
     status = 'offline';
-    telemetryPublished = false;
+    publishedTelemetry = null;
     if (!previousJobSnapshot && !['IDLE', 'FAILED'].includes(printSnapshot.gcode_state)) {
       const job = describeGcodeJob(printSnapshot);
       if (job.available || job.calibration) previousJobSnapshot = printSnapshot;
@@ -69,8 +70,12 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
 
   const state = {
     get status() { return status; },
-    get telemetryConnection() { return status === 'online' && !telemetryPublished ? 'waiting' : status; },
+    get telemetryConnection() {
+      if (status !== 'online') return status;
+      return publishedTelemetry && !isStale(publishedTelemetry, Date.now()) ? 'online' : 'waiting';
+    },
     get lastUpdate() { return lastUpdate; },
+    get lastTelemetryUpdate() { return publishedTelemetry ? new Date(publishedTelemetry._bb_received_at).toLocaleString() : null; },
     get detectedType() { return detectedType; },
     get detectedModel() { return detectedModel; },
     get cameraTelemetry() { return cameraTelemetry; },
@@ -141,8 +146,8 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
       }));
     });
 
-    connection.on('message', (_topic, message) => {
-      if (client !== connection || status !== 'online') return;
+    connection.on('message', (reportedTopic, message) => {
+      if (client !== connection || status !== 'online' || reportedTopic !== topic) return;
       try {
         const json = JSON.parse(message.toString());
         lastUpdate = json.t_utc && !isNaN(json.t_utc)
@@ -218,7 +223,9 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
               if (client !== connection || status !== 'online') return;
               await fs.promises.rename(temp, dataPath);
               committed = true;
-              if (client === connection && status === 'online') telemetryPublished = true;
+              if (client === connection && status === 'online') {
+                publishedTelemetry = { _bb_received_at: receivedAt, print: { gcode_state: print.gcode_state } };
+              }
             } finally {
               if (!committed) await fs.promises.rm(temp, { force: true });
             }
@@ -234,7 +241,7 @@ function createPrinterClient({ printer, dataPath, log, onPrinterDetected, connec
       if (connection !== client) return;
       log(`MQTT ${label}${err ? ': ' + err.message : ''}. Reconnecting in 3s...`);
       status = 'offline';
-      telemetryPublished = false;
+      publishedTelemetry = null;
       layerClock.reset();
       clearInterval(refreshTimer);
       refreshTimer = null;
@@ -267,9 +274,17 @@ function testConnection({ url, port, serialNumber, accessCode }, timeoutMs = 500
       reconnectPeriod: 0,
       rejectUnauthorized: false,
     });
-    const timer = setTimeout(() => finish({ ok: false, error: 'Connection timed out' }), timeoutMs + 500);
+    const unreachable = { ok: false, code: 'UNREACHABLE', error: 'Could not reach the printer.' };
+    const timer = setTimeout(() => finish(unreachable), timeoutMs + 500);
     c.on('connect', () => { clearTimeout(timer); finish({ ok: true }); });
-    c.on('error', (err) => { clearTimeout(timer); finish({ ok: false, error: err.message }); });
+    c.on('error', (err) => {
+      clearTimeout(timer);
+      if (err.code === 4 || err.code === 5) {
+        finish({ ok: false, code: 'AUTHENTICATION', error: 'The printer rejected the LAN access code.' });
+      } else {
+        finish(unreachable);
+      }
+    });
   });
 }
 

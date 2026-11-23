@@ -9,6 +9,17 @@
     "repository": "https://github.com/phoboslab/jsmpeg",
     "commit": "924acfbd96fdf15e6748d1368a36d79d8f4cecf6"
   },
+  "fonts": {
+    "ibm-plex-mono-100.ttf": "2.3",
+    "ibm-plex-mono-400.ttf": "2.3",
+    "manrope-variable.ttf": "4.505",
+    "material-symbols-outlined.ttf": "2.846",
+    "open-sans-400.ttf": "3.003",
+    "open-sans-600.ttf": "3.003",
+    "oxygen-400.ttf": "0.2.3",
+    "red-hat-display-300.ttf": "1.030",
+    "red-hat-display-400.ttf": "1.030"
+  },
   "patches": [
     "gcode-preview: WebGLRenderer alpha=true",
     "gcode-preview: BatchedMesh addInstance for current Three.js"
@@ -19,6 +30,15 @@
     "public/vendor/three.module.js": "104f56145899722094556490d787aae0617cc2fc3382f31df02d724ea1aee341",
     "public/vendor/three.core.js": "613e370f76638fdef83926642bf256dc9615684922de1ce1f63a8583e5d78578",
     "public/vendor/lil-gui.esm.js": "5b5a58e43dd6690f4a7b9bb3dd3caf7c58430a793855c9be8f3323bed94cc5a7",
-    "public/vendor/gcode-preview.esm.js": "ab1bb6d4596748c3a5b79e1b33fa8e6d2e5aea1bc13e950458304060b9d7c157"
+    "public/vendor/gcode-preview.esm.js": "ab1bb6d4596748c3a5b79e1b33fa8e6d2e5aea1bc13e950458304060b9d7c157",
+    "public/assets/fonts/ibm-plex-mono-100.ttf": "bbcfdd440c23ebf420760832c99f9e378b0e0af4b7d70619e896e6f486c0ad18",
+    "public/assets/fonts/ibm-plex-mono-400.ttf": "a7fdc993f9f0387caedba4e42521136fa97e4c0837ae6239bf0413ccf8af00c2",
+    "public/assets/fonts/manrope-variable.ttf": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6",
+    "public/assets/fonts/material-symbols-outlined.ttf": "64682045edde9989d23fcd00d6d5a338c22000dd6b566ead169364c14a14bb06",
+    "public/assets/fonts/open-sans-400.ttf": "12d0ed9dd0e77739b73c08ec8415078e74554caee81dbf33c964c39cdecb850b",
+    "public/assets/fonts/open-sans-600.ttf": "d1d6a033a174928bac5ebce032c8af24f11f9147c2462a107cab501d72636925",
+    "public/assets/fonts/oxygen-400.ttf": "8eb12af7c555ddc2f90cece6a14fc31f2ca15518f172f734bc350285fe4f7f3d",
+    "public/assets/fonts/red-hat-display-300.ttf": "00489df2aeff49c18bf3681482fed206241b54971edd33b225d9927a87c88305",
+    "public/assets/fonts/red-hat-display-400.ttf": "230db3c5f4c75eeef1184955cbe522fe6c964030428eef61d8dc954be830da69"
   }
 }

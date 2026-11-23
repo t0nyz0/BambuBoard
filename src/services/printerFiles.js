@@ -76,6 +76,9 @@ function cancelledTransfer() {
 async function extractPlateGcode(buffer, { plate = 1, plateKnown = true, onEvent = () => {}, limits = LIMITS, signal } = {}) {
   const check = () => { if (signal?.aborted) throw cancelledTransfer(); };
   check();
+  if (!Buffer.isBuffer(buffer)) {
+    throw new GcodeError('GCODE_INVALID', 'The downloaded file does not contain readable G-code.', { stage: 'validate' });
+  }
   const oversizedToolpath = (bytes, stage) => {
     const size = (bytes / MiB).toFixed(2);
     return new GcodeError('FILE_TOO_LARGE', `The unpacked G-code is ${size} MiB and exceeds the ${toolpathMiB} MiB preview limit. Open this plate in Bambu Studio.`, { stage, status: 413 });

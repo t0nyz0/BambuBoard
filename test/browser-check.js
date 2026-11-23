@@ -1,5 +1,6 @@
 // Full browser flow against temporary data, accessed over loopback.
 const assert = require('node:assert/strict');
+const { ffmpeg } = require('../src/lib/ffmpeg');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -415,7 +416,7 @@ async function checkAms3h(context, base, artifactDir) {
       if (!request.url().startsWith(base) && !request.url().startsWith('data:')) external.add(request.url());
       if (new URL(request.url()).pathname === '/api/printer-credentials') credentialReads++;
     });
-    const cameraSample = execFileSync(require('ffmpeg-static'), ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30', '-t', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1'], { timeout: 10000 });
+    const cameraSample = execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30', '-t', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1'], { timeout: 10000 });
     await context.route('**/assets/camera-fixture.ts*', route => route.fulfill({ contentType: 'video/mp2t', headers: { 'Content-Length': String(cameraSample.length) }, body: cameraSample }));
     const page = await context.newPage();
     await page.goto(base + '/scene-editor');
@@ -500,12 +501,19 @@ async function checkAms3h(context, base, artifactDir) {
     await page.setViewportSize({ width: 1440, height: 1100 }); await page.goto(base + '/');
     await page.waitForFunction(() => document.getElementById('publication-state').textContent === 'Published');
     assert.equal(await page.locator('#youtube-details').getAttribute('open'), null);
-    const order = await page.evaluate(() => document.querySelector('.preview-card').getBoundingClientRect().top < document.querySelector('.obs-card').getBoundingClientRect().top && document.querySelector('.obs-card').getBoundingClientRect().top < document.querySelector('.youtube-section').getBoundingClientRect().top);
-    assert.ok(order);
+    const obsPosition = await page.evaluate(() => {
+      const preview = document.querySelector('.preview-card').getBoundingClientRect();
+      const obs = document.querySelector('.obs-card').getBoundingClientRect();
+      const youtube = document.querySelector('.youtube-section').getBoundingClientRect();
+      return obs.top === preview.top && obs.left >= preview.right && obs.bottom <= youtube.top;
+    });
+    assert.ok(obsPosition, 'OBS is alongside the preview and above optional YouTube setup');
+    if (await page.locator('#show-layout').isVisible()) await page.locator('#show-layout').click();
     const iframe = page.frameLocator('#live-frame');
     await iframe.locator('.live-item').first().waitFor();
     assert.equal(await page.locator('#live-frame').getAttribute('src'), '/live');
     assert.equal(await page.locator('#live-url').inputValue(), publicUrl + '/live');
+    assert.equal(await page.locator('#obs-dimensions').textContent(), `${published.resolution.x} × ${published.resolution.y}`);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
     await page.locator('#copy-url').click();
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), publicUrl + '/live');
@@ -517,6 +525,7 @@ async function checkAms3h(context, base, artifactDir) {
     // Test HTTP LAN feature detection with the real document, without capture.
     await page.addInitScript(() => Object.defineProperty(window, 'isSecureContext', { value: false }));
     await page.reload(); await page.locator('#youtube-details').evaluate(node => { node.open = true; });
+    await page.locator('.yt-advanced > summary').click();
     await page.waitForFunction(() => !document.getElementById('yt-mode').disabled);
     await page.locator('#yt-mode').selectOption('browser');
     assert.match(await page.locator('#yt-support').innerText(), /HTTPS or localhost/);
@@ -542,6 +551,7 @@ async function checkAms3h(context, base, artifactDir) {
     const testGcodeUrl = base + '/api/test-gcode-connection';
     const testGcode = page.getByRole('button', { name: 'Test G-code connection' });
     const gcodeResult = page.locator('#test-gcode-result');
+    await page.locator('#setup-diagnostics > summary').click();
     await page.route(testGcodeUrl, route => {
       gcodeChecks.push({ method: route.request().method(), body: route.request().postDataJSON() });
       return gcodeChecks.length === 1 ? route.fulfill({ json: { ok: true, message: 'Secure G-code file access is available.' } })
@@ -557,7 +567,7 @@ async function checkAms3h(context, base, artifactDir) {
     assert.equal(connectionChecks.length, 0);
     await address.fill(savedAddress);
     await page.locator('#test-btn').click();
-    await page.waitForFunction(() => document.getElementById('test-result').textContent.includes('Connection test passed'));
+    await page.waitForFunction(() => document.getElementById('test-result').textContent.includes('LAN credentials accepted'));
     assert.equal(connectionChecks[0].accessCode, '');
     await page.unroute(testConnectionUrl);
     await testGcode.click();
@@ -570,12 +580,27 @@ async function checkAms3h(context, base, artifactDir) {
 
     await page.locator('.display-preferences > summary').click();
     const checked = await page.locator('#fan-pct').getAttribute('aria-checked');
+    const showIcons = await page.locator('#fan-icons').getAttribute('aria-checked');
     await page.locator('#fan-pct').focus(); await page.keyboard.press('Space');
     assert.notEqual(await page.locator('#fan-pct').getAttribute('aria-checked'), checked);
-    await page.locator('#save-btn').click(); await page.waitForSelector('.toast');
+    await page.locator('#fan-icons').click();
+    await page.locator('#save-preferences-btn').click();
+    await page.locator('#preferences-result').filter({ hasText: 'Display preferences saved.' }).waitFor();
     const saved = JSON.parse(await fs.readFile(path.join(data, 'config.json'), 'utf8'));
     assert.equal(saved.BambuBoard_displayFanPercentages, checked !== 'true');
+    assert.equal(saved.BambuBoard_displayFanIcons, showIcons !== 'true');
     assert.equal(saved.printer.accessCode, 'fixture-only');
+    const fanPage = await context.newPage();
+    try {
+      await fanPage.goto(base + '/widgets/fans/');
+      await fanPage.waitForFunction(settings => {
+        const pct = document.querySelector('.fan-pct');
+        const icon = document.querySelector('.fan-icon');
+        return pct.hidden === !settings.BambuBoard_displayFanPercentages && icon.hidden === !settings.BambuBoard_displayFanIcons;
+      }, saved);
+    } finally { await fanPage.close(); }
+    assert.equal(await page.locator('#cloud-email-form').isVisible(), false);
+    await page.locator('#cloud-heading').click();
     await page.locator('#cloud-email-form').waitFor({ state: 'visible' });
     const relayPage = await context.newPage();
     await relayPage.addInitScript(() => {
@@ -592,6 +617,7 @@ async function checkAms3h(context, base, artifactDir) {
     });
     await relayPage.goto(base + '/');
     await relayPage.locator('#youtube-details').evaluate(node => { node.open = true; });
+    await relayPage.locator('.yt-advanced > summary').click();
     await relayPage.waitForFunction(() => !document.getElementById('yt-mode').disabled);
     await relayPage.locator('#yt-mode').selectOption('browser');
     await relayPage.locator('#yt-key').fill('fixture-only'); await relayPage.locator('#yt-start').click();
@@ -702,7 +728,8 @@ async function checkAms3h(context, base, artifactDir) {
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.locator('#widget-drawer-close').click(); assert.equal(await page.locator('#layers-panel').isVisible(), true);
     await page.goto(base + '/setup?firstRun=1'); await page.waitForFunction(() => !document.getElementById('bb-stepper').hidden);
-    await page.locator('.display-preferences > summary').click(); await page.locator('#cloud-email-form').waitFor({ state: 'visible' });
+    await page.locator('.display-preferences > summary').click();
+    await page.locator('#cloud-heading').click(); await page.locator('#cloud-email-form').waitFor({ state: 'visible' });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.deepEqual(errors, [], 'browser JavaScript errors');
     assert.deepEqual([...external], [], 'LAN operation must not request CDN assets');

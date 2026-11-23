@@ -33,6 +33,7 @@ const state = {
   selectedIndex: -1,
   customizations: {},    // source UUID/name → { theme, accent, fontSize, bindings }
   zoom: 1,
+  zoomSelected: false,
   // Scene edits and whole-draft edits have separate scope in the undo history.
   history: [],
   future: [],
@@ -72,23 +73,6 @@ const widgetSlugOf = (src) => {
   const m = parseBrowserSourceUrl(src.settings?.url)?.pathname.match(widgetSlugRe);
   return m ? m[1] : null;
 };
-
-// Heuristic: should this URL be rendered as an <img> rather than an <iframe>?
-// True for explicit image-extension URLs and for known image-host patterns
-// where the path has no extension but consistently returns image bytes
-// (S3 trademark store, generic CDN paths). Cross-origin iframes can't be
-// styled, so when the URL is just an image we'd rather load it as <img>
-// inside a wrapper we can style — that's how the H2D logo gets its rounded
-// dark backdrop in the editor.
-function looksLikeImageUrl (url) {
-  if (!url) return false;
-  // Strip query string before checking extension.
-  const path = url.split(/[?#]/)[0].toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/.test(path)) return true;
-  // Known image-host patterns where URLs lack file extensions.
-  if (/^https?:\/\/[^/]*\.s3[.-]?[a-z0-9-]*\.amazonaws\.com\/[^/?#]+$/.test(url)) return true;
-  return false;
-}
 
 // Build an iframe styled to OBS's browser-source rendering pipeline: paint
 // at the source's natural viewport (settings.{width,height}) then visually
@@ -290,6 +274,13 @@ function updateUndoButtons () {
   window.addEventListener('resize', fitZoom);
   if (window.ResizeObserver) {
     new ResizeObserver(fitZoom).observe(els.shell());
+    document.addEventListener('DOMContentLoaded', () => {
+      const nav = document.querySelector('.nav');
+      if (!nav) return;
+      const setNavHeight = () => document.documentElement.style.setProperty('--editor-nav-height', `${nav.getBoundingClientRect().height}px`);
+      setNavHeight();
+      new ResizeObserver(setNavHeight).observe(nav);
+    }, { once: true });
   }
 
   // Keyboard shortcuts:
@@ -348,6 +339,12 @@ function updateUndoButtons () {
   document.getElementById('save-btn').addEventListener('click', onSave);
   document.getElementById('save-copy-btn').addEventListener('click', onSaveCopy);
   document.getElementById('preview-btn').addEventListener('click', onPreview);
+  document.getElementById('draft-preview-btn').addEventListener('click', () => setPreviewMode(false));
+  document.getElementById('live-preview-btn').addEventListener('click', () => setPreviewMode(true));
+  document.getElementById('zoom-selected-btn').addEventListener('click', () => {
+    state.zoomSelected = !state.zoomSelected;
+    fitZoom();
+  });
   document.getElementById('golive-btn').addEventListener('click', onGoLive);
   document.getElementById('restore-live-btn').addEventListener('click', restoreLive);
   document.getElementById('reset-btn').addEventListener('click', resetDraft);
@@ -566,6 +563,7 @@ function loadCollection (json, identity = {}) {
   state.future = [];
   state.pendingEdit = null;
   state.nameEditing = false;
+  state.zoomSelected = false;
   state.savedSlug = identity.savedSlug || null;
   state.savedRevision = identity.savedRevision || null;
   state.savedName = (state.savedSlug ? identity.name : sanitizeSceneName(identity.name)) || sanitizeSceneName(scenes[0].name);
@@ -635,6 +633,8 @@ function populateScenePicker (scenes) {
   for (const [picker, value] of [[els.scenes(), state.sceneName], [els.liveScenes(), state.liveSceneName]]) {
     picker.replaceChildren(...scenes.map(scene => new Option(scene.name, scene.name, false, scene.name === value)));
   }
+  document.getElementById('edit-scene-field').hidden = scenes.length < 2;
+  document.getElementById('live-scene-field').hidden = scenes.length < 2;
   els.scenes().onchange = event => selectScene(event.target.value);
 }
 
@@ -645,7 +645,9 @@ function selectScene (name) {
   if (previous?.settings) previous.settings.items = structuredClone(state.items);
   state.sceneName = name;
   state.selectedIndex = -1;
+  state.zoomSelected = false;
   closeInspector();
+  fitZoom();
   els.scenes().value = name;
   const scene = state.sources[name];
   if (!scene) return;
@@ -663,11 +665,20 @@ function fitZoom () {
   const shell = els.shell();
   const wrap = els.wrap();
   const c = els.canvas();
-  if (!shell || !wrap || !c) return;
+  if (!shell || !wrap || !c || shell.closest('[hidden]')) return;
   const avail = shell.getBoundingClientRect();
   const maxW = Math.max(40, avail.width - (compactEditor.matches ? 18 : 26));
   const maxH = Math.max(40, compactEditor.matches ? Math.min(window.innerHeight * 0.28, 240) : avail.height - 26);
-  state.zoom = Math.min(maxW / CANVAS_W, maxH / CANVAS_H, 1);
+  const selected = state.items[state.selectedIndex];
+  const wholeZoom = Math.min(maxW / CANVAS_W, maxH / CANVAS_H, 1);
+  let focusX = 0, focusY = 0;
+  state.zoom = wholeZoom;
+  const focus = selected && state.zoomSelected ? layerRect(selected) : null;
+  if (focus?.w > 0 && focus.h > 0) {
+    state.zoom = Math.max(wholeZoom, Math.min(maxW / (focus.w + 48), maxH / (focus.h + 48), 2));
+    focusX = Math.max(0, Math.min((focus.x + focus.w / 2) * state.zoom - maxW / 2, CANVAS_W * state.zoom - maxW));
+    focusY = Math.max(0, Math.min((focus.y + focus.h / 2) * state.zoom - maxH / 2, CANVAS_H * state.zoom - maxH));
+  }
 
   // The inner canvas keeps its 1920×1080 coordinate box; transform: scale()
   // shrinks the visual rendering. The wrapper is sized to the *visual* extent
@@ -675,11 +686,14 @@ function fitZoom () {
   // pre-scale layout box (which would force horizontal scrolling).
   c.style.width  = CANVAS_W + 'px';
   c.style.height = CANVAS_H + 'px';
-  c.style.transform = `scale(${state.zoom})`;
-  wrap.style.width  = (CANVAS_W * state.zoom) + 'px';
-  wrap.style.height = (CANVAS_H * state.zoom) + 'px';
+  c.style.transform = `translate(${-focusX}px, ${-focusY}px) scale(${state.zoom})`;
+  wrap.style.width  = Math.min(maxW, CANVAS_W * state.zoom) + 'px';
+  wrap.style.height = Math.min(maxH, CANVAS_H * state.zoom) + 'px';
 
   if (els.zoomLbl()) els.zoomLbl().textContent = `${Math.round(state.zoom * 100)}%`;
+  const button = document.getElementById('zoom-selected-btn');
+  button.disabled = !selected;
+  button.textContent = focus ? 'Fit whole canvas' : 'Zoom to selected';
 }
 
 // OBS source-id-specific defaults. color_source and image_source default to
@@ -743,11 +757,60 @@ function alignOffsets (align) {
   return { ox, oy };
 }
 
-// Same bitfield as alignOffsets but for bounds_align. Controls where content
-// sits within the bounding box when the content doesn't fill it completely
-// (e.g. bounds_type=4 inner-bounds with a wide source in a tall box).
-// Returns {ox, oy} fractions: 0=leading, 0.5=center, 1=trailing.
-const boundsAlignOffsets = alignOffsets;
+function layerRect(item, source = state.sources[item.name]) {
+  const size = itemSize(item, source);
+  const { ox, oy } = alignOffsets(item.align);
+  const x = item.pos?.x || 0;
+  const y = item.pos?.y || 0;
+  const angle = (item.rot || 0) * Math.PI / 180;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const corners = [[0, 0], [size.w, 0], [0, size.h], [size.w, size.h]].map(([u, v]) => {
+    const dx = u - size.w * ox, dy = v - size.h * oy;
+    return [x + dx * cos - dy * sin, y + dx * sin + dy * cos];
+  });
+  const xs = corners.map(([u]) => u), ys = corners.map(([, v]) => v);
+  const left = Math.min(...xs), top = Math.min(...ys);
+  return { x: left, y: top, w: Math.max(...xs) - left, h: Math.max(...ys) - top };
+}
+
+function isBackdrop(item, rect) {
+  const source = state.sources[item.name];
+  const backgroundType = ['color_source', 'ffmpeg_source', 'vlc_source', 'rtsp_source'].includes(source?.id)
+    || (isWidgetSrc(source) && widgetSlugOf(source) === 'camera');
+  return backgroundType && rect.w > CANVAS_W * 0.8 && rect.h > CANVAS_H * 0.8;
+}
+
+// A closest open row starts at the preferred Y or at an obstacle's edge.
+// Scan only the occupied horizontal intervals crossing those candidate rows.
+function openSpot(width, height, preferred, obstacles, gap = 8) {
+  const maxX = CANVAS_W - width, maxY = CANVAS_H - height;
+  if (maxX < 0 || maxY < 0) return null;
+  const clamp = (value, low, high) => Math.min(Math.max(low, value), high);
+  const rows = new Set([0, maxY, preferred.y, ...obstacles.flatMap(rect => [rect.y - height - gap, rect.y + rect.h + gap])]
+    .map(y => clamp(y, 0, maxY)));
+  const byX = obstacles.slice().sort((a, b) => a.x - b.x);
+  let best = null, bestDistance = Infinity;
+  for (const y of rows) {
+    let left = 0;
+    const consider = right => {
+      if (right < left) return;
+      const x = clamp(preferred.x, left, right);
+      const distance = (preferred.x - x) ** 2 + (preferred.y - y) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = { x, y };
+      }
+    };
+    for (const rect of byX) {
+      if (rect.y + rect.h + gap <= y || rect.y - gap >= y + height) continue;
+      consider(Math.min(maxX, rect.x - width - gap));
+      left = Math.max(left, rect.x + rect.w + gap);
+      if (left > maxX) break;
+    }
+    consider(maxX);
+  }
+  return best;
+}
 
 // Snap-to-widget: given a proposed position (px, py) and the item being moved
 // (by index), compute the closest snap position by checking edges/centers of
@@ -958,13 +1021,12 @@ function renderItem (item, idx, replacing) {
       if (!url) {
         node.classList.add('placeholder');
         body.textContent = 'Unsupported browser source URL';
-      } else if (looksLikeImageUrl(url)) {
+      } else if (BBSceneContent.looksLikeImageUrl(url)) {
         const img = document.createElement('img');
         img.src = url;
         img.alt = item.name;
         img.style.width = '100%';
         img.style.height = '100%';
-        img.style.objectFit = 'contain';
         img.style.display = 'block';
         // If the image fails to load (e.g. it was actually HTML), gracefully
         // fall back to an iframe so we still show *something*.
@@ -987,23 +1049,10 @@ function renderItem (item, idx, replacing) {
       img.src = src.settings?.file || src.settings?.url || '';
       img.style.width = '100%';
       img.style.height = '100%';
-      img.style.objectFit = 'contain';
       img.style.display = 'block';
       body.appendChild(img);
-    } else if (src.id === 'text_ft2_source' || src.id === 'text_gdiplus_v2' || src.id === 'text_gdiplus') {
-      // Render text source content. Font size scales with the source's natural
-      // viewport so the text looks roughly right at any zoom level.
-      const text = src.settings?.text || '';
-      const font = src.settings?.font || {};
-      const fontSize = font.size || 24;
-      const div = document.createElement('div');
-      div.textContent = text;
-      div.style.fontSize = (fontSize * 1.5) + 'px';
-      div.style.fontFamily = font.face ? `"${font.face}", sans-serif` : 'sans-serif';
-      div.style.color = obsColorToCss(src.settings?.color1 ?? 0xFFFFFFFF);
-      div.style.padding = '4px 8px';
-      div.style.whiteSpace = 'nowrap';
-      body.appendChild(div);
+    } else if (BBSceneContent.isText(src)) {
+      body.appendChild(BBSceneContent.renderText(src.settings || {}, obsColorToCss));
     } else if (src.id === 'ffmpeg_source' || src.id === 'vlc_source' || src.id === 'rtsp_source') {
       // Match Live's printer camera unless this editor has a preview override.
       const overrideKey = `bb-media-override:${src.uuid || src.name}`;
@@ -1036,7 +1085,7 @@ function renderItem (item, idx, replacing) {
 
     const handle = document.createElement('div');
     handle.className = 'resize-handle';
-    handle.title = 'Scale widget proportionally';
+    handle.title = 'Drag to change visual scale';
     attachDrag(handle, node, /*resize*/ true);
 
     node.appendChild(body);
@@ -1156,7 +1205,13 @@ async function measureWidgetFit(frame, size) {
 function refreshAutoSizeButton(item, source, layers = widgetLayers(source)) {
   const button = document.getElementById('autosize-btn');
   const frame = selectedWidgetFrame();
-  button.disabled = item.locked || layers.some(layer => layer.locked) || !state.measuredFrames.has(frame) || state.fittingFrame === frame;
+  const locked = item.locked || layers.some(layer => layer.locked);
+  const measuring = frame && state.fittingFrame === frame;
+  const measurable = state.measuredFrames.has(frame);
+  button.disabled = locked || !measurable || measuring;
+  const help = document.getElementById('fit-help');
+  help.hidden = locked || (measurable && !measuring);
+  help.textContent = measuring ? 'Measuring the widget…' : 'If this preview can’t measure its content, adjust the width and height above.';
 }
 
 function refreshWidgetPreview(source) {
@@ -1208,129 +1263,6 @@ function changeGcodeView(view, zoom) {
   }
   updateDiff();
   refreshInspector();
-}
-
-// Tiny JSONPath resolver — same logic as the one in _customizer.js, kept in
-// sync. Used by renderBindings() to show the live current value next to each
-// binding input in the inspector. Supports `$.a.b[0].c`, `a.b[0]`.
-function _resolvePath (root, path) {
-  if (!path || typeof path !== 'string') return undefined;
-  const p = path.replace(/^\$\.?/, '');
-  if (p === '') return root;
-  const tokens = [];
-  const re = /([^.\[\]]+)|\[(\d+)\]/g;
-  let m;
-  while ((m = re.exec(p)) !== null) tokens.push(m[1] !== undefined ? m[1] : Number(m[2]));
-  let node = root;
-  for (let i = 0; i < tokens.length; i++) {
-    if (node == null) return undefined;
-    node = node[tokens[i]];
-  }
-  return node;
-}
-
-let shownBindingSource, shownBindings, bindingSamples, bindingFetch;
-function renderBindings (slug) {
-  const block = document.getElementById('bindings-block');
-  const list = document.getElementById('bindings-list');
-  if (!block || !list) return;
-  const manifest = state.widgetManifests && state.widgetManifests[slug];
-  const bindings = manifest && Array.isArray(manifest.bindings) ? manifest.bindings : null;
-  if (!bindings || bindings.length === 0) {
-    block.style.display = 'none';
-    return;
-  }
-  block.style.display = '';
-  const item = state.items[state.selectedIndex];
-  const source = state.sources[item?.name];
-  if (shownBindingSource !== source || shownBindings !== bindings) {
-    shownBindingSource = source;
-    shownBindings = bindings;
-    bindingSamples = renderBindingsRows(bindings, source);
-  }
-  const overrides = state.customizations[customizationKeyOf(source)]?.bindings || {};
-  for (const { input, binding, updatePreview } of bindingSamples) {
-    input.disabled = item.locked === true;
-    if (document.activeElement !== input) input.value = overrides[binding.id] || binding.default || '';
-    updatePreview();
-  }
-  // Update just the sample values when telemetry returns. Replacing the form
-  // here would discard input and focus while the user is typing.
-  if (!bindingFetch && (!state._dataCacheAt || Date.now() - state._dataCacheAt > 1000)) {
-    bindingFetch = fetch('/data.json', { cache: 'no-store' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        state._dataCache = data;
-        for (const { updatePreview } of bindingSamples) updatePreview();
-      })
-      .catch(() => {})
-      .finally(() => { state._dataCacheAt = Date.now(); bindingFetch = null; });
-  }
-}
-
-function renderBindingsRows (bindings, source) {
-  const list = document.getElementById('bindings-list');
-  list.replaceChildren();
-  return bindings.map(b => {
-    const row = document.createElement('div');
-    row.className = 'bindings-row';
-    row.style.cssText = 'display: grid; grid-template-columns: 1fr; gap: 2px; margin-bottom: 8px';
-
-    const label = document.createElement('label');
-    label.style.cssText = 'font-size: 11px; color: var(--color-text-dim); display: flex; justify-content: space-between; align-items: baseline; gap: 6px';
-    const labelText = document.createElement('span');
-    labelText.textContent = b.label || b.id;
-    const valueSpan = document.createElement('span');
-    valueSpan.className = 'binding-live-value';
-    valueSpan.style.cssText = 'font-family: var(--font-mono); font-size: 10px; color: var(--color-accent); max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap';
-    label.appendChild(labelText);
-    label.appendChild(valueSpan);
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.setAttribute('aria-label', b.label || b.id);
-    input.className = 'input';
-    input.style.cssText = 'font-family: var(--font-mono); font-size: 11px; padding: 4px 6px; width: 100%; box-sizing: border-box';
-    input.placeholder = b.default || '';
-    if (b.hint) input.title = b.hint;
-
-    const updatePreview = () => {
-      const path = input.value.trim();
-      const live = _resolvePath(state._dataCache || {}, path);
-      let preview = '—';
-      if (live !== undefined) {
-        if (typeof live === 'object') preview = '{...}';
-        else if (typeof live === 'string') preview = '"' + live.slice(0, 30) + '"';
-        else preview = String(live);
-      }
-      valueSpan.textContent = preview;
-    };
-
-    input.addEventListener('input', updatePreview);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
-    input.addEventListener('change', () => {
-      const selected = state.items[state.selectedIndex];
-      if (!selected || selected.locked || state.sources[selected.name] !== source) return;
-      const key = customizationKeyOf(source);
-      const value = input.value.trim();
-      const override = value === b.default ? '' : value;
-      if ((state.customizations[key]?.bindings?.[b.id] || '') === override) return;
-      snapshot();
-      const cust = state.customizations[key] ||= {};
-      const overrides = cust.bindings ||= {};
-      if (override) overrides[b.id] = override;
-      else delete overrides[b.id];
-      input.value = override || b.default || '';
-      refreshWidgetPreview(source);
-      updateDiff();
-      updatePreview();
-    });
-
-    row.appendChild(label);
-    row.appendChild(input);
-    list.appendChild(row);
-    return { input, binding: b, updatePreview };
-  });
 }
 
 // ---- drag / resize ----
@@ -1424,10 +1356,8 @@ function updatePreviewLayout(node, item, src, idx, showNaturalSize = false) {
     body.style.clipPath = crop.some(Boolean)
       ? `inset(${crop.map((value, i) => `${(value || 0) * (i % 2 === 0 ? sz.scaleY : sz.scaleX)}px`).join(' ')})`
       : '';
-    // Reapply the filter to retained previews, including after Undo or Reset.
-    const rendering = item.scale_filter === 'point' ? 'pixelated' : '';
-    body.style.imageRendering = rendering;
-    for (const element of body.querySelectorAll('img, video')) element.style.imageRendering = rendering;
+    const image = body.querySelector('img');
+    if (image && BBSceneContent.isImage(src)) BBSceneContent.renderImage(image, item, src);
   }
   const lbl = node.querySelector('.label');
   if (lbl) {
@@ -1662,9 +1592,11 @@ function updateSelection () {
     node.querySelector('.lr-name')?.setAttribute('aria-pressed', String(selected));
   });
   updateLayerStackActions();
+  fitZoom();
 }
 function deselectItem () {
   state.selectedIndex = -1;
+  state.zoomSelected = false;
   updateSelection();
   closeInspector();
   if (compactEditor.matches && els.shell().parentElement.dataset.panel === 'inspector') showPanel('layers');
@@ -1684,6 +1616,8 @@ function openInspector () {
   const idx = state.selectedIndex;
   if (!state.items[idx]) return closeInspector();
   els.inspector().classList.add('open');
+  const frame = selectedWidgetFrame();
+  if (frame) frame.loading = 'eager';
   document.getElementById('inspector-empty').hidden = true;
   document.getElementById('inspector-fields').hidden = false;
   refreshInspector();
@@ -1716,7 +1650,10 @@ function refreshInspector () {
   const sharedHelp = document.getElementById('shared-size-help');
   document.getElementById('size-legend').textContent = widget ? 'Widget size' : 'Layer size';
   document.getElementById('size-help').hidden = !widget;
+  document.getElementById('width-label').textContent = widget ? 'Content width (px)' : 'Width (px)';
+  document.getElementById('height-label').textContent = widget ? 'Content height (px)' : 'Height (px)';
   document.getElementById('autosize-btn').hidden = !widget;
+  document.getElementById('fit-help').hidden = true;
   for (const axis of ['w', 'h']) {
     const input = document.getElementById('insp-' + axis);
     const natural = axis === 'w' ? sz.naturalW : sz.naturalH;
@@ -1751,6 +1688,7 @@ function refreshInspector () {
     document.getElementById('gcode-view-reset').disabled = !cust.view && !cust.zoom;
   }
   document.getElementById('cust-block').style.display = cust ? '' : 'none';
+  document.getElementById('accent-field').hidden = slug !== 'ams';
   if (cust !== null) {
     setValue('cust-title', cust.title || '');
     setValue('cust-theme', cust.theme || '');
@@ -1758,15 +1696,26 @@ function refreshInspector () {
     setValue('cust-font', cust.fontSize || '');
     setValue('cust-pad', cust.pad || '');
     refreshAutoSizeButton(item, src, layers);
-    renderBindings(slug);
-  } else {
-    renderBindings(null);
   }
 
   document.getElementById('insp-visible').checked = item.visible !== false;
   document.getElementById('insp-locked').checked  = item.locked === true;
-  setValue('insp-scale-filter', item.scale_filter || '');
   setValue('insp-bounds-align', String(item.bounds_align ?? 0));
+  const image = BBSceneContent.isImage(src);
+  const filter = document.getElementById('insp-scale-filter');
+  const explicitFilter = item.scale_filter && Array.from(filter.options).some(option => option.value === item.scale_filter);
+  setValue(filter.id, explicitFilter ? item.scale_filter : '');
+  // Existing OBS settings still round-trip when the browser cannot preview them.
+  filter.options[1].textContent = image ? 'Point (pixelated)' : 'Point · OBS only';
+  document.getElementById('filter-field').hidden = !image && !explicitFilter;
+  const filterHelp = document.getElementById('filter-help');
+  filterHelp.hidden = image || !explicitFilter;
+  filterHelp.textContent = 'This source uses image filtering only with an OBS scene collection.';
+  const anchor = BBSceneContent.imageAnchorSupported(item, src);
+  document.getElementById('anchor-field').hidden = !anchor && !hasSizeBounds(item) && !item.bounds_align;
+  const anchorHelp = document.getElementById('anchor-help');
+  anchorHelp.hidden = document.getElementById('anchor-field').hidden;
+  anchorHelp.textContent = anchor ? 'Positions the image in the available space inside its bounds.' : 'This source’s content anchor is only applied by OBS when importing the collection.';
   setValue('insp-crop-l', item.crop_left || 0);
   setValue('insp-crop-t', item.crop_top || 0);
   setValue('insp-crop-r', item.crop_right || 0);
@@ -2018,24 +1967,24 @@ function updateDiff () {
   const draftStatus = state.loading ? 'Loading draft…' : state.draftConflict ? 'Draft changed elsewhere' : !loaded ? 'No draft loaded' : changed ? 'Unsaved changes' : current ? 'Draft saved · Live' : state.savedSlug ? 'Draft saved' : 'New draft';
   if (badge.textContent !== draftStatus) badge.textContent = draftStatus;
   badge.className = 'pill ' + (changed || state.draftConflict ? 'pill-warn' : current ? 'pill-ok' : '');
-  const liveName = live?.name || live?.label || live?.slug || 'Default scene';
+  const liveName = live?.name || live?.label || live?.slug || 'Built-in layout';
   const liveScene = live?.sceneName ? ` / ${live.sceneName}` : '';
-  const liveRevision = live?.revision ? ` · revision ${String(live.revision).slice(0, 8)}` : '';
-  const outputStatus = live ? `Live now: ${liveName}${liveScene}${liveRevision}` : 'Live status unavailable';
+  const outputStatus = live ? `Now live: ${liveName}${liveScene}` : 'Live status unavailable';
   if (summary.textContent !== outputStatus) summary.textContent = outputStatus;
-  summary.title = live?.revision ? `Live revision ${live.revision}` : '';
   restore.hidden = !live?.canRollback;
   restore.disabled = busy || !live?.canRollback;
+  const revisions = document.getElementById('revision-details');
+  revisions.hidden = !live?.revision && !state.savedRevision;
+  revisions.textContent = [state.savedRevision && `Draft revision ${state.savedRevision}`, live?.revision && `Live revision ${live.revision}`].filter(Boolean).join('\n');
 
-  const target = loaded ? `${state.savedName} / ${state.liveSceneName}` : '';
+  const target = loaded && state.liveSceneName ? `“${state.liveSceneName}”` : 'this layout';
   const hintText = !loaded ? 'Load a layout to get started.'
     : state.draftConflict ? 'Refresh the editor to reload this draft, or save your edits as a copy.'
       : changed || !state.savedRevision ? 'Save your draft to apply it to Live.'
         : !live ? 'Reload the editor to check Live before applying this draft.'
           : current ? 'This saved draft is already Live.'
-            : `Ready to apply: ${target} · revision ${String(state.savedRevision).slice(0, 8)}`;
+            : `Apply to Live will show ${target}.`;
   hint.textContent = hintText;
-  hint.title = state.savedRevision ? `Saved draft revision ${state.savedRevision}` : '';
 
   document.getElementById('save-btn').disabled = busy || !loaded || !nameValid || state.draftConflict;
   document.getElementById('save-copy-btn').disabled = busy || !loaded;
@@ -2141,6 +2090,30 @@ function resetDraft () {
 
 function onPreview () {
   window.open('/live', '_blank', 'noopener');
+}
+
+function setPreviewMode(showLive) {
+  const draftButton = document.getElementById('draft-preview-btn');
+  const liveButton = document.getElementById('live-preview-btn');
+  if ((liveButton.getAttribute('aria-pressed') === 'true') === showLive) return;
+  draftButton.setAttribute('aria-pressed', String(!showLive));
+  liveButton.setAttribute('aria-pressed', String(showLive));
+  for (const selector of ['.draft-controls', '.editor-toolbar', '.editor-workspace']) {
+    document.querySelector(selector).hidden = showLive;
+  }
+  const liveShell = document.getElementById('live-preview-shell');
+  liveShell.hidden = !showLive;
+  document.getElementById('preview-btn').hidden = !showLive;
+  if (showLive) {
+    refreshPublicationState();
+    const frame = document.createElement('iframe');
+    frame.title = 'Published live output';
+    frame.src = '/live';
+    liveShell.appendChild(frame);
+  } else {
+    liveShell.replaceChildren();
+    fitZoom();
+  }
 }
 
 async function changeLive (endpoint, payload, success, failure) {
@@ -2292,218 +2265,47 @@ function pickCanvasResolution () {
   window.toast && window.toast(`Canvas: ${w}×${h}. Widgets scaled proportionally.`);
 }
 
-// ---- Auto-layout ----
-//
-// Role-aware layout engine. Each widget has an implicit "role" derived from
-// its source URL slug (or source type for non-widget items). The layout uses
-// these roles to decide placement zones and pairing rules rather than blind
-// column clustering.
-//
-// Layout zones (for a typical BambuBoard OBS overlay):
-//   TOP:    progress bar (full-width, y=0)
-//   LEFT:   print stats column (~400px wide, anchored to left edge)
-//   CENTER: profile, printer info (between left column and right column)
-//   RIGHT:  model image, logo (anchored to right edge)
-//   BOTTOM: notes bar (full-width, anchored to bottom)
-//   CORNER: version (bottom-right corner)
-//
-// Pairing: nozzle-temp + nozzle-temp-2 sit side by side (half-column each).
-// Same for ams + ams2 (half-column each).
-
-const AUTO_LAYOUT_GAP = 4;
-const AUTO_LAYOUT_GRID = 10;
-
-// Widget slug → layout role. Items not in this map get 'unknown' and are
-// placed after known items in whatever column they were closest to.
-const LAYOUT_ROLES = {
-  // Full-width anchors
-  'progress-info': { zone: 'top',    order: 0 },
-  'notes':         { zone: 'bottom', order: 0 },
-  'version':       { zone: 'corner', order: 0 },
-  // Left column — single items (stacked top to bottom in this order)
-  'print-info':    { zone: 'left', order: 1 },
-  'chamber-temp':  { zone: 'left', order: 2 },
-  'bed-temp':      { zone: 'left', order: 3 },
-  'ams-temp':      { zone: 'left', order: 4 },
-  'ams-temp-2':    { zone: 'left', order: 5 },
-  // Left column — paired items (side by side)
-  'nozzle-temp-2': { zone: 'left-pair-a', order: 6, pair: 'nozzle-temp' },
-  'nozzle-temp':   { zone: 'left-pair-b', order: 6, pair: 'nozzle-temp-2' },
-  'ams':           { zone: 'left-pair-a', order: 7, pair: 'ams2' },
-  'ams2':          { zone: 'left-pair-b', order: 7, pair: 'ams' },
-  // Left column — bottom
-  'fans':          { zone: 'left', order: 8 },
-  // Center column
-  'profile-info':  { zone: 'center', order: 1 },
-  'printer-info':  { zone: 'center', order: 2 },
-  // Right column
-  'model-image':   { zone: 'right', order: 1 },
-};
-
+// Keep broad widget roles while finding open space at actual rendered size.
 function autoLayout () {
-  const movable = state.items.filter(item => !item.locked);
-  if (!movable.length) return;
-  snapshot();
-  const snap = (n) => Math.round(n / AUTO_LAYOUT_GRID) * AUTO_LAYOUT_GRID;
-  const GAP = AUTO_LAYOUT_GAP;
-
-  // Leave locked layers in place.
-  const measured = movable.map(item => {
-    const src = state.sources[item.name];
-    const sz = itemSize(item, src);
-    const slug = src && isWidgetSrc(src) ? widgetSlugOf(src) : null;
-    const sourceId = src?.id || '';
-    return {
-      item, slug, sourceId,
-      x: item.pos?.x || 0, y: item.pos?.y || 0,
-      w: sz.w, h: sz.h,
-    };
-  });
-
-  // Assign roles.
-  const getRole = (m) => {
-    if (m.slug && LAYOUT_ROLES[m.slug]) return LAYOUT_ROLES[m.slug];
-    // Non-widget items: color_source → background, media sources → camera layer
-    if (m.sourceId === 'color_source') return { zone: 'background', order: -1 };
-    // Media sources (camera feed) — keep in place as a background layer
-    if (m.sourceId === 'ffmpeg_source' || m.sourceId === 'vlc_source' || m.sourceId === 'rtsp_source')
-      return { zone: 'camera', order: 0 };
-    // Full-width items are anchors
-    if (m.w >= CANVAS_W * 0.7) return { zone: 'top', order: 99 };
-    // Items on the right side of canvas → right column
-    if (m.x > CANVAS_W * 0.6) return { zone: 'right', order: 99 };
-    // Items in center → center
-    if (m.x > CANVAS_W * 0.2 && m.x < CANVAS_W * 0.6) return { zone: 'center', order: 99 };
-    // Everything else → left
-    return { zone: 'left', order: 99 };
-  };
-
-  // Separate by zone.
-  const zones = {};
-  measured.forEach(m => {
-    const role = getRole(m);
-    m.role = role;
-    if (!zones[role.zone]) zones[role.zone] = [];
-    zones[role.zone].push(m);
-  });
-
-  // Sort each zone by order, then by current Y.
-  for (const z in zones) {
-    zones[z].sort((a, b) => (a.role.order - b.role.order) || (a.y - b.y));
+  const obstacles = [];
+  const movable = [];
+  for (const item of state.items) {
+    const source = state.sources[item.name];
+    if (item.visible === false || !source || source.enabled === false) continue;
+    const rect = layerRect(item, source);
+    if (isBackdrop(item, rect)) continue;
+    const slug = isWidgetSrc(source) ? widgetSlugOf(source) : null;
+    if (item.locked || !slug || slug === 'camera') obstacles.push(rect);
+    else movable.push({ item, rect, slug });
   }
-
-  // Define column geometry (relative to canvas).
-  const LEFT_X = 0;
-  const LEFT_W = Math.round(CANVAS_W * 0.21); // ~400px at 1920
-  const CENTER_X = LEFT_W + GAP;
-  const RIGHT_X = Math.round(CANVAS_W * 0.83); // ~1600 at 1920
-  const BOTTOM_NOTES_H = 60;
-
-  // Find progress bar height to know where content starts.
-  const topItems = zones['top'] || [];
-  let contentTop = 0;
-  topItems.forEach(m => {
-    m.item.pos = { x: snap(m.x), y: snap(m.y) }; // keep top items where they are
-    contentTop = Math.max(contentTop, m.y + m.h + GAP);
-  });
-  contentTop = snap(contentTop) || snap(100); // default below a typical progress bar
-
-  // Place background items (color source) at 0,0 full canvas.
-  (zones['background'] || []).forEach(m => {
-    m.item.pos = { x: 0, y: 0 };
-  });
-
-  // Camera / media sources — keep in their current position (they're a
-  // background layer behind widgets, not something to rearrange).
-  (zones['camera'] || []).forEach(m => {
-    m.item.pos = { x: snap(m.x), y: snap(m.y) };
-  });
-
-  // --- LEFT COLUMN ---
-  let leftY = contentTop;
-  const leftSingles = (zones['left'] || []);
-  const leftPairA = (zones['left-pair-a'] || []);
-  const leftPairB = (zones['left-pair-b'] || []);
-  const halfW = Math.round((LEFT_W - GAP) / 2);
-
-  // Interleave singles and pairs by order number.
-  const leftAll = [
-    ...leftSingles.map(m => ({ ...m, type: 'single' })),
-    ...leftPairA.map(m => ({ ...m, type: 'pair-a' })),
-  ].sort((a, b) => (a.role.order - b.role.order) || (a.y - b.y));
-
-  // Group by order to handle pairs.
-  const orderGroups = {};
-  leftAll.forEach(m => {
-    const key = m.role.order;
-    if (!orderGroups[key]) orderGroups[key] = [];
-    orderGroups[key].push(m);
-  });
-  // Also index pair-b items by order for pairing.
-  const pairBByOrder = {};
-  leftPairB.forEach(m => { pairBByOrder[m.role.order] = m; });
-
-  const orderKeys = Object.keys(orderGroups).map(Number).sort((a, b) => a - b);
-  orderKeys.forEach(order => {
-    const group = orderGroups[order];
-    group.forEach(m => {
-      if (m.type === 'single') {
-        // Full-width single item in the left column.
-        m.item.pos = { x: snap(LEFT_X), y: snap(leftY) };
-        leftY = snap(leftY + m.h + GAP);
-      } else if (m.type === 'pair-a') {
-        // Left half of a pair.
-        const partner = pairBByOrder[order];
-        const pairH = partner ? Math.max(m.h, partner.h) : m.h;
-        m.item.pos = { x: snap(LEFT_X), y: snap(leftY) };
-        if (partner) {
-          partner.item.pos = { x: snap(LEFT_X + halfW + GAP), y: snap(leftY) };
-        }
-        leftY = snap(leftY + pairH + GAP);
-      }
-    });
-  });
-
-  // --- CENTER COLUMN ---
-  let centerY = contentTop;
-  (zones['center'] || []).forEach(m => {
-    m.item.pos = { x: snap(CENTER_X), y: snap(centerY) };
-    centerY = snap(centerY + m.h + GAP);
-  });
-
-  // --- RIGHT COLUMN ---
-  // Logo stays at top-right if present; model image below it.
-  let rightY = 0;
-  // Find logo (non-widget browser source at top-right, or any item in right zone with small height)
-  const rightItems = (zones['right'] || []).sort((a, b) => a.y - b.y);
-  rightItems.forEach(m => {
-    // Anchor to right edge.
-    const rx = snap(CANVAS_W - m.w);
-    if (rightY < contentTop && m.h < 100) {
-      // Small item (logo) — place at very top right.
-      m.item.pos = { x: rx, y: snap(rightY) };
-      rightY = snap(rightY + m.h + GAP);
-      if (rightY < contentTop) rightY = contentTop;
-    } else {
-      if (rightY < contentTop) rightY = contentTop;
-      m.item.pos = { x: rx, y: snap(rightY) };
-      rightY = snap(rightY + m.h + GAP);
+  // Larger widgets are harder to fit. Reserve their space first.
+  movable.sort((a, b) => b.rect.w * b.rect.h - a.rect.w * a.rect.h);
+  const positions = [];
+  for (const { item, rect, slug } of movable) {
+    const x = slug === 'model-image' || slug === 'version' ? CANVAS_W - rect.w
+      : ['printer-info', 'profile-info', 'gcode-viz'].includes(slug) ? CANVAS_W * 0.22 : 0;
+    const y = slug === 'progress-info' ? 0
+      : slug === 'notes' || slug === 'version' ? CANVAS_H - rect.h : CANVAS_H * 0.09;
+    const preferred = { x, y };
+    const position = openSpot(rect.w, rect.h, preferred, obstacles) || openSpot(rect.w, rect.h, preferred, obstacles, 0);
+    if (!position) {
+      return window.toast('Could not fit every widget. Move or resize a layer, then try again.', 'warn');
     }
-  });
-
-  // --- BOTTOM ---
-  (zones['bottom'] || []).forEach(m => {
-    m.item.pos = { x: snap(m.x), y: snap(CANVAS_H - m.h) };
-  });
-
-  // --- CORNER (version) ---
-  (zones['corner'] || []).forEach(m => {
-    m.item.pos = { x: snap(CANVAS_W - m.w), y: snap(CANVAS_H - m.h - BOTTOM_NOTES_H) };
-  });
-
+    obstacles.push({ ...rect, ...position });
+    const current = item.pos || { x: 0, y: 0 };
+    if (rect.x !== position.x || rect.y !== position.y) {
+      positions.push({ item, pos: { x: current.x + position.x - rect.x, y: current.y + position.y - rect.y } });
+    }
+  }
+  if (!positions.length) return;
+  snapshot();
+  for (const { item, pos } of positions) item.pos = pos;
+  finishEdit();
   render();
-  const count = measured.filter(m => m.role.zone !== 'background').length;
-  window.toast && window.toast(`Auto-layout: arranged ${count} items`);
+  fitZoom();
+  refreshInspector();
+  updateUndoButtons();
+  window.toast(`Arranged ${positions.length} ${positions.length === 1 ? 'widget' : 'widgets'}.`);
 }
 
 // ---- Widget library (shares the left dock with Layers) ----
@@ -2532,24 +2334,60 @@ function updatePanelButtons () {
   panelControl('inspector').setAttribute('aria-expanded', String(narrow && selected === 'inspector'));
 }
 
+const widgetGroups = [
+  { name: 'Print and camera', icon: 'videocam', widgets: {
+    camera: 'Show the printer’s live camera.',
+    'gcode-viz': 'Show the print’s toolpath in 3D.',
+    'progress-info': 'Show progress and print status.',
+    'print-info': 'Show the model name, layers and time left.',
+  } },
+  { name: 'Filament and temperatures', icon: 'thermostat', widgets: {
+    ams: 'Show filament trays and AMS readings.',
+    'nozzle-temp': 'Show the nozzle’s current and target temperatures.',
+    'bed-temp': 'Show the bed’s current and target temperatures.',
+    'chamber-temp': 'Show the temperature inside the printer.',
+    fans: 'Show available fan speeds.',
+  } },
+  { name: 'Printer and layout', icon: 'dashboard', widgets: {
+    'printer-info': 'Show the printer model and settings.',
+    'nozzle-info': 'Show nozzle type, size and print speed.',
+    notes: 'Show the current print name or a note.',
+    wifi: 'Show the printer’s Wi-Fi signal.',
+    version: 'Show the installed BambuBoard version.',
+  } },
+  { name: 'MakerWorld', icon: 'public', widgets: {
+    'model-image': 'Show the model image for a MakerWorld print.',
+    'profile-info': 'Show MakerWorld profile stats.',
+  } },
+  { name: 'Older layouts', icon: 'history', widgets: {
+    ams2: 'Show the companion AMS in an older layout.',
+    'ams-temp': 'Show AMS temperature and humidity.',
+    'ams-temp-2': 'Show the companion AMS temperature and humidity.',
+    'nozzle-temp-2': 'Show the left nozzle in an older dual-nozzle layout.',
+  } },
+];
+
+const widgetDragType = 'application/x-bambuboard-widget';
+
 async function populateWidgetDrawer () {
   const list = document.getElementById('widget-drawer-list');
-  if (!list) return;
+  const search = document.getElementById('widget-search');
+  search.disabled = true;
   const statusLine = document.createElement('p');
   statusLine.className = 'empty-hint';
   statusLine.setAttribute('role', 'status');
   statusLine.textContent = 'Loading widgets…';
   list.replaceChildren(statusLine);
-  let widgets, caps;
+  let widgets, status;
   try {
-    const [response, status] = await Promise.all([
+    const [response, printerStatus] = await Promise.all([
       fetch('/api/widgets'),
       fetch('/api/status').then(r => r.json()).catch(() => null),
     ]);
     if (!response.ok) throw new Error('Widget catalog unavailable');
     widgets = await response.json();
     if (!Array.isArray(widgets) || !widgets.length) throw new Error('Widget catalog is empty');
-    caps = status?.caps || {};
+    status = printerStatus;
   } catch (_) {
     statusLine.textContent = 'Could not load the widget catalog.';
     const retry = document.createElement('button');
@@ -2558,86 +2396,120 @@ async function populateWidgetDrawer () {
     retry.textContent = 'Retry loading widgets';
     retry.addEventListener('click', async () => {
       await populateWidgetDrawer();
-      list.querySelector('button, [tabindex="0"]')?.focus();
+      if (!search.disabled) search.focus();
+      else list.querySelector('button')?.focus();
     });
     list.appendChild(retry);
     return;
   }
   // Stash the full manifest list so the inspector can look up `bindings`
   // declarations without re-fetching. Keyed by slug.
-  state.widgetManifests = state.widgetManifests || {};
-  widgets.forEach(w => { state.widgetManifests[w.slug] = w; });
-  list.innerHTML = '';
-  widgets.forEach(w => {
-    const tile = document.createElement('div');
-    tile.className = 'drawer-widget';
-    // Capability gating: dim + disable widgets the connected printer can't use
-    // (e.g. chamber-temp on A1/P1, ams2/nozzle-temp-2 on single-AMS/nozzle,
-    // camera on non-RTSP models) so they aren't dragged onto a scene where
-    // they'd render empty.
-    const incompatible = w.requiresCap && caps[w.requiresCap] === false;
-    tile.setAttribute('role', 'button');
-    tile.setAttribute('aria-disabled', String(!!incompatible));
-    tile.tabIndex = incompatible ? -1 : 0;
-    if (incompatible) {
-      tile.style.opacity = '0.4';
-      tile.draggable = false;
-      tile.title = `Not available on this printer (needs ${w.requiresCap})`;
-    } else {
-      tile.draggable = true;
-      tile.title = `Drag to add ${w.name || w.slug} to the canvas`;
+  state.widgetManifests = Object.fromEntries(widgets.map(widget => [widget.slug, widget]));
+  state.widgetCaps = status?.caps || {};
+  const grouped = new Map(widgetGroups.map(group => [group, []]));
+  const other = { name: 'Other widgets', icon: 'widgets', widgets: {} };
+  grouped.set(other, []);
+  for (const widget of widgets) {
+    const group = widgetGroups.find(({ widgets }) => Object.hasOwn(widgets, widget.slug)) || other;
+    grouped.get(group).push(widget);
+  }
+
+  function filterCatalog() {
+    const query = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const sections = [];
+    for (const [group, widgets] of grouped) {
+      const matches = widgets.filter(widget => {
+        const terms = [widget.name, widget.slug, group.name, group.widgets[widget.slug], ...(widget.tags || [])].join(' ').toLowerCase();
+        return query.every(word => terms.includes(word));
+      });
+      if (!matches.length) continue;
+      const section = document.createElement('section');
+      section.className = 'drawer-group';
+      const heading = document.createElement('h3');
+      heading.textContent = group.name;
+      section.append(heading, ...matches.map(widget => widgetTile(widget, group)));
+      sections.push(section);
     }
+    statusLine.textContent = sections.length ? '' : 'No widgets match your search.';
+    statusLine.hidden = Boolean(sections.length);
+    list.replaceChildren(statusLine, ...sections);
+    list.scrollTop = 0;
+  }
+  search.disabled = false;
+  search.oninput = filterCatalog;
+  filterCatalog();
+}
 
-    const preview = document.createElement('div');
-    preview.className = 'dw-preview';
-    const icon = document.createElement('span');
-    icon.className = 'nav-icon'; icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = w.slug === 'camera' ? 'videocam' : 'widgets';
-    preview.appendChild(icon);
+function incompatibleWidget(widget) {
+  return Boolean(widget.requiresCap && state.widgetCaps?.[widget.requiresCap] === false);
+}
 
-    const info = document.createElement('div');
-    info.className = 'dw-info';
-    const name = document.createElement('div');
-    name.className = 'dw-name';
-    name.textContent = w.name || w.slug;
-    const size = document.createElement('div');
-    size.className = 'dw-size';
-    const rw = w.recommendedSize?.w || 400;
-    const rh = w.recommendedSize?.h || 200;
-    size.textContent = `${rw}×${rh}`;
-    info.appendChild(name);
-    info.appendChild(size);
-    if (incompatible || w.slug === 'gcode-viz' || ['profile-info', 'model-image'].includes(w.slug)) {
-      const note = document.createElement('div'); note.className = 'dw-note';
-      note.textContent = incompatible ? 'Unavailable for this printer' : w.slug === 'gcode-viz' ? 'Experimental toolpath' : 'Bambu Cloud content';
-      info.appendChild(note);
-    }
-
-    tile.appendChild(preview);
-    tile.appendChild(info);
-    const add = () => { if (!incompatible && state.original) addWidgetToScene(w.slug, w.name || w.slug, rw, rh, Math.max(0, Math.round((CANVAS_W - rw) / 2)), Math.max(0, Math.round((CANVAS_H - rh) / 2))); };
-    tile.addEventListener('click', add);
-    tile.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(); } });
-
-    // Drag data: slug + recommended dimensions
-    tile.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('application/x-bambuboard-widget', JSON.stringify({
-        slug: w.slug,
-        name: w.name || w.slug,
-        width: rw,
-        height: rh,
-      }));
-      e.dataTransfer.effectAllowed = 'copy';
-    });
-
-    list.appendChild(tile);
+function widgetTile(widget, group) {
+  const card = document.createElement('div');
+  card.className = 'drawer-card';
+  const tile = document.createElement('button');
+  const label = widget.name || widget.slug;
+  const incompatible = incompatibleWidget(widget);
+  tile.type = 'button';
+  tile.className = 'drawer-widget';
+  tile.dataset.widget = widget.slug;
+  tile.draggable = !incompatible;
+  card.classList.toggle('is-disabled', incompatible);
+  tile.setAttribute('aria-label', `Add ${label}`);
+  tile.setAttribute('aria-disabled', String(incompatible));
+  const icon = document.createElement('span');
+  icon.className = 'dw-preview nav-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = group.icon;
+  const info = document.createElement('div');
+  info.className = 'dw-info';
+  const name = document.createElement('span');
+  name.className = 'dw-name';
+  name.textContent = label;
+  const description = document.createElement('span');
+  description.className = 'dw-description';
+  description.id = `widget-description-${widget.slug}`;
+  description.textContent = group.widgets[widget.slug] || widget.description;
+  if (incompatible) description.textContent += ' Unavailable for this printer.';
+  else if (widget.tags?.includes('cloud')) description.textContent += ' Requires optional cloud sign-in.';
+  tile.setAttribute('aria-describedby', description.id);
+  tile.appendChild(name);
+  info.append(tile, description);
+  card.append(icon, info);
+  tile.addEventListener('click', () => addCatalogWidget(widget));
+  tile.addEventListener('dragstart', event => {
+    if (incompatible) return event.preventDefault();
+    event.dataTransfer.setData(widgetDragType, widget.slug);
+    event.dataTransfer.effectAllowed = 'copy';
   });
+  return card;
+}
+
+function addCatalogWidget(widget, drop) {
+  if (!widget || incompatibleWidget(widget)) return;
+  if (!state.original) return window.toast('Load a layout before adding widgets.', 'warn');
+  const width = widget.recommendedSize?.w || 400;
+  const height = widget.recommendedSize?.h || 200;
+  const scale = Math.min(1, CANVAS_W / width, CANVAS_H / height);
+  const renderedW = width * scale, renderedH = height * scale;
+  const center = { x: (CANVAS_W - renderedW) / 2, y: (CANVAS_H - renderedH) / 2 };
+  const obstacles = state.items.flatMap(item => {
+    if (item.visible === false || state.sources[item.name]?.enabled === false) return [];
+    const rect = layerRect(item);
+    return isBackdrop(item, rect) ? [] : [rect];
+  });
+  const position = drop ? {
+    x: Math.max(0, Math.min(drop.x, CANVAS_W - renderedW)),
+    y: Math.max(0, Math.min(drop.y, CANVAS_H - renderedH)),
+  } : openSpot(renderedW, renderedH, center, obstacles) || openSpot(renderedW, renderedH, center, obstacles, 0);
+  if (!position) return window.toast('No open space. Drag the widget onto the canvas to place it.', 'warn');
+  addWidgetToScene(widget.slug, widget.name || widget.slug, width, height, position, scale);
 }
 
 function setupCanvasDrop () {
   const canvas = els.canvas();
   canvas.addEventListener('dragover', (e) => {
-    if (!e.dataTransfer.types.includes('application/x-bambuboard-widget')) return;
+    if (!e.dataTransfer.types.includes(widgetDragType)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
     canvas.classList.add('drag-over');
@@ -2647,15 +2519,9 @@ function setupCanvasDrop () {
   });
   canvas.addEventListener('drop', (e) => {
     canvas.classList.remove('drag-over');
-    const raw = e.dataTransfer.getData('application/x-bambuboard-widget');
-    if (!raw) return;
+    const slug = e.dataTransfer.getData(widgetDragType);
+    if (!slug || !Object.hasOwn(state.widgetManifests || {}, slug)) return;
     e.preventDefault();
-    if (!state.original) {
-      window.toast && window.toast('Load a scene first before adding widgets', 'warn');
-      return;
-    }
-    let data;
-    try { data = JSON.parse(raw); } catch (_) { return; }
 
     // Compute canvas-space coordinates from the drop point. The canvas is
     // scaled by state.zoom, so we need to un-scale the offset.
@@ -2663,13 +2529,23 @@ function setupCanvasDrop () {
     const posX = Math.round((e.clientX - rect.left) / state.zoom);
     const posY = Math.round((e.clientY - rect.top) / state.zoom);
 
-    addWidgetToScene(data.slug, data.name, data.width, data.height, posX, posY);
+    addCatalogWidget(state.widgetManifests[slug], { x: posX, y: posY });
   });
 }
 
 // Add a new widget browser source to the current scene.
 // Creates both a source entry (in state.sources) and a scene item (in state.items).
-function addWidgetToScene (slug, name, width, height, posX, posY) {
+function sourceUuid () {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  // randomUUID requires a secure context, but ordinary LAN HTTP also uses this editor.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+}
+
+function addWidgetToScene (slug, name, width, height, position, scale) {
   snapshot();
 
   // Generate a unique source name — avoid collisions with existing sources.
@@ -2684,7 +2560,7 @@ function addWidgetToScene (slug, name, width, height, posX, posY) {
   const source = {
     id: 'browser_source',
     name: srcName,
-    uuid: crypto.randomUUID ? crypto.randomUUID() : `bb-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    uuid: sourceUuid(),
     enabled: true,
     settings: {
       url: `${location.origin}/widgets/${slug}/`,
@@ -2715,8 +2591,8 @@ function addWidgetToScene (slug, name, width, height, posX, posY) {
   // Build the scene item (transform properties)
   const item = {
     name: srcName,
-    pos: { x: posX, y: posY },
-    scale: { x: 1, y: 1 },
+    pos: position,
+    scale: { x: scale, y: scale },
     bounds: { x: 0, y: 0 },
     bounds_type: 0,
     align: 5, // top-left anchor — most intuitive for drag-and-drop
@@ -2738,5 +2614,5 @@ function addWidgetToScene (slug, name, width, height, posX, posY) {
   const newIdx = state.items.length - 1;
   selectItem(newIdx);
 
-  window.toast && window.toast(`Added "${srcName}" at ${posX},${posY}`);
+  window.toast(`Added ${srcName}`);
 }

@@ -7,7 +7,7 @@ const express = require('express');
 const { once } = require('node:events');
 const { execFileSync, spawn } = require('node:child_process');
 const WebSocket = require('ws');
-const ffmpeg = require('ffmpeg-static');
+const { ffmpeg } = require('../src/lib/ffmpeg');
 const { buildStreamRouter } = require('../src/routes/stream');
 const { temporary, listen, until } = require('./helpers');
 

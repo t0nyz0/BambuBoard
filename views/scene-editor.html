@@ -12,32 +12,37 @@
 <body>
   <main class="page editor-page">
     <header class="page-heading editor-heading">
-      <div><h1>Layout editor</h1><p class="text-dim">Save your draft, then choose Apply to Live to update the broadcast.</p></div>
-      <div class="editor-publish-controls">
-        <span id="draft-state" class="pill" role="status">Loading draft…</span>
-        <button id="save-btn" class="btn" type="button" disabled>Save draft</button>
-        <button id="golive-btn" class="btn btn-primary" type="button" aria-describedby="apply-live-hint" disabled>Apply to Live</button>
-        <button id="save-copy-btn" class="btn" type="button" disabled>Save a copy</button>
+      <div><h1>Layout editor</h1><p class="text-dim">Arrange widgets for your live output.</p></div>
+      <div class="draft-controls">
+        <label class="draft-name field"><span>Draft name</span><input id="draft-name" class="input" type="text" maxlength="64" placeholder="Name your draft" disabled></label>
+        <label id="live-scene-field" class="field" hidden><span>Scene to show live</span><select id="live-scene-picker" class="select input" disabled></select></label>
       </div>
     </header>
-    <div class="draft-controls">
-      <label class="draft-name field"><span>Draft name</span><input id="draft-name" class="input" type="text" maxlength="64" placeholder="Name your draft" disabled></label>
-      <label class="field"><span>Scene to show live</span><select id="live-scene-picker" class="select input" disabled></select></label>
-    </div>
-    <div class="editor-live-summary">
-      <div>
+    <section class="editor-publish-bar" aria-label="Draft and live output">
+      <div class="editor-publish-status">
+        <div class="editor-draft-status"><strong>Working draft</strong><span id="draft-state" class="pill" role="status">Loading draft…</span></div>
         <p id="live-state" class="text-dim" role="status">Checking live output…</p>
         <p id="apply-live-hint" class="text-dim">Save your draft to apply it to Live.</p>
       </div>
-      <button id="restore-live-btn" class="btn btn-ghost" type="button" hidden disabled>Restore previous live</button>
-    </div>
-
+      <div class="editor-publish-controls">
+        <button id="save-btn" class="btn" type="button" disabled>Save draft</button>
+        <button id="golive-btn" class="btn btn-primary" type="button" aria-describedby="apply-live-hint" disabled>Apply to Live</button>
+        <details class="editor-publish-details">
+          <summary>More</summary>
+          <div class="editor-publish-menu">
+            <button id="save-copy-btn" class="btn btn-ghost" type="button" disabled>Save a copy</button>
+            <button id="restore-live-btn" class="btn btn-ghost" type="button" hidden disabled>Restore previous live</button>
+            <p id="revision-details" class="text-dim" hidden></p>
+          </div>
+        </details>
+      </div>
+    </section>
 
     <div class="editor-toolbar">
       <div class="group editor-layout-source">
         <select aria-label="Load template or saved draft" id="loader" class="select input"></select>
       </div>
-      <div class="group editor-scene-picker">
+      <div id="edit-scene-field" class="group editor-scene-picker" hidden>
         <label for="scene-picker" class="text-dim">Scene to edit</label>
         <select id="scene-picker" class="select input" disabled></select>
       </div>
@@ -51,6 +56,7 @@
         <small class="text-dim">Canvas:</small>
         <button id="canvas-res-btn" class="btn btn-ghost" type="button" style="padding: 2px 6px; font-size: 12px;" aria-label="1920×1080, change draft canvas size">1920×1080</button>
         <small class="text-dim" id="zoom-label" aria-label="Preview zoom">100%</small>
+        <button id="zoom-selected-btn" class="btn btn-ghost" type="button" disabled>Zoom to selected</button>
       </div>
 
       <div class="group">
@@ -61,10 +67,15 @@
 
       <div class="group">
         <button id="reset-btn" class="btn btn-ghost" type="button" disabled>Reset draft</button>
-        <button id="preview-btn" class="btn btn-ghost" type="button" title="Open the live output (/live) in a new tab">Open Live output</button>
       </div>
     </div>
 
+    <div class="editor-preview-toolbar" role="group" aria-label="Preview mode">
+      <button id="draft-preview-btn" class="btn btn-ghost" type="button" aria-pressed="true">Draft preview</button>
+      <button id="live-preview-btn" class="btn btn-ghost" type="button" aria-pressed="false">Live preview</button>
+      <button id="preview-btn" class="btn btn-ghost" type="button" hidden>Open Live in new tab</button>
+    </div>
+    <div id="live-preview-shell" class="editor-live-preview" hidden></div>
     <div class="editor-workspace" data-panel="layers">
     <div id="canvas-shell" class="canvas-shell">
       <div id="canvas-wrap" class="scene-canvas-wrap">
@@ -98,8 +109,9 @@
       <button aria-label="Close widget library" id="widget-drawer-close" class="btn btn-ghost" type="button">×</button>
     </div>
     <p class="text-dim" style="font-size:11px;margin:0 0 var(--space-2);padding:0 var(--space-3)">
-      Click to add a widget, or drag it onto the canvas.
+      Add a widget to an open spot or drag it where you want it.
     </p>
+    <label class="field widget-search"><span>Search widgets</span><input id="widget-search" class="input" type="search" placeholder="e.g. temperature" disabled></label>
     <div id="widget-drawer-list" class="widget-drawer-list"></div>
   </aside>
   </div>
@@ -113,14 +125,19 @@
     </div>
     <fieldset class="inspector-section">
       <legend id="size-legend">Layer size</legend>
-      <p id="size-help" class="text-dim" hidden>Width and Height give the widget more room. Use Fit to content if text or details are cut off.</p>
+      <p id="size-help" class="text-dim" hidden>Give the widget more room if text or details are cut off.</p>
       <div class="inspector-grid">
-        <label class="field" for="insp-w">Width (px)<input id="insp-w" class="input" type="number" min="1"></label>
-        <label class="field" for="insp-h">Height (px)<input id="insp-h" class="input" type="number" min="1"></label>
-        <button id="autosize-btn" class="btn btn-ghost full" type="button" aria-describedby="size-help shared-size-help" hidden disabled>Fit to content</button>
-        <button id="reset-stretch" class="btn btn-ghost full" type="button" hidden>Remove stretching</button>
-        </div>
+        <label class="field" for="insp-w"><span id="width-label">Width (px)</span><input id="insp-w" class="input" type="number" min="1"></label>
+        <label class="field" for="insp-h"><span id="height-label">Height (px)</span><input id="insp-h" class="input" type="number" min="1"></label>
+        <button id="autosize-btn" class="btn btn-ghost full" type="button" aria-describedby="size-help shared-size-help fit-help" hidden disabled>Fit to content</button>
+      </div>
       <p id="shared-size-help" class="text-dim" hidden></p>
+      <p id="fit-help" class="text-dim" hidden></p>
+      <div id="widget-scale-block" class="inspector-grid" hidden>
+        <label class="field full" for="widget-scale"><span>Visual scale (%)</span><input id="widget-scale" class="input" type="number" min="1" step="any" aria-describedby="widget-scale-help"></label>
+        <p id="widget-scale-help" class="text-dim full">Scales the whole widget. The corner handle does the same.</p>
+        <button id="reset-stretch" class="btn btn-ghost full" type="button" hidden>Remove stretching</button>
+      </div>
     </fieldset>
     <fieldset class="inspector-section">
       <legend>Position</legend>
@@ -136,13 +153,13 @@
     <p id="locked-help" class="text-dim" hidden>Unlock this layer to edit it.</p>
     <fieldset id="gcode-view-block" class="inspector-section" hidden>
       <legend>Toolpath view</legend>
-      <label class="field" for="gcode-view"><span>Camera angle</span><select id="gcode-view" class="select input">
+      <label class="field" for="gcode-view"><span>Print angle</span><select id="gcode-view" class="select input">
         <option value="angled">Angled (default)</option>
         <option value="top">Top</option>
         <option value="front">Front</option>
         <option value="side">Side</option>
       </select></label>
-      <label class="field" for="gcode-zoom"><span>Toolpath zoom <span id="gcode-zoom-value" aria-hidden="true">100%</span></span>
+      <label class="field" for="gcode-zoom"><span>Print zoom <span id="gcode-zoom-value" aria-hidden="true">100%</span></span>
         <input id="gcode-zoom" type="range" min="50" max="200" value="100" aria-valuetext="100%" aria-describedby="gcode-zoom-help">
       </label>
       <p id="gcode-zoom-help" class="text-dim">100% fits the print. Higher zoom crops the view.</p>
@@ -157,30 +174,28 @@
         <label class="field" for="cust-theme">Widget theme<select id="cust-theme" class="select input">
           <option value="">Default</option><option value="dark">Dark</option><option value="light">Light</option><option value="transparent">Transparent</option>
         </select></label>
-        <label class="field" for="cust-accent">Accent<input id="cust-accent" class="input" type="color"></label>
+        <label id="accent-field" class="field full" for="cust-accent" hidden><span>AMS 3H active tray outline</span><input id="cust-accent" class="input" type="color"></label>
         <label class="field" for="cust-font">Font size (px)<input id="cust-font" class="input" type="number" min="8" max="64" placeholder="Auto"></label>
         <label class="field" for="cust-pad">Padding (px)<input id="cust-pad" class="input" type="number" min="0" max="64" placeholder="0"></label>
       </div>
     </div>
     <details id="inspector-advanced" class="inspector-section">
     <summary>Advanced</summary>
-    <div id="widget-scale-block" class="inspector-grid" hidden>
-      <label class="field full" for="widget-scale">Scale on canvas (%)<input id="widget-scale" class="input" type="number" min="1" step="any" aria-describedby="widget-scale-help"></label>
-      <p id="widget-scale-help" class="text-dim full">Changes how large the widget appears while keeping the same content area.</p>
-    </div>
-    <div class="row">
-      <label for="insp-scale-filter">Scale</label>
-      <select id="insp-scale-filter" aria-label="Scale filter" class="select input" style="grid-column:span 2;font-size:12px">
+    <label id="filter-field" class="field" for="insp-scale-filter">
+      <span>Image filtering</span>
+      <select id="insp-scale-filter" aria-describedby="filter-help" class="select input">
         <option value="">Auto (default)</option>
         <option value="point">Point (pixelated)</option>
-        <option value="bicubic">Bicubic</option>
-        <option value="lanczos">Lanczos</option>
-        <option value="area">Area</option>
+        <option value="bilinear">Bilinear · OBS only</option>
+        <option value="bicubic">Bicubic · OBS only</option>
+        <option value="lanczos">Lanczos · OBS only</option>
+        <option value="area">Area · OBS only</option>
       </select>
-    </div>
-    <div class="row">
-      <label for="insp-bounds-align">Anchor</label>
-      <select id="insp-bounds-align" aria-label="Content anchor" class="select input" style="grid-column:span 2;font-size:12px">
+    </label>
+    <p id="filter-help" class="text-dim" hidden></p>
+    <label id="anchor-field" class="field" for="insp-bounds-align">
+      <span>Content anchor</span>
+      <select id="insp-bounds-align" aria-describedby="anchor-help" class="select input">
         <option value="0">Center</option>
         <option value="5">Top-Left</option>
         <option value="4">Top</option>
@@ -191,7 +206,8 @@
         <option value="8">Bottom</option>
         <option value="10">Bottom-Right</option>
       </select>
-    </div>
+    </label>
+    <p id="anchor-help" class="text-dim" hidden></p>
     <div class="inspector-grid">
       <label class="field" for="insp-crop-l">Crop left<input id="insp-crop-l" class="input" type="number" min="0" value="0"></label>
       <label class="field" for="insp-crop-t">Crop top<input id="insp-crop-t" class="input" type="number" min="0" value="0"></label>
@@ -218,21 +234,6 @@
       </div>
     </div>
 
-      <!-- Advanced — telemetry bindings.
-           Power users can repoint any bindable parameter at a different path
-           in /data.json (e.g. a 5th AMS unit, a custom firmware field).
-           Only shown for widgets whose widget.json declares a `bindings` manifest.
-           Round-trips through the iframe URL as `?bind.<id>=<JSONPath>`. -->
-      <details id="bindings-block" class="bindings-block" style="display:none; margin-top: var(--space-3)">
-        <summary style="cursor:pointer; font-size:13px; font-weight:600; color: var(--color-text-dim); user-select: none">
-          Telemetry bindings
-        </summary>
-        <p class="text-dim" style="font-size:11px;margin: var(--space-2) 0">
-          Bind a widget parameter to any path in <code class="text-mono">/data.json</code>.
-          Use <code class="text-mono">$.print.foo[N].bar</code> JSONPath syntax. Live value shown on the right.
-        </p>
-        <div id="bindings-list"></div>
-      </details>
     </details>
     </div>
   </aside>
@@ -241,6 +242,7 @@
 
   <script src="/js/nav.js"></script>
   <script src="/js/browser-source-url.js"></script>
+  <script src="/js/scene-content.js"></script>
   <script src="/js/gcode-view.js"></script>
   <script src="/js/scene-editor.js"></script>
 </body>

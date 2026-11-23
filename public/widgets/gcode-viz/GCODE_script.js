@@ -99,6 +99,10 @@ async function resolvePrinter() {
 const { bed, type: printerType } = await resolvePrinter();
 const neutralFilament = '#888888';
 
+if (operator) {
+  document.body.classList.add('gcode-operator');
+  document.getElementById('gcodeViewControls').hidden = false;
+}
 const preview = GCodePreview.init({
   canvas,
   extrusionColor: printerType === 'H3C' ? neutralFilament : 'hotpink',
@@ -761,11 +765,13 @@ function syncFilamentColor(print) {
 // text doesn't linger after the printer starts depositing material.
 let _lastOverlayText = null;
 let _lastOverlayKind = null;
-function setOverlay(text, kind = 'hint') {
-  if (text === _lastOverlayText && kind === _lastOverlayKind) return;
+let _lastOverlayConnectionIssue = false;
+function setOverlay(text, kind = 'hint', connectionIssue = false) {
+  if (text === _lastOverlayText && kind === _lastOverlayKind && connectionIssue === _lastOverlayConnectionIssue) return;
   _lastOverlayText = text;
   _lastOverlayKind = kind;
-  window.BBGcodeUI.message(text, kind, kind === 'loading' && inFlight);
+  _lastOverlayConnectionIssue = connectionIssue;
+  window.BBGcodeUI.message(text, kind, kind === 'loading' && inFlight, connectionIssue);
 }
 
 function setLabel(layer, total) {
@@ -1312,6 +1318,17 @@ function setCameraView(view, zoom) {
 }
 
 setCameraView(params.get('view'), params.get('zoom'));
+if (operator) {
+  const angleControl = document.getElementById('gcodeView');
+  const zoomControl = document.getElementById('gcodeZoom');
+  angleControl.value = cameraView;
+  zoomControl.value = cameraZoom;
+  angleControl.addEventListener('change', () => setCameraView(angleControl.value, cameraZoom));
+  zoomControl.addEventListener('change', () => {
+    setCameraView(cameraView, zoomControl.valueAsNumber);
+    zoomControl.value = cameraZoom;
+  });
+}
 if (window.parent !== window) {
   window.addEventListener('message', event => {
     if (event.source !== window.parent || event.origin !== location.origin || event.data?.type !== 'bambuboard:gcode-view') return;
@@ -1577,12 +1594,12 @@ function pauseLiveMotion() {
   lastMcPctChangeValue = null;
 }
 
-function waitForTelemetry(message, kind = currentTaskKey ? 'hint' : 'waiting') {
+function waitForTelemetry(message, kind = currentTaskKey ? 'hint' : 'waiting', connectionIssue = true) {
   pauseLiveMotion();
   canRequestToolpath = false;
   window.BBGcodeUI.allowFile(false);
   if (inFlight) invalidateLoad();
-  setOverlay(message, kind);
+  setOverlay(message, kind, connectionIssue);
 }
 
 async function tick() {
@@ -1648,7 +1665,7 @@ async function tick() {
     // An active/finished state can arrive before its job metadata. Keep the
     // prior render and lifecycle counters until the printer confirms the job.
     if (print._bb_job_pending === true || (!job.available && ['RUNNING', 'PREPARE', 'SLICING', 'PAUSED', 'FINISH'].includes(state))) {
-      waitForTelemetry('Waiting for print details');
+      waitForTelemetry('Waiting for print details', undefined, false);
       return;
     }
     const taskId = job.task;
@@ -2146,13 +2163,18 @@ void pollLoop();
 
 window.addEventListener('pagehide', event => {
   if (!event.persisted) {
+    stageResize.disconnect();
     invalidateLoad();
     clearPackedPreview();
   }
 });
 
-window.addEventListener('resize', () => {
+function resizePreview() {
+  if (rendererUnavailable || !canvas.offsetWidth || !canvas.offsetHeight) return;
   lastStaticView = null;
   packedViewDirty = true;
   preview.resize?.();
-});
+}
+const stageResize = new ResizeObserver(resizePreview);
+stageResize.observe(canvas.parentElement);
+window.addEventListener('resize', resizePreview);

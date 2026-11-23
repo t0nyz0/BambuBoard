@@ -13,7 +13,7 @@ Show the printer camera, progress, temperatures, filament and toolpath in a sing
 [![License](https://img.shields.io/github/license/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square&logo=docker&logoColor=white)](https://github.com/t0nyz0/BambuBoard/pkgs/container/bambuboard)
 [![Build](https://img.shields.io/github/actions/workflow/status/t0nyz0/BambuBoard/docker-publish.yml?branch=main&style=flat-square&label=build)](https://github.com/t0nyz0/BambuBoard/actions/workflows/docker-publish.yml)
-[![Server tests](https://img.shields.io/badge/server_tests-160-51a34f?style=flat-square)](.github/workflows/validate.yml)
+[![Server tests](https://img.shields.io/badge/server_tests-163-51a34f?style=flat-square)](.github/workflows/validate.yml)
 [![Stars](https://img.shields.io/github/stars/t0nyz0/BambuBoard?style=flat-square&color=51a34f)](https://github.com/t0nyz0/BambuBoard/stargazers)
 
 [Quickstart](#quickstart) · [Install](#install-bambuboard) · [Screenshots](#screenshots) · [Supported printers](#supported-printers) · [Widget catalog](#widget-catalog) · [Troubleshooting](#troubleshooting)
@@ -26,20 +26,26 @@ Show the printer camera, progress, temperatures, filament and toolpath in a sing
 
 ## Quickstart
 
-[Install BambuBoard](#install-bambuboard) on a computer or NAS that can reach your printer over the local network.
+[Install BambuBoard](#install-bambuboard) on a computer or NAS that will stay on while you print and can reach your printer over the local network.
 
 ### Setup, layout and OBS
 
 Have your printer's **IP address, serial number and LAN access code** ready. These are available through the printer's settings and Bambu Studio. Menu labels vary by model and firmware.
 
-1. **Setup** (`/setup`) — Enter the printer details, then select **Save and connect**. To check the address and LAN access code first, select **Test LAN connection**.
-2. **Connect** (`/setup#connect`) — Check MQTT, telemetry and camera status, then select **Continue to Layout →** once connected. Printer model detection runs over MQTT.
-3. **Layout** (`/scene-editor`) — Arrange widgets in a draft. Choose the **Scene to show live**, then select **Save draft** and **Apply to Live**.
-4. **Live workspace** (`/`) — Choose **Copy URL** and paste it into one OBS Browser Source, or choose **Download OBS scene** and import the collection in OBS.
+1. Open BambuBoard at `http://localhost:8080` if it runs on this computer, or `http://<computer-or-nas-ip>:8080` if it runs elsewhere. In **Setup**, enter the printer's own IP address, serial number and LAN access code. Choose **Save and connect**.
+2. Wait until BambuBoard receives printer data, then choose **Open live preview**. The built-in layout is ready to use. Bambu Cloud sign-in is optional and adds MakerWorld and other cloud details.
+3. For OBS, choose **Copy Browser Source URL** and use the displayed width and height, or **Download an OBS scene** and import it in OBS. To change the supplied layout, choose **Customize layout**, edit the draft, and select **Apply to Live** when ready.
 
 ## Install BambuBoard
 
 Docker images are available for `linux/amd64` and `linux/arm64`. [Version 3.3.3 release notes](docs/release-notes-3.3.3.md). Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
+
+| Where BambuBoard runs | How to install |
+| --- | --- |
+| Windows, Mac, or Linux computer | [Docker Desktop or Docker Engine](#docker-on-a-computer) |
+| Synology NAS | [Container Manager](#synology-nas-container-manager) |
+| QNAP, Portainer, or TrueNAS | [Paste a Compose file](#qnap-portainer-and-truenas) |
+| Development or custom installation | [Run from source](#from-source) |
 
 ### Synology NAS (Container Manager)
 
@@ -76,27 +82,27 @@ Use the same Compose file for a new installation. Keep the named data volume whe
 - **Portainer** — Paste it in **Stacks → Add stack → Web editor**. [Portainer stack setup](https://docs.portainer.io/user/docker/stacks/add)
 - **TrueNAS** — From **Apps → Discover**, open the menu and choose **Install via YAML** on a version that supports Docker apps. [TrueNAS custom app setup](https://apps.truenas.com/managing-apps/installing-custom-apps/)
 
-### Docker command line
+### Docker on a computer
 
-```bash
-docker run -d --name bambuboard --restart unless-stopped -p 8080:8080 \
-  -v bambuboard-data:/usr/src/app/data \
-  ghcr.io/t0nyz0/bambuboard:latest
+Start Docker Desktop on Windows or Mac. On Linux, start Docker Desktop or Docker Engine. [Docker Desktop installation](https://docs.docker.com/desktop/)
+
+Open Terminal or PowerShell and run:
+
+```text
+docker run -d --name bambuboard --restart unless-stopped -p 8080:8080 -v bambuboard-data:/usr/src/app/data ghcr.io/t0nyz0/bambuboard:latest
 ```
 
 Open `http://localhost:8080`, or use `http://<your-host-ip>:8080` if Docker runs on another machine. [Connect your printer](#setup-layout-and-obs).
 
-[`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Run `docker compose up -d` and configure the printer in Setup. Explicit `BAMBUBOARD_*` environment overrides take precedence over saved values when the app starts. Keep the included `OBS_settings` directory when using its template mount.
+The `bambuboard-data` volume keeps your setup and layouts across updates. If port 8080 is already in use, change `8080:8080` to `18080:8080` and open port 18080 instead.
+
+[`docker-compose.yml`](docker-compose.yml) is an alternative for a repository checkout and builds the image locally. Run `docker compose up -d` and configure the printer in Setup. To pick up base-image and OS security updates when rebuilding locally, run `docker compose build --pull --no-cache` before `docker compose up -d`. Explicit `BAMBUBOARD_*` environment overrides take precedence over saved values when the app starts. Keep the included `OBS_settings` directory when using its template mount.
 
 ### From source
 
-Use **Node.js 24** (see [`.nvmrc`](.nvmrc)) and **npm 11 or newer**. Source installs use the npm-bundled FFmpeg by default. On Ubuntu 26.04, use Ubuntu’s FFmpeg because the bundled binary can crash when opening an RTSPS camera stream. Set `FFMPEG_BIN` in the shell where you install and start BambuBoard.
+Use **Node.js 24** (see [`.nvmrc`](.nvmrc)) and **npm 11 or newer**. Install a maintained system FFmpeg for RTSPS cameras and direct YouTube streaming. For example, run `sudo apt-get update && sudo apt-get install -y ffmpeg` on Debian or Ubuntu, or `brew install ffmpeg` on macOS. On Windows, use a current Windows build listed on the [FFmpeg download page](https://ffmpeg.org/download.html).
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg
-export FFMPEG_BIN=/usr/bin/ffmpeg
-```
+Check `ffmpeg -version`. BambuBoard uses the `ffmpeg` executable on `PATH`. To choose a different one, set `FFMPEG_BIN` to the executable path in the terminal or service that starts BambuBoard.
 
 With Node.js and npm ready, install and start BambuBoard.
 
@@ -107,13 +113,13 @@ npm ci
 npm start
 ```
 
-Open **http://localhost:8080**. If you start BambuBoard from a service or a new shell, set `FFMPEG_BIN` there too when using system FFmpeg. Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs. [Streaming setup](docs/youtube-streaming.md#requirements)
+Open **http://localhost:8080**. Docker includes FFmpeg and Chromium. Server YouTube capture also needs Chromium or Chrome on source installs. [Streaming setup](docs/youtube-streaming.md#requirements)
 
 ## Layout and OBS tips
 
-If a widget's details are cut off, select it and choose **Fit to content**. **Width** and **Height** change how much room its content has. **Advanced → Scale on canvas** changes how large it appears.
+If a widget's details are cut off, select it and choose **Fit to content**. **Content width** and **Content height** change how much room its content has. **Visual scale** changes how large the whole widget appears.
 
-Select **Gcode Toolpath**. Under **Toolpath view**, choose an **Angled**, **Top**, **Front**, or **Side** camera angle. Set **Toolpath zoom** to 100% to fit the print, or increase it for a closer view. The angle and zoom are saved with the draft and appear in OBS after **Apply to Live**.
+Select **Gcode Toolpath**. Under **Toolpath view**, use **Print angle** and **Print zoom**. Set zoom to 100% to fit the print. These choices are saved with the draft and appear in OBS after **Apply to Live**. You can also change angle and zoom temporarily from the standalone toolpath preview.
 
 **`/live` is the broadcast output; `/` is the management page.** The broadcast renders the published snapshot, falling back to a matching default template before the first publication. Re-publish to update it automatically. If OBS runs on another machine, use the BambuBoard host's address rather than `localhost`.
 
@@ -129,7 +135,7 @@ Default templates are layout starters in [`OBS_settings/templates`](OBS_settings
   <tr>
     <td width="50%" valign="top">
       <h4>Setup</h4>
-      <p>Printer connection and an always-visible Bambu Cloud card, with sign-in status and controls.</p>
+      <p>Connect your printer and confirm it is sending data. Optional cloud sign-in is available from Setup.</p>
       <a href="screenshots/STUDIO-SETUP.png"><img src="screenshots/STUDIO-SETUP.png" alt="Setup page" width="100%"></a>
     </td>
     <td width="50%" valign="top">
@@ -148,7 +154,7 @@ Screenshots show the actual app in an isolated demo installation, with sample te
 
 - **Design and apply an overlay.** Arrange widgets with drag/resize, Layers, grid snapping and Undo/Redo. **Save draft** keeps your edits. **Apply to Live** updates the output with the saved revision and selected live scene. Use **Restore previous live** to bring back the previous output.
 - **Show printer telemetry and camera together.** Progress, temperatures, fans, AMS trays and reported drying status sit alongside a camera feed relayed by BambuBoard. Camera transport is selected from the printer's detected type.
-- **Preview the sliced toolpath.** The G-code widget downloads the current print over FTPS, validates sliced archives, and loads dense plates incrementally. It shows estimated nozzle motion and a colored cooling trail behind fresh extrusion. Use **Test G-code connection** in Setup to check file access, or use the toolpath preview for retries, diagnostics, and manual file recovery. [Toolpath limits and recovery](docs/gcode-resilience.md).
+- **Preview the sliced toolpath.** The G-code widget downloads the current print over FTPS, validates sliced archives, and loads dense plates incrementally. It shows estimated nozzle motion and a colored cooling trail behind fresh extrusion. Use **Setup → Diagnostics → Test G-code connection** to check file access, or use the toolpath preview for retries, diagnostics, and manual file recovery. [Toolpath limits and recovery](docs/gcode-resilience.md).
 - **Run on your LAN.** App scripts, fonts and other assets are bundled locally. Core telemetry, camera and toolpath features do not require cloud sign-in. Optional Bambu Cloud data supplies MakerWorld content and extra print details.
 - **Stream directly to YouTube (beta).** The optional section at the bottom of Live can render `/live` on the server, continuing after you close the controls, or share a browser tab with optional tab audio. Choose quality, check setup, monitor encoding and download redacted diagnostics. Browser sharing needs HTTPS or localhost; server capture works from an HTTP LAN address. [Streaming setup and limitations](docs/youtube-streaming.md).
 
@@ -298,12 +304,12 @@ The dashboard and Setup are usable without a BambuBoard account. Keep BambuBoard
 
 ## Troubleshooting
 
-- **Connection test fails or widgets have no data:** check the IP, MQTT port, serial number and LAN access code in Setup. Confirm network reachability from the BambuBoard host and look at the Connect panel's telemetry status. Enable **Verbose logging** in Setup and inspect `docker logs bambuboard` (or the source server's terminal) for connection errors.
+- **Connection test fails or widgets have no data:** check the IP, MQTT port, serial number and LAN access code in Setup. Confirm network reachability from the BambuBoard host and look at **Printer status**. Enable **Verbose logging** under **Diagnostics**, save it, then inspect `docker logs bambuboard` or the source server's terminal.
 - **Wrong printer type:** check the detected model on Setup and [current mappings](src/lib/caps.js). `BAMBUBOARD_PRINTER_TYPE` supplies the startup type; MQTT auto-detection can replace it. Report a mismatched model with its MQTT module information rather than relying on the environment variable to force a permanent override.
 - **Camera is black or unavailable:** check camera status separately from MQTT. On RTSP models, enable the printer's LAN liveview option where available and follow the widget's hint; menu names and firmware requirements vary. Verify port 322 and the server's FFmpeg relay. P1/A1-class types use port 6000 and the LAN access code instead.
-- **OBS shows nothing:** use `/live`, confirm the host address is reachable from the OBS machine, and publish a scene. Match the source dimensions to the canvas. Inspect `/live` in a browser on that machine to check the same output.
+- **OBS shows nothing:** copy the Browser Source URL from Live and open it in a browser on the OBS machine to check that it can reach BambuBoard. Match the source dimensions to the canvas. The built-in layout works before you publish a custom layout.
 - **AMS unit unavailable:** check `print.ams.ams` in `/data.json` and choose a reported array index. Clear an explicit `ams` parameter to use automatic selection.
-- **G-code cannot load:** select the G-code widget in the Scene Editor and choose **Open toolpath preview**, or open `/widgets/gcode-viz/?mode=preview`. Use **Test G-code connection** in Setup to check printer file access and **Retry now**, **Download diagnostics**, or **Load sliced file** in the preview. The manual upload takes the exact sliced `.3mf` or `.gcode` for the current print. [G-code troubleshooting and limits](docs/gcode-resilience.md)
+- **G-code cannot load:** choose **Open toolpath preview** on Live. Check printer file access under **Setup → Diagnostics → Test G-code connection**. The standalone preview offers **Retry now**, **Download diagnostics**, and **Load sliced file** when applicable. Use the exact sliced `.3mf` or `.gcode` for the current print. [G-code troubleshooting and limits](docs/gcode-resilience.md)
 
 ## Migrating from older versions
 

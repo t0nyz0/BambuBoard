@@ -1,6 +1,7 @@
 // Capture the actual app from an isolated, simulated printer installation.
 // Optional reference files must be local, sanitized examples, never credentials.
 const assert = require('node:assert/strict');
+const { ffmpeg } = require('../src/lib/ffmpeg');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -63,11 +64,11 @@ const gcode = 'G90\nM82\n;LAYER:0\nG1 X120 Y110 Z0.2 E1\nG1 X220 Y110 E2\nG1 X22
     let ready = false;
     for (let i = 0; i < 100; i++) {
       if (serverError || server.exitCode !== null) throw new Error(`Demo server exited: ${serverError?.message || server.exitCode}\n${serverOutput}`);
-      try { if ((await fetch(base + '/api/status').then(r => r.json())).connected) { ready = true; break; } } catch (_) {}
+      try { if ((await fetch(base + '/api/status').then(r => r.json())).telemetryConnection === 'online') { ready = true; break; } } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.ok(ready, `Demo server did not connect to its MQTT fixture:\n${serverOutput}`);
-    const camera = process.env.BB_CAMERA_REFERENCE ? await fs.readFile(process.env.BB_CAMERA_REFERENCE) : execFileSync(require('ffmpeg-static'), ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30', '-t', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1']);
+    const camera = process.env.BB_CAMERA_REFERENCE ? await fs.readFile(process.env.BB_CAMERA_REFERENCE) : execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30', '-t', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1']);
     browser = await chromium.launch({ headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, colorScheme: 'dark', reducedMotion: 'reduce' });
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
@@ -75,7 +76,7 @@ const gcode = 'G90\nM82\n;LAYER:0\nG1 X120 Y110 Z0.2 E1\nG1 X220 Y110 E2\nG1 X22
     await context.route('**/api/gcode/current*', route => route.fulfill({ contentType: 'text/plain', body: gcode }));
     await context.route('**/profile-info', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ enabled: true, signedIn: true, avatar: '/assets/bambuboard-prism.svg', handle: 'Demo maker', fanCount: 821, followCount: 9, likeCount: 9140, collectionCount: 21683, downloadCount: 17125, boostGained: 733 }) }));
     await context.route('**/login-and-fetch-image', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ imageUrl: '/assets/bambuboard-prism.svg', modelTitle: 'Demo plate', modelWeight: 15.24, totalPrints: 67, deviceName: 'H2D demo', deviceModel: 'H2D', bedType: 'PEI Smooth Plate' }) }));
-    await context.routeWebSocket('**/api/printer/video', ws => {
+    await context.routeWebSocket(url => url.host === `127.0.0.1:${port}` && url.pathname === '/api/printer/video', ws => {
       const timer = setInterval(() => ws.send(camera), 250); timers.add(timer);
       ws.onClose(() => { clearInterval(timer); timers.delete(timer); });
     });
@@ -95,7 +96,10 @@ const gcode = 'G90\nM82\n;LAYER:0\nG1 X120 Y110 Z0.2 E1\nG1 X220 Y110 E2\nG1 X22
     if (process.env.BB_BLOG_HERO) await page.screenshot({ path: process.env.BB_BLOG_HERO, fullPage: false });
     await page.goto(base + '/scene-editor'); await page.waitForSelector('.scene-item');
     await page.locator('.layer-row').filter({ hasText: 'AMS' }).first().click();
-    await page.waitForFunction(() => [...document.querySelectorAll('.scene-item canvas')].some(canvas => canvas.width > 300));
+    await page.waitForFunction(() => [...document.querySelectorAll('.scene-item iframe[src*="/widgets/camera/"]')].some(frame => {
+      const camera = frame.contentDocument;
+      return camera?.getElementById('camCanvas')?.width > 300 && !camera?.getElementById('camOverlay')?.classList.contains('show');
+    }));
     await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(5500);
     await page.mouse.move(1590, 990);
     await page.screenshot({ path: path.join(out, 'STUDIO-LAYOUT.png'), fullPage: true });
@@ -109,7 +113,7 @@ const gcode = 'G90\nM82\n;LAYER:0\nG1 X120 Y110 Z0.2 E1\nG1 X220 Y110 E2\nG1 X22
     assert.equal(saved.sources.length, scene.sources.length);
     assert.deepEqual(saved.resolution, scene.resolution);
     await page.goto(base + '/setup'); await page.waitForFunction(() => document.getElementById('p-name').value === 'H2D demo');
-    await page.waitForFunction(() => document.getElementById('connect-mqtt').textContent.includes('Connected'));
+    await page.waitForFunction(() => document.getElementById('connect-mqtt').textContent.includes('Receiving printer data'));
     assert.equal(await page.locator('#p-ac').getAttribute('type'), 'password');
     await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(out, 'STUDIO-SETUP.png'), fullPage: true });

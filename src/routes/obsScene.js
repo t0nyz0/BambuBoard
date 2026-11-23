@@ -216,7 +216,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
 
   router.get('/templates/:slug', async (req, res) => {
     const slug = req.params.slug;
-    if (!SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
+    if (!validName(slug)) return res.status(400).json({ error: 'invalid name' });
     try {
       const full = path.join(TEMPLATES_DIR, `${slug}.json`);
       const raw = await fsp.readFile(full, 'utf-8');
@@ -238,7 +238,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   // editable / portable across hosts.
   router.get('/templates/:slug/raw', async (req, res) => {
     const slug = req.params.slug;
-    if (!SAFE_NAME.test(slug)) return res.status(400).json({ error: 'invalid name' });
+    if (!validName(slug)) return res.status(400).json({ error: 'invalid name' });
     try {
       const raw = await fsp.readFile(path.join(TEMPLATES_DIR, `${slug}.json`), 'utf-8');
       const out = raw.replace(/<VERSION>/g, PKG_VERSION);
@@ -256,7 +256,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
   router.post('/customize', async (req, res) => {
     try {
       const { template, customizations = {}, name } = req.body || {};
-      if (!template || !SAFE_NAME.test(template)) return res.status(400).json({ error: 'invalid template' });
+      if (!validName(template)) return res.status(400).json({ error: 'invalid template' });
       const raw = await fsp.readFile(path.join(TEMPLATES_DIR, `${template}.json`), 'utf-8');
       const host = hostFromReq(req);
       let text = substituteHost(raw, host, originFromReq(req));
@@ -296,7 +296,7 @@ function buildObsSceneRouter({ paths, getConfig = () => ({}) }) {
 
       const out = JSON.stringify(data, null, 2);
       if (name) {
-        if (!SAFE_NAME.test(name)) return res.status(400).json({ error: 'invalid name' });
+        if (!validName(name)) return res.status(400).json({ error: 'invalid name' });
         await saveDraft(name, out);
         return res.json({ ok: true, savedAs: name });
       }

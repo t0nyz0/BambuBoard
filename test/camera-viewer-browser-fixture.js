@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { ffmpeg } = require('../src/lib/ffmpeg');
 const { execFileSync } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const path = require('node:path');
@@ -8,7 +9,7 @@ const { buildVideoRouter } = require('../src/routes/video');
 const { listen, until } = require('./helpers');
 
 function videoSample(color) {
-  return execFileSync(require('ffmpeg-static'), ['-v', 'error', '-f', 'lavfi', '-i', `color=${color}:s=160x120:r=30`,
+  return execFileSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `color=${color}:s=160x120:r=30`,
     '-frames:v', '2', '-g', '1', '-c:v', 'mpeg1video', '-f', 'mpegts', 'pipe:1'], { timeout: 10000 });
 }
 

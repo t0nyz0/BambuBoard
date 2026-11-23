@@ -1,4 +1,5 @@
 @import url('/assets/css/material-symbols.css');
+.sr-only { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
 .nav { display:flex; align-items:center; gap:28px; padding:20px 28px; background:var(--color-bg); border-bottom:1px solid var(--color-border); position:sticky; top:0; z-index:50; }
 .nav-brand { display:inline-flex; align-items:center; gap:12px; color:var(--color-text); flex-shrink:0; }
 .nav-brand:hover { text-decoration:none; }
@@ -64,6 +65,7 @@ details summary:hover { color:var(--color-text); } details[open] > summary { mar
 .bb-step-circle { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border:1px solid var(--color-border); border-radius:50%; }
 .bb-step.is-active .bb-step-circle { color:#0f2921; background:var(--color-accent); }
 .bb-step.is-complete .bb-step-circle { color:var(--color-accent); border-color:var(--color-accent); }
+.bb-step.is-active.is-complete .bb-step-circle { color:#0f2921; }
 .bb-step.is-locked { opacity:.5; }
 .bb-step-connector { width:24px; height:1px; background:var(--color-border); }
 .bb-step-connector.is-complete { background:var(--color-accent); }
