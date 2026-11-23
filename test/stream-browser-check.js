@@ -136,7 +136,10 @@ const root = path.resolve(__dirname, '..'), ffmpeg = require('ffmpeg-static');
     mode = 'real'; await replacement.locator('#yt-mode').selectOption('browser'); await replacement.locator('#yt-key').fill('fixture-private-key'); await replacement.locator('#yt-start').click(); await replacement.waitForFunction(() => document.getElementById('yt-state-badge').textContent === 'Sending video', null, { timeout: 40000 }); await replacement.locator('#yt-stop').click(); await until(() => receiver.exitCode !== null, 10000); assert.equal(receiver.exitCode, 0, receiverError);
     execFileSync(ffmpeg, ['-v', 'error', '-i', received, '-f', 'null', '-'], { timeout: 5000, stdio: 'pipe' }); assert.ok((await fs.stat(received)).size > 10000);
     passed.push('Actual browser canvas capture -> MediaRecorder -> WebSocket -> H.264/AAC -> loopback RTMP produces playable video');
-    assert.deepEqual(errors, []); assert.ok(encoders.every(e => e.finished));
+    // The receiver can finish before the sender completes its Stop sequence.
+    await until(() => streaming.status().state === 'stopped');
+    assert.deepEqual(errors, []);
+    assert.ok(encoders.every(e => e.finished));
     await fs.writeFile(path.join(artifacts, 'stream-browser-check.json'), JSON.stringify({ passed, browserErrors: errors, publicYouTubeBroadcastTested: false }, null, 2)); console.log(JSON.stringify({ passed, browserErrors: errors, artifacts }, null, 2));
   } finally {
     await browser?.close(); await streaming?.stop(); if (receiver?.exitCode === null) receiver.kill('SIGKILL');
