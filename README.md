@@ -38,7 +38,7 @@ Have your printer's **IP address, serial number and LAN access code** ready. The
 
 ## Install BambuBoard
 
-Docker images are available for `linux/amd64` and `linux/arm64`. [Version 3.3.3 release notes](docs/release-notes-3.3.3.md). Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
+Docker images are available for `linux/amd64` and `linux/arm64`. [Version 3.3.4 release notes](docs/release-notes-3.3.4.md). Updating an existing instance? [Keep its current data mount and follow the upgrade steps](#upgrading-an-existing-docker-installation).
 
 | Where BambuBoard runs | How to install |
 | --- | --- |

@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file. The format foll
 
 ---
 
+## 3.3.4
+
+### Changed
+
+- Guide setup from printer credentials to fresh telemetry and the built-in live preview. Keep MakerWorld sign-in, display preferences, and diagnostics separate.
+- Clarify content size and visual scale in Layout. Add zoom to the selected widget, searchable widget categories, overlap-aware placement, and clearer Draft and Now Live previews.
+- Put OBS setup beside the Live preview. Simplify the optional YouTube setup and add temporary print angle and zoom controls to the toolpath preview.
+- Organize the README around the first printer connection and the available computer and NAS install methods.
+
+### Fixed
+
+- Recover from a temporary settings-load failure. Show camera guidance only when supported by the reported camera state, recognize expired cloud sign-ins, and apply saved fan display preferences.
+- Match supported image placement, pixelated filtering, and text layers in Layout and Live. Label OBS-only options and hide controls with no effect.
+
+### Security
+
+- Refresh the Docker base and Alpine package stage for release builds and require patched GLib. Source installs use the system FFmpeg. CI checks the bundled JavaScript and font inventory.
+
+---
+
 ## 3.3.3
 
 ### Added
