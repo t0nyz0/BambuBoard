@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="216" viewBox="0 0 880 216" role="img" aria-labelledby="title description">
+  <title id="title">How BambuBoard connects</title>
+  <desc id="description">A Bambu Lab printer sends telemetry, camera and G-code to BambuBoard on your network. BambuBoard sends the live overlay to OBS. Bambu Cloud and YouTube are optional.</desc>
+  <style>
+    .bg{fill:#f6f8fa;stroke:#d1d9e0}.node{fill:#fff;stroke:#afb8c1}.main{fill:#eaf7ec;stroke:#318248}.ghost{fill:none;stroke:#768390;stroke-dasharray:5 4}
+    .edge{fill:none;stroke:#59636e;stroke-width:2}.optional{stroke-dasharray:5 5}.label{fill:#1f2328;font-family:system-ui,sans-serif;font-size:23px;font-weight:650}
+    .sub{fill:#454f59;font-family:system-ui,sans-serif;font-size:17px}.arrow{fill:#59636e}
+    @media(prefers-color-scheme:dark){.bg{fill:#151b23;stroke:#3d444d}.node{fill:#212830;stroke:#768390}.main{fill:#16301f;stroke:#57ab5a}.label{fill:#f0f6fc}.sub{fill:#c5ccd4}.edge{stroke:#9198a1}.arrow{fill:#9198a1}}
+  </style>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="7" refX="7" refY="3.5" orient="auto"><path class="arrow" d="M0 0l8 3.5L0 7z"/></marker></defs>
+  <rect class="bg" x="1" y="1" width="878" height="214" rx="12"/>
+  <g class="edge" marker-end="url(#arrow)">
+    <path d="M232 80H337"/><path d="M540 80H645"/>
+    <path class="optional" d="M228 160H413V116"/><path class="optional" d="M467 116V160H650"/>
+  </g>
+  <g>
+    <rect class="node" x="34" y="48" width="194" height="64" rx="8"/><rect class="main" x="342" y="48" width="196" height="64" rx="8"/><rect class="node" x="650" y="48" width="196" height="64" rx="8"/>
+    <rect class="ghost" x="34" y="139" width="192" height="43" rx="8"/><rect class="ghost" x="654" y="139" width="192" height="43" rx="8"/>
+  </g>
+  <g text-anchor="middle">
+    <text class="label" x="131" y="75">Bambu Lab</text><text class="sub" x="131" y="97">printer</text>
+    <text class="label" x="440" y="75">BambuBoard</text><text class="sub" x="440" y="97">on your network</text>
+    <text class="label" x="748" y="75">OBS</text><text class="sub" x="748" y="97">Browser Source</text>
+    <text class="sub" x="283" y="68">Printer data</text><text class="sub" x="592" y="68">/live</text>
+    <text class="sub" x="130" y="166">Bambu Cloud</text><text class="sub" x="750" y="166">YouTube (beta)</text>
+    <text class="sub" x="440" y="199">Dashed lines are optional.</text>
+  </g>
+</svg>
